@@ -1,0 +1,6 @@
+<<<
+Esta es la primera linea del pegado.
+Esta es la segunda linea.
+Esta es la tercera linea.
+EOF
+exit

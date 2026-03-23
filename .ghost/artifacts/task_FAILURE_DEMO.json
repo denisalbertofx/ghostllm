@@ -1,0 +1,43 @@
+{
+  "session_id": "task_FAILURE_DEMO",
+  "timestamp": "2026-03-23T00:10:54.114664",
+  "task": "Induced Failure Test",
+  "plan": "",
+  "root_cause": "",
+  "diff_summary": [],
+  "verification": {},
+  "rollback_status": "none",
+  "next_action": "",
+  "events": [
+    {
+      "event": "TaskStart",
+      "timestamp": 1774239054.1146896,
+      "details": "Mode: Execute | Task: Induced Failure Test"
+    },
+    {
+      "event": "PreToolUse",
+      "timestamp": 1774239054.1161537,
+      "details": "Initializing tool: ls"
+    },
+    {
+      "event": "PostToolUse",
+      "timestamp": 1774239054.1167107,
+      "details": "Completed: ls (success)"
+    },
+    {
+      "event": "PreToolUse",
+      "timestamp": 1774239054.1170175,
+      "details": "Initializing tool: ls"
+    },
+    {
+      "event": "TaskFailed",
+      "timestamp": 1774239054.1173615,
+      "details": "Critical Error: [WinError 267] El nombre del directorio no es v\u00e1lido: 'C:\\\\Users\\\\denis\\\\OneDrive\\\\Escritorio\\\\GhostLLM\\\\apps/cli/assistant.py'"
+    },
+    {
+      "event": "TaskComplete",
+      "timestamp": 1774239054.117367,
+      "details": "Session finalized successfully. No changes made."
+    }
+  ]
+}

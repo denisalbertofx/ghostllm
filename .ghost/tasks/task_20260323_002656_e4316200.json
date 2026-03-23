@@ -1,0 +1,37 @@
+{
+  "task_id": "task_20260323_002656_e4316200",
+  "title": "Crea un archivo test_integ.txt con el texto 'GHOST'",
+  "mode": "Chat",
+  "status": "done",
+  "owner": "denis",
+  "scope": [],
+  "artifacts": [
+    "task_20260323_002656"
+  ],
+  "risks": [],
+  "status_history": [
+    {
+      "status": "created",
+      "timestamp": "2026-03-23T00:26:56.235598"
+    },
+    {
+      "status": "planned",
+      "timestamp": "2026-03-23T00:26:56.236043"
+    },
+    {
+      "status": "executing",
+      "timestamp": "2026-03-23T00:26:56.242136"
+    },
+    {
+      "status": "verifying",
+      "timestamp": "2026-03-23T00:27:16.982073"
+    },
+    {
+      "status": "done",
+      "timestamp": "2026-03-23T00:27:17.565817"
+    }
+  ],
+  "created_at": "2026-03-23T00:26:56.235604",
+  "updated_at": "2026-03-23T00:27:17.565812",
+  "metadata": {}
+}

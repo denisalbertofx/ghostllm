@@ -1,0 +1,17 @@
+models:
+  allowlist:
+  - name: ghost-llama-3
+    upstream_id: meta/llama-3.1-8b-instruct
+  - name: ghost-mixtral
+    upstream_id: mistralai/mistral-7b-instruct-v0.3
+monitoring:
+  log_format: json
+  log_level: INFO
+  prometheus_port: 9090
+server:
+  api_key: ghost-local-...
+  host: 127.0.0.1
+  port: 8000
+upstream:
+  base_url: "https://integrate.api.nvidia.com/v1"
+  nvidia_api_key: "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"

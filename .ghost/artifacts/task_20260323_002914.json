@@ -1,0 +1,117 @@
+{
+  "session_id": "task_20260323_002914",
+  "task_id": "task_20260323_002833_a0a817dd",
+  "timestamp": "2026-03-23T00:29:14.810634",
+  "task": "/resume task_20260323_002833_a0a817dd",
+  "plan": "/resume",
+  "root_cause": "",
+  "diff_summary": [],
+  "verification": {
+    "status": "skipped",
+    "checks": []
+  },
+  "rollback_status": "none",
+  "next_action": "Review task outcome. Use 'continua' if needed.",
+  "events": [
+    {
+      "event": "TaskStart",
+      "timestamp": 1774240154.810653,
+      "details": "Mode: Invalid | Task: /resume task_20260323_002833_a0a817dd"
+    },
+    {
+      "event": "PreToolUse",
+      "timestamp": 1774240199.2968059,
+      "details": "Initializing tool: run_shell"
+    },
+    {
+      "event": "PostToolUse",
+      "timestamp": 1774240199.311828,
+      "details": "Completed: run_shell (success)"
+    },
+    {
+      "event": "PreToolUse",
+      "timestamp": 1774240204.53798,
+      "details": "Initializing tool: run_shell"
+    },
+    {
+      "event": "PostToolUse",
+      "timestamp": 1774240204.549386,
+      "details": "Completed: run_shell (success)"
+    },
+    {
+      "event": "PreToolUse",
+      "timestamp": 1774240223.262226,
+      "details": "Initializing tool: run_shell"
+    },
+    {
+      "event": "PostToolUse",
+      "timestamp": 1774240223.2764895,
+      "details": "Completed: run_shell (success)"
+    },
+    {
+      "event": "PreToolUse",
+      "timestamp": 1774240229.3420992,
+      "details": "Initializing tool: ls"
+    },
+    {
+      "event": "PostToolUse",
+      "timestamp": 1774240229.3426576,
+      "details": "Completed: ls (success)"
+    },
+    {
+      "event": "PreToolUse",
+      "timestamp": 1774240236.2913983,
+      "details": "Initializing tool: ls"
+    },
+    {
+      "event": "PostToolUse",
+      "timestamp": 1774240236.2924063,
+      "details": "Completed: ls (failed)"
+    },
+    {
+      "event": "PreToolUse",
+      "timestamp": 1774240241.5395982,
+      "details": "Initializing tool: summarize_repo"
+    },
+    {
+      "event": "PostToolUse",
+      "timestamp": 1774240241.5469317,
+      "details": "Completed: summarize_repo (success)"
+    },
+    {
+      "event": "PreToolUse",
+      "timestamp": 1774240278.033201,
+      "details": "Initializing tool: ls"
+    },
+    {
+      "event": "PostToolUse",
+      "timestamp": 1774240278.034428,
+      "details": "Completed: ls (success)"
+    },
+    {
+      "event": "PreToolUse",
+      "timestamp": 1774240288.3958955,
+      "details": "Initializing tool: ls"
+    },
+    {
+      "event": "PostToolUse",
+      "timestamp": 1774240288.3973982,
+      "details": "Completed: ls (success)"
+    },
+    {
+      "event": "PreToolUse",
+      "timestamp": 1774240292.983653,
+      "details": "Initializing tool: read_file"
+    },
+    {
+      "event": "PostToolUse",
+      "timestamp": 1774240292.9858859,
+      "details": "Completed: read_file (success)"
+    },
+    {
+      "event": "TaskComplete",
+      "timestamp": 1774240295.1683571,
+      "details": "Session finalized successfully. No changes made."
+    }
+  ]
+}

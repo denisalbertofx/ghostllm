@@ -1,0 +1,33 @@
+{
+  "task_id": "task_20260323_002145_28248199",
+  "title": "Usa la herramienta ls sobre el archivo apps/cli/assistant.py (ignora si es archivo, solo ejec\u00fatalo)",
+  "mode": "Chat",
+  "status": "failed",
+  "owner": "denis",
+  "scope": [],
+  "artifacts": [
+    "task_20260323_002145"
+  ],
+  "risks": [],
+  "status_history": [
+    {
+      "status": "created",
+      "timestamp": "2026-03-23T00:21:45.277878"
+    },
+    {
+      "status": "planned",
+      "timestamp": "2026-03-23T00:21:45.278299"
+    },
+    {
+      "status": "executing",
+      "timestamp": "2026-03-23T00:21:45.284570"
+    },
+    {
+      "status": "failed",
+      "timestamp": "2026-03-23T00:22:06.677637"
+    }
+  ],
+  "created_at": "2026-03-23T00:21:45.277884",
+  "updated_at": "2026-03-23T00:22:06.677631",
+  "metadata": {}
+}

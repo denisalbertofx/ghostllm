@@ -1,0 +1,31 @@
+# GhostLLM Model Registry
+# Map friendly names to upstream NVIDIA NIM model IDs
+
+models:
+  - name: "fast"
+    upstream_id: "meta/llama-3.1-8b-instruct"
+    description: "Lightweight and ultra-fast for simple tasks"
+    enabled: true
+
+  - name: "coder"
+    upstream_id: "nvidia/qwen2.5-coder-32b"
+    description: "Optimized for programming and logic"
+    enabled: true
+
+  - name: "smart"
+    upstream_id: "nvidia/gpt-oss-120b"
+    description: "Highest accuracy for complex reasoning"
+    enabled: true
+    expensive: true
+
+  # Example of a disabled model
+  - name: "kimi"
+    upstream_id: "moonshotai/kimi-k2.5"
+    description: "Kimi k2.5 with thinking/reasoning support"
+    enabled: true
+    expensive: true
+
+  - name: "legacy-llama"
+    upstream_id: "nvidia/llama-2-70b"
+    description: "Legacy Llama 2 model"
+    enabled: false

@@ -1,0 +1,277 @@
+﻿+-----------------------------------------------------------------------------+
+python : +--------------------- Traceback (most recent call last) 
+---------------------+
+En línea: 1 Carácter: 1
++ python apps/cli/main.py do "lee el archivo pyproject.toml 
+usando una  ...
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+~~~~~
+    + CategoryInfo          : NotSpecified: (+--------------...-- 
+   ------------+:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+| 
+C:\Users\denis\OneDrive\Escritorio\GhostLLM\apps\cli\main.py:208 
+in do      |
+|                                                                 
+            |
+|   205     if not is_running(): start()                          
+            |
+|   206     from apps.cli.assistant import CodexAssistant         
+            |
+|   207     assistant = CodexAssistant(SERVER_URL, get_api_key(), 
+model, mode |
+| > 208     assistant.run(initial_task=task)                      
+            |
+|   209                                                           
+            |
+|   210 @app.command()                                            
+            |
+|   211 def edit(path: str = typer.Argument(...), auto_approve: 
+bool = False) |
+|                                                                 
+            |
+| C:\Users\denis\OneDrive\Escritorio\GhostLLM\apps\cli\assistant.p
+y:125 in    |
+| run                                                             
+            |
+|                                                                 
+            |
+|   122         self.history = 
+self.memory.get_history(self.session_id)       |
+|   123                                                           
+            |
+|   124     def run(self, initial_task: Optional[str] = None):    
+            |
+| > 125         self._print_header()                              
+            |
+|   126                                                           
+            |
+|   127         if initial_task:                                  
+            |
+|   128             self.console.print(f"\n[bold cyan]\u25b6 
+Inicia tarea:[/bold c |
+|                                                                 
+            |
+| C:\Users\denis\OneDrive\Escritorio\GhostLLM\apps\cli\assistant.p
+y:215 in    |
+| _print_header                                                   
+            |
+|                                                                 
+            |
+|   212             f"Tools: [bold cyan]Ready (13)[/bold cyan] 
+[dim]|[/dim] C |
+|   213         )                                                 
+            |
+|   214                                                           
+            |
+| > 215         self.console.print(Panel(hud_table, 
+border_style="magenta", p |
+|   216                                                           
+            |
+|   217     def _chat_loop(self):                                 
+            |
+|   218         while True:                                       
+            |
+|                                                                 
+            |
+| C:\Users\denis\AppData\Roaming\Python\Python314\site-packages\ri
+ch\console. |
+| py:1678 in print                                                
+            |
+|                                                                 
+            |
+|   1675                 overflow = "ignore"                      
+            |
+|   1676             crop = False                                 
+            |
+|   1677         render_hooks = self._render_hooks[:]             
+            |
+| > 1678         with self:                                       
+            |
+|   1679             renderables = self._collect_renderables(     
+            |
+|   1680                 objects,                                 
+            |
+|   1681                 sep,                                     
+            |
+|                                                                 
+            |
+| C:\Users\denis\AppData\Roaming\Python\Python314\site-packages\ri
+ch\console. |
+| py:864 in __exit__                                              
+            |
+|                                                                 
+            |
+|    861                                                          
+            |
+|    862     def __exit__(self, exc_type: Any, exc_value: Any, 
+traceback: Any |
+|    863         """Exit buffer context."""                       
+            |
+| >  864         self._exit_buffer()                              
+            |
+|    865                                                          
+            |
+|    866     def begin_capture(self) -> None:                     
+            |
+|    867         """Begin capturing console output. Call 
+:meth:`end_capture`  |
+|                                                                 
+            |
+| C:\Users\denis\AppData\Roaming\Python\Python314\site-packages\ri
+ch\console. |
+| py:822 in _exit_buffer                                          
+            |
+|                                                                 
+            |
+|    819     def _exit_buffer(self) -> None:                      
+            |
+|    820         """Leave buffer context, and render content if 
+required."""  |
+|    821         self._buffer_index -= 1                          
+            |
+| >  822         self._check_buffer()                             
+            |
+|    823                                                          
+            |
+|    824     def set_live(self, live: "Live") -> None:            
+            |
+|    825         """Set Live instance. Used by Live context 
+manager.          |
+|                                                                 
+            |
+| C:\Users\denis\AppData\Roaming\Python\Python314\site-packages\ri
+ch\console. |
+| py:2019 in _check_buffer                                        
+            |
+|                                                                 
+            |
+|   2016             return                                       
+            |
+|   2017                                                          
+            |
+|   2018         try:                                             
+            |
+| > 2019             self._write_buffer()                         
+            |
+|   2020         except BrokenPipeError:                          
+            |
+|   2021             self.on_broken_pipe()                        
+            |
+|   2022                                                          
+            |
+|                                                                 
+            |
+| C:\Users\denis\AppData\Roaming\Python\Python314\site-packages\ri
+ch\console. |
+| py:2055 in _write_buffer                                        
+            |
+|                                                                 
+            |
+|   2052                             if self.no_color and 
+self._color_system: |
+|   2053                                 buffer = 
+list(Segment.remove_color(b |
+|   2054                                                          
+            |
+| > 2055                             
+legacy_windows_render(buffer, LegacyWind |
+|   2056                         else:                            
+            |
+|   2057                             # Either a non-std stream on 
+legacy Wind |
+|   2058                             text = 
+self._render_buffer(self._buffer[ |
+|                                                                 
+            |
+| C:\Users\denis\AppData\Roaming\Python\Python314\site-packages\ri
+ch\_windows |
+| _renderer.py:17 in legacy_windows_render                        
+            |
+|                                                                 
+            |
+|   14     for text, style, control in buffer:                    
+            |
+|   15         if not control:                                    
+            |
+|   16             if style:                                      
+            |
+| > 17                 term.write_styled(text, style)             
+            |
+|   18             else:                                          
+            |
+|   19                 term.write_text(text)                      
+            |
+|   20         else:                                              
+            |
+|                                                                 
+            |
+| C:\Users\denis\AppData\Roaming\Python\Python314\site-packages\ri
+ch\_win32_c |
+| onsole.py:441 in write_styled                                   
+            |
+|                                                                 
+            |
+|   438         SetConsoleTextAttribute(                          
+            |
+|   439             self._handle, attributes=ctypes.c_ushort(fore 
+| (back <<  |
+|   440         )                                                 
+            |
+| > 441         self.write_text(text)                             
+            |
+|   442         SetConsoleTextAttribute(self._handle, 
+attributes=self._defaul |
+|   443                                                           
+            |
+|   444     def move_cursor_to(self, new_position: 
+WindowsCoordinates) -> Non |
+|                                                                 
+            |
+| C:\Users\denis\AppData\Roaming\Python\Python314\site-packages\ri
+ch\_win32_c |
+| onsole.py:402 in write_text                                     
+            |
+|                                                                 
+            |
+|   399         Args:                                             
+            |
+|   400             text (str): The text to write to the console  
+            |
+|   401         """                                               
+            |
+| > 402         self.write(text)                                  
+            |
+|   403         self.flush()                                      
+            |
+|   404                                                           
+            |
+|   405     def write_styled(self, text: str, style: Style) -> 
+None:          |
+|                                                                 
+            |
+| C:\Python314\Lib\encodings\cp1252.py:19 in encode               
+            |
+|                                                                 
+            |
+|    16                                                           
+            |
+|    17 class IncrementalEncoder(codecs.IncrementalEncoder):      
+            |
+|    18     def encode(self, input, final=False):                 
+            |
+| >  19         return 
+codecs.charmap_encode(input,self.errors,encoding_table |
+|    20                                                           
+            |
+|    21 class IncrementalDecoder(codecs.IncrementalDecoder):      
+            |
+|    22     def decode(self, input, final=False):                 
+            |
+|   
++-----------------------------------------------------------------
+------------+
+UnicodeEncodeError: 'charmap' codec can't encode character 
+'\U0001f47b' in 
+position 0: character maps to <undefined>

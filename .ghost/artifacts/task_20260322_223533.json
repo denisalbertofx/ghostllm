@@ -1,0 +1,36 @@
+{
+  "session_id": "task_20260322_223533",
+  "timestamp": "2026-03-22T22:35:33.983766",
+  "task": "Refactoriza el router para soportar artifacts",
+  "plan": "Refactoriza el router para soportar artifacts",
+  "root_cause": "",
+  "diff_summary": [
+    {
+      "file": "apps/cli/runtime/artifacts.py",
+      "type": "Create File",
+      "status": "success"
+    },
+    {
+      "file": "apps/cli/assistant.py",
+      "type": "Modify File",
+      "status": "success"
+    }
+  ],
+  "verification": {
+    "status": "success",
+    "checks": [
+      {
+        "name": "Build",
+        "command": "npm run build",
+        "status": "success"
+      },
+      {
+        "name": "Lint",
+        "command": "npm run lint",
+        "status": "success"
+      }
+    ]
+  },
+  "rollback_status": "none",
+  "next_action": "Todos los sistemas operativos. El contrato de artifacts est\u00e1 activo."
+}

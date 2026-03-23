@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(find . -maxdepth 3 -type f -name *.json -o -name *.md -o -name *.py -o -name *.js -o -name *.ts -o -name *.toml -o -name *.yaml -o -name *.yml -o -name Makefile -o -name *.sh)",
+      "Bash(find . -maxdepth 2 -type f -name *.json -o -name *.md -o -name *.py -o -name *.ts -o -name *.js -o -name *.toml -o -name *.yaml -o -name *.yml)",
+      "Bash(find . -maxdepth 2 -type f \\\\\\(-name *.json -o -name *.md -o -name *.txt -o -name *.toml -o -name *.yaml -o -name *.yml -o -name Makefile -o -name *.mk \\\\\\))",
+      "Bash(find . -type f -name *.md -o -name *.json -o -name *.toml -o -name *.yaml -o -name *.yml)"
+    ]
+  }
+}

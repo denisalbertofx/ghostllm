@@ -1,0 +1,48 @@
+{
+  "task_id": "task_20260323_002833_a0a817dd",
+  "title": "Usa la herramienta ls sobre el archivo apps/cli/assistant.py (ignora si es archivo, solo ejec\u00fatalo) (Resumed: /resume task_20260323_002833_a0a817dd)",
+  "mode": "Chat",
+  "status": "done",
+  "owner": "denis",
+  "scope": [],
+  "artifacts": [
+    "task_20260323_002833",
+    "task_20260323_002914"
+  ],
+  "risks": [],
+  "status_history": [
+    {
+      "status": "created",
+      "timestamp": "2026-03-23T00:28:33.596656"
+    },
+    {
+      "status": "planned",
+      "timestamp": "2026-03-23T00:28:33.597080"
+    },
+    {
+      "status": "executing",
+      "timestamp": "2026-03-23T00:28:33.602769"
+    },
+    {
+      "status": "failed",
+      "timestamp": "2026-03-23T00:28:52.260606"
+    },
+    {
+      "status": "failed",
+      "timestamp": "2026-03-23T00:29:14.808092",
+      "detail": "Task session resumed via /resume"
+    },
+    {
+      "status": "executing",
+      "timestamp": "2026-03-23T00:29:14.808515",
+      "detail": "Re-opening finished task for additional work"
+    },
+    {
+      "status": "done",
+      "timestamp": "2026-03-23T00:31:35.166934"
+    }
+  ],
+  "created_at": "2026-03-23T00:28:33.596663",
+  "updated_at": "2026-03-23T00:31:35.166923",
+  "metadata": {}
+}

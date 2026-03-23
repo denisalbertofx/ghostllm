@@ -1,0 +1,33 @@
+{
+  "task_id": "task_20260323_002112_3fd1b0a0",
+  "title": "ls",
+  "mode": "Chat",
+  "status": "done",
+  "owner": "denis",
+  "scope": [],
+  "artifacts": [
+    "task_20260323_002112"
+  ],
+  "risks": [],
+  "status_history": [
+    {
+      "status": "created",
+      "timestamp": "2026-03-23T00:21:12.847907"
+    },
+    {
+      "status": "planned",
+      "timestamp": "2026-03-23T00:21:12.848413"
+    },
+    {
+      "status": "executing",
+      "timestamp": "2026-03-23T00:21:12.854392"
+    },
+    {
+      "status": "done",
+      "timestamp": "2026-03-23T00:21:26.190071"
+    }
+  ],
+  "created_at": "2026-03-23T00:21:12.847914",
+  "updated_at": "2026-03-23T00:21:26.190065",
+  "metadata": {}
+}

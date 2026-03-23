@@ -1,0 +1,35 @@
+{
+  "task_id": "task_20260323_002316_50eb01e6",
+  "title": "Original Task",
+  "mode": "Execute",
+  "status": "executing",
+  "owner": "denis",
+  "scope": [],
+  "artifacts": [],
+  "risks": [],
+  "status_history": [
+    {
+      "status": "created",
+      "timestamp": "2026-03-23T00:23:16.952106"
+    },
+    {
+      "status": "planned",
+      "timestamp": "2026-03-23T00:23:16.952711"
+    },
+    {
+      "status": "executing",
+      "timestamp": "2026-03-23T00:23:16.953097"
+    },
+    {
+      "status": "failed",
+      "timestamp": "2026-03-23T00:23:16.953471"
+    },
+    {
+      "status": "executing",
+      "timestamp": "2026-03-23T00:23:16.961543"
+    }
+  ],
+  "created_at": "2026-03-23T00:23:16.952112",
+  "updated_at": "2026-03-23T00:23:16.961537",
+  "metadata": {}
+}
