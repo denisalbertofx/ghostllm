@@ -9,7 +9,7 @@ if str(root_dir / "packages" / "py-core") not in sys.path:
     sys.path.insert(0, str(root_dir / "packages" / "py-core"))
 
 from fastapi import FastAPI, HTTPException, Request, Response, Depends
-from fastapi.responses import StreamingResponse, JSONResponse
+from fastapi.responses import StreamingResponse, JSONResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from typing import Dict, Any, List, Optional
@@ -23,6 +23,7 @@ from ghostllm_core.config import (
     load_config,
     bootstrap_enabled_models,
     resolve_upstream_model_id,
+    resolve_config_path,
 )
 from apps.server.providers.nvidia import NvidiaProvider, NVIDIAError
 from apps.server.database import (
@@ -90,7 +91,7 @@ def on_startup():
     logger.info("GhostLLM Server initialized.")
 
 # Load configuration
-CONFIG_PATH = "configs/default.yaml"
+CONFIG_PATH = resolve_config_path("configs/default.yaml")
 REGISTRY_PATH = "configs/models.yaml"
 cfg = None
 
@@ -398,6 +399,18 @@ async def ui_root():
 
 # Mount the build output
 ui_dir = "apps/web/out"
+next_static_dir = os.path.join(ui_dir, "_next")
+favicon_path = os.path.join(ui_dir, "favicon.ico")
+
+if os.path.exists(next_static_dir):
+    app.mount("/_next", StaticFiles(directory=next_static_dir), name="next-static")
+
+@app.get("/favicon.ico")
+async def favicon():
+    if os.path.exists(favicon_path):
+        return FileResponse(favicon_path)
+    raise HTTPException(status_code=404, detail="favicon not found")
+
 if os.path.exists(ui_dir):
     app.mount("/ui", StaticFiles(directory=ui_dir, html=True), name="ui")
 

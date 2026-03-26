@@ -18,6 +18,7 @@ CLI resolution chain:
 from __future__ import annotations
 
 import os
+from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
 import yaml
@@ -92,6 +93,66 @@ class GhostConfig(BaseModel):
 
 
 # ---------------------------------------------------------------------------
+# Config path and env overrides
+# ---------------------------------------------------------------------------
+
+def resolve_config_path(
+    default_path: str,
+    *,
+    env_var: str = "GHOST_CONFIG_PATH",
+) -> str:
+    """
+    Resolve the config file path with a stable precedence:
+      1. explicit environment override
+      2. sibling `default.local.yaml`
+      3. repository `default.yaml`
+    """
+    env_path = os.getenv(env_var, "").strip()
+    if env_path:
+        return env_path
+
+    base = Path(default_path)
+    local_override = base.with_name("default.local.yaml")
+    if local_override.exists():
+        return str(local_override)
+    return str(base)
+
+
+def _apply_env_overrides(data: Dict) -> Dict:
+    data = dict(data or {})
+    server = dict(data.get("server") or {})
+    upstream = dict(data.get("upstream") or {})
+    monitoring = dict(data.get("monitoring") or {})
+
+    server["host"] = os.getenv("GHOST_SERVER_HOST", server.get("host", "127.0.0.1"))
+    if os.getenv("GHOST_SERVER_PORT", "").strip():
+        server["port"] = int(os.environ["GHOST_SERVER_PORT"])
+    if os.getenv("GHOST_SERVER_API_KEY", "").strip():
+        server["api_key"] = os.environ["GHOST_SERVER_API_KEY"]
+
+    upstream["base_url"] = os.getenv(
+        "GHOST_UPSTREAM_BASE_URL",
+        upstream.get("base_url", "https://integrate.api.nvidia.com/v1"),
+    )
+    upstream_key = (
+        os.getenv("GHOST_NVIDIA_API_KEY", "").strip()
+        or os.getenv("NVIDIA_API_KEY", "").strip()
+        or upstream.get("nvidia_api_key", "")
+    )
+    upstream["nvidia_api_key"] = upstream_key
+
+    monitoring["log_level"] = os.getenv("GHOST_LOG_LEVEL", monitoring.get("log_level", "INFO"))
+    monitoring["log_format"] = os.getenv("GHOST_LOG_FORMAT", monitoring.get("log_format", "json"))
+    if os.getenv("GHOST_PROMETHEUS_PORT", "").strip():
+        monitoring["prometheus_port"] = int(os.environ["GHOST_PROMETHEUS_PORT"])
+
+    data["server"] = server
+    data["upstream"] = upstream
+    data["monitoring"] = monitoring
+    return data
+
+
+# ---------------------------------------------------------------------------
 # I/O helpers
 # ---------------------------------------------------------------------------
 
@@ -100,7 +161,7 @@ def load_config(path: str) -> GhostConfig:
         raise FileNotFoundError(f"Config file not found at {path}")
     with open(path, "r", encoding="utf-8") as f:
         data = yaml.safe_load(f)
-    return GhostConfig(**data)
+    return GhostConfig(**_apply_env_overrides(data))
 
 
 def load_registry(path: str) -> ModelRegistry:

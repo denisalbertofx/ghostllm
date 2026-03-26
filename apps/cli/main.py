@@ -4,6 +4,7 @@ import os
 import sys
 import time
 import requests
+import yaml
 from pathlib import Path
 from enum import Enum
 from typing import Optional, Union
@@ -15,7 +16,7 @@ if str(root_dir) not in sys.path:
 if str(root_dir / "packages" / "py-core") not in sys.path:
     sys.path.insert(0, str(root_dir / "packages" / "py-core"))
 
-from ghostllm_core.config import resolve_gateway_model_id
+from ghostllm_core.config import resolve_gateway_model_id, resolve_config_path
 
 from apps.cli.runtime.gateway_endpoint import (
     GatewayPreflightResult,
@@ -33,6 +34,8 @@ app = typer.Typer(help="👻 Ghost Dev: Premium Native Programming Runtime", no_
 PID_FILE = str(root_dir / "ghost.pid")
 LOG_FILE = str(root_dir / "ghost.log")
 REGISTRY_PATH = str(root_dir / "configs" / "models.yaml")
+DEFAULT_CONFIG_PATH = root_dir / "configs" / "default.yaml"
+LOCAL_CONFIG_PATH = root_dir / "configs" / "default.local.yaml"
 
 
 def _ensure_utf8_stdio() -> None:
@@ -55,6 +58,35 @@ def _effective_gateway_url() -> str:
 
 def get_api_key():
     return os.getenv("GHOST_API_KEY", "ghost-dev-2026")
+
+
+def _active_config_path() -> Path:
+    return Path(resolve_config_path(str(DEFAULT_CONFIG_PATH)))
+
+
+def _load_raw_config_template() -> dict:
+    config_path = _active_config_path()
+    with open(config_path, "r", encoding="utf-8") as f:
+        return yaml.safe_load(f) or {}
+
+
+def _write_local_config(data: dict) -> None:
+    with open(LOCAL_CONFIG_PATH, "w", encoding="utf-8") as f:
+        yaml.safe_dump(data, f, sort_keys=False)
+
+
+def _configured_repo_remote() -> str:
+    try:
+        result = subprocess.run(
+            ["git", "remote", "get-url", "origin"],
+            cwd=root_dir,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+    except Exception:
+        return ""
+    return result.stdout.strip()
 
 
 def check_provider_ready(base_url: Optional[str] = None) -> tuple[bool, str]:
@@ -181,6 +213,64 @@ def is_running():
 
 
 @app.command()
+def init(
+    nvidia_api_key: str = typer.Option(
+        "",
+        "--nvidia-api-key",
+        help="NVIDIA NIM API key. If omitted, Ghost will prompt for it.",
+    ),
+    base_url: str = typer.Option(
+        "https://integrate.api.nvidia.com/v1",
+        "--base-url",
+        help="Upstream base URL for the NVIDIA-compatible provider.",
+    ),
+    host: str = typer.Option("127.0.0.1", "--host", help="Local Ghost gateway host."),
+    port: int = typer.Option(8000, "--port", help="Local Ghost gateway port."),
+    force: bool = typer.Option(False, "--force", help="Overwrite configs/default.local.yaml."),
+):
+    """Create a local, non-versioned Ghost configuration."""
+    if LOCAL_CONFIG_PATH.exists() and not force:
+        typer.secho(
+            f"Local config already exists at {LOCAL_CONFIG_PATH}. Use --force to overwrite it.",
+            fg=typer.colors.YELLOW,
+        )
+        raise typer.Exit(code=1)
+
+    api_key = (nvidia_api_key or os.getenv("GHOST_NVIDIA_API_KEY") or os.getenv("NVIDIA_API_KEY") or "").strip()
+    if not api_key:
+        api_key = typer.prompt("NVIDIA NIM API key", hide_input=True).strip()
+    if not api_key:
+        typer.secho("A valid NVIDIA API key is required.", fg=typer.colors.RED)
+        raise typer.Exit(code=1)
+
+    data = _load_raw_config_template()
+    server = dict(data.get("server") or {})
+    upstream = dict(data.get("upstream") or {})
+    monitoring = dict(data.get("monitoring") or {})
+    models = data.get("models") or {}
+
+    server.update({"host": host, "port": port, "api_key": "ghost-local-..."})
+    upstream.update({"base_url": base_url.strip(), "nvidia_api_key": api_key})
+    monitoring.setdefault("log_format", "json")
+    monitoring.setdefault("log_level", "INFO")
+    monitoring.setdefault("prometheus_port", 9090)
+
+    payload = {
+        "server": server,
+        "upstream": upstream,
+        "monitoring": monitoring,
+        "models": models,
+    }
+    _write_local_config(payload)
+
+    typer.secho(f"Ghost local config written to {LOCAL_CONFIG_PATH}", fg=typer.colors.GREEN)
+    typer.echo("Next steps:")
+    typer.echo("  ghost start")
+    typer.echo("  ghost doctor")
+    typer.echo("  ghost codex")
+
+
+@app.command()
 def start():
     """Start the GhostLLM daemon."""
     if is_running():
@@ -218,6 +308,27 @@ def start():
 def serve():
     """Alias for 'start'."""
     start()
+
+@app.command()
+def update():
+    """Pull the latest repo changes and refresh Python dependencies."""
+    repo_remote = _configured_repo_remote()
+    if not repo_remote:
+        typer.secho(
+            "No git remote is configured for this Ghost installation. Configure origin before using update.",
+            fg=typer.colors.YELLOW,
+        )
+        raise typer.Exit(code=1)
+
+    if is_running():
+        typer.secho("Ghost is running. Stop it before updating.", fg=typer.colors.YELLOW)
+        raise typer.Exit(code=1)
+
+    typer.echo("Updating GhostLLM repository...")
+    subprocess.run(["git", "pull", "--ff-only"], cwd=root_dir, check=True)
+    typer.echo("Syncing Python dependencies...")
+    subprocess.run(["uv", "sync"], cwd=root_dir, check=True)
+    typer.secho("GhostLLM updated successfully.", fg=typer.colors.GREEN)
 
 @app.command()
 def stop():
@@ -278,7 +389,16 @@ def doctor():
         s_status = f"[bold red]Unreachable[/bold red] [dim]{pf.error[:120]}[/dim]"
     table.add_row("Model endpoint", s_status)
     ready, ready_err = check_provider_ready(gw)
-    r_status = "[bold green]Ready[/bold green]" if ready else f"[bold red]Not ready[/bold red] [dim]{ready_err[:120]}[/dim]"
+    if ready:
+        r_status = "[bold green]Ready[/bold green]"
+    elif pf.ok:
+        # Gateway responde /health pero no está listo (no /ready)
+        r_status = (
+            "[bold yellow]Gateway healthy but not ready[/bold yellow] "
+            f"[dim](/health OK but /ready returned: {ready_err[:100]})[/dim]"
+        )
+    else:
+        r_status = f"[bold red]Not ready[/bold red] [dim]{ready_err[:120]}[/dim]"
     table.add_row("Provider ready", r_status)
 
     # Environment
