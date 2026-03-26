@@ -1,31 +1,70 @@
 # GhostLLM Model Registry
-# Map friendly names to upstream NVIDIA NIM model IDs
+# ========================
+# Ghost CLI runtime uses role aliases (planner, execution, repair, chat, fallback).
+# The gateway resolves alias → upstream_id using this file.
+#
+# Schema per entry:
+#   name:        Alias used by the CLI / ENV vars (e.g. planner, kimi, fast)
+#   upstream_id: Full NIM model ID sent to the NVIDIA provider
+#   enabled:     bool
+#   expensive:   bool
+#   tool_calling: bool
 
 models:
+
+  # ── Role Aliases ────────────────────────────────────────────────────────
+
+  - name: "planner"
+    upstream_id: "moonshotai/kimi-k2.5"
+    description: "Kimi k2.5 Reasoning"
+    enabled: true
+    expensive: true
+    tool_calling: true
+
+  - name: "execution"
+    upstream_id: "qwen/qwen2.5-coder-32b-instruct"
+    description: "Qwen 2.5 Coder 32B"
+    enabled: true
+    expensive: false
+    tool_calling: true
+
+  - name: "repair"
+    upstream_id: "moonshotai/kimi-k2.5"
+    description: "Repair/Debug reasoning"
+    enabled: true
+    expensive: true
+    tool_calling: true
+
+  - name: "chat"
+    upstream_id: "meta/llama-3.1-8b-instruct"
+    description: "Llama 3.1 8B Instruct"
+    enabled: true
+    expensive: false
+    tool_calling: true
+
+  - name: "fallback"
+    upstream_id: "meta/llama-3.1-8b-instruct"
+    description: "General fallback"
+    enabled: true
+    expensive: false
+    tool_calling: true
+
+  # ── Named Models ────────────────────────────────────────────────────────
+
   - name: "fast"
     upstream_id: "meta/llama-3.1-8b-instruct"
-    description: "Lightweight and ultra-fast for simple tasks"
     enabled: true
 
   - name: "coder"
-    upstream_id: "nvidia/qwen2.5-coder-32b"
-    description: "Optimized for programming and logic"
+    upstream_id: "qwen/qwen2.5-coder-32b-instruct"
     enabled: true
 
   - name: "smart"
-    upstream_id: "nvidia/gpt-oss-120b"
-    description: "Highest accuracy for complex reasoning"
+    upstream_id: "openai/gpt-oss-120b"
     enabled: true
     expensive: true
 
-  # Example of a disabled model
   - name: "kimi"
     upstream_id: "moonshotai/kimi-k2.5"
-    description: "Kimi k2.5 with thinking/reasoning support"
     enabled: true
     expensive: true
-
-  - name: "legacy-llama"
-    upstream_id: "nvidia/llama-2-70b"
-    description: "Legacy Llama 2 model"
-    enabled: false

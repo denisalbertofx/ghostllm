@@ -1,0 +1,36 @@
+{
+  "task_id": "task_20260323_020403_8dea35d5",
+  "title": "Actualizar el readme de ghost",
+  "mode": "Chat",
+  "status": "done",
+  "task_type": "docs_change",
+  "inferred_type": "docs_change",
+  "type_source": "inferred",
+  "owner": "denis",
+  "scope": [],
+  "artifacts": [
+    "task_20260323_020403"
+  ],
+  "risks": [],
+  "status_history": [
+    {
+      "status": "created",
+      "timestamp": "2026-03-23T02:04:03.460097"
+    },
+    {
+      "status": "planned",
+      "timestamp": "2026-03-23T02:04:03.460711"
+    },
+    {
+      "status": "executing",
+      "timestamp": "2026-03-23T02:04:03.466793"
+    },
+    {
+      "status": "done",
+      "timestamp": "2026-03-23T02:04:05.691847"
+    }
+  ],
+  "created_at": "2026-03-23T02:04:03.460106",
+  "updated_at": "2026-03-23T02:04:05.691842",
+  "metadata": {}
+}

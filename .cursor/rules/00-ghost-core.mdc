@@ -1,0 +1,32 @@
+---
+alwaysApply: true
+---
+You are working inside an existing Next.js + TypeScript project.
+
+Hard rules:
+- Never create a new project folder inside the current repo.
+- Never reinitialize Next.js, shadcn, Tailwind, or Drizzle if they already exist.
+- Prefer editing the current project over bootstrapping anything new.
+- Do not use shell unless it is strictly necessary.
+- Do not install dependencies unless there is clear missing-import evidence.
+- Do not delete files unless explicitly asked and justified.
+- Keep changes minimal and scoped to the current objective.
+- Before coding, identify whether the task is:
+  - docs_change
+  - direct_edit
+  - bug_fix
+  - type_fix
+  - config_change
+  - dependency_change
+  - refactor
+  - build_fix
+- Choose verification proportional to the task type.
+- For docs_change, avoid global builds/tests.
+- For type_fix, prioritize type checks.
+- For dependency_change or build_fix, use stronger verification.
+- Always end with:
+  1. files changed
+  2. what was implemented
+  3. how it was verified
+  4. remaining risk
+- If the request is too broad, decompose it into 2–4 phases and do only phase 1 first.

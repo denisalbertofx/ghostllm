@@ -1,0 +1,55 @@
+{
+  "task_id": "task_20260325_131329_5668c6e8",
+  "title": "A\u00f1ade al final de README.md en la ra\u00edz del repo una l\u00ednea en blanco y una l\u00ednea de comentario HTML: <!-- ghost-manual-sc1 -->. No cambies ning\u00fan otro contenido.",
+  "mode": "Chat",
+  "status": "ABORTED",
+  "task_type": "docs_change",
+  "inferred_type": "docs_change",
+  "type_source": "inferred",
+  "batch_id": null,
+  "owner": "denis",
+  "scope": [],
+  "artifacts": [
+    "task_20260325_131329_6456"
+  ],
+  "risks": [],
+  "status_history": [
+    {
+      "status": "IDLE",
+      "timestamp": "2026-03-25T13:13:29.816886"
+    },
+    {
+      "status": "INTAKE",
+      "timestamp": "2026-03-25T13:13:29.817539",
+      "event": "phase",
+      "detail": "intake start"
+    },
+    {
+      "status": "EXPLORE",
+      "timestamp": "2026-03-25T13:13:29.820600",
+      "event": "phase",
+      "detail": "post-intake"
+    },
+    {
+      "status": "ACT",
+      "timestamp": "2026-03-25T13:13:52.011005",
+      "event": "phase",
+      "detail": "explore_promote:rejected_write_attempt"
+    },
+    {
+      "status": "CLOSING",
+      "timestamp": "2026-03-25T13:14:35.704697",
+      "event": "phase",
+      "detail": "no write scope"
+    },
+    {
+      "status": "ABORTED",
+      "timestamp": "2026-03-25T13:14:35.705361",
+      "event": "phase",
+      "detail": "session complete"
+    }
+  ],
+  "created_at": "2026-03-25T13:13:29.816894",
+  "updated_at": "2026-03-25T13:14:35.705360",
+  "metadata": {}
+}

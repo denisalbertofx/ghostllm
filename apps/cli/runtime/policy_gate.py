@@ -2,10 +2,24 @@ import os
 import re
 import typer
 from dataclasses import dataclass
+from enum import Enum
 from rich.console import Console
 from rich.panel import Panel
 from rich.text import Text
 from typing import Dict, Any, Optional, List
+
+
+class ApprovalLevel(Enum):
+    """How tool calls are authorized before execution (bundled UI vs per-call policy)."""
+
+    AUTO = "auto"  # read-only / safe: no bundled prompt
+    BUNDLE = "batch"  # file writes/edits: one bundled approval for the round
+    MANUAL = "manual"  # shell etc.: falls through to check_permission / per-call confirm
+
+
+_APPROVAL_AUTO_TOOLS = frozenset({"ls", "read_file", "summarize_repo", "search_code"})
+_APPROVAL_BUNDLE_TOOLS = frozenset({"write_file", "edit_file", "delete_file"})
+
 
 @dataclass
 class PolicyResult:
@@ -98,6 +112,22 @@ class PolicyGate:
 
         # 7. Manual Confirmation Prompt
         return self._manual_confirm(action_type, detail)
+
+    def get_approval_level(self, tool_name: str, detail: str = "") -> ApprovalLevel:
+        """
+        Classify a native tool for the assistant dispatch path (bundled vs auto vs per-call).
+
+        ``detail`` is reserved for future heuristics (e.g. riskier shell commands).
+        """
+        _ = detail  # noqa: ARG002 — kept for API stability with assistant / scripts
+        name = (tool_name or "").strip()
+        if name in _APPROVAL_AUTO_TOOLS:
+            return ApprovalLevel.AUTO
+        if name in _APPROVAL_BUNDLE_TOOLS:
+            return ApprovalLevel.BUNDLE
+        if name == "run_shell":
+            return ApprovalLevel.MANUAL
+        return ApprovalLevel.MANUAL
 
     def _deny(self, action: str, reason: str):
         self.console.print(f"\n [bold red]✘ POLICY VIOLATION:[/bold red]\n [red]Action:[/red] {action}\n [red]Reason:[/red] {reason}\n")

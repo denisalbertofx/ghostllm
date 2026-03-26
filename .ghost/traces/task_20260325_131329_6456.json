@@ -1,0 +1,392 @@
+{
+  "session_id": "task_20260325_131329_6456",
+  "command_mode": "do",
+  "cwd": "C:\\Users\\denis\\OneDrive\\Escritorio\\GhostLLM",
+  "repo_root": "C:\\Users\\denis\\OneDrive\\Escritorio\\GhostLLM",
+  "runtime_contract_source": "taskspec",
+  "planner_used": false,
+  "retrieval_used": false,
+  "execution_agent_used": false,
+  "batch_executor_used": false,
+  "approval_compression_used": false,
+  "compressed_approval_count": 0,
+  "batched_read_count": 0,
+  "batched_verification_count": 0,
+  "batch_executions": [],
+  "started_at": "2026-03-25T17:13:29.817500+00:00",
+  "ended_at": "2026-03-25T17:14:35.706018+00:00",
+  "total_duration_ms": 65888.5248000006,
+  "artifact_path": "C:\\Users\\denis\\OneDrive\\Escritorio\\GhostLLM\\.ghost\\artifacts\\task_20260325_131329_6456.json",
+  "final_outcome": "partially_implemented",
+  "final_state": "ABORTED",
+  "phases": [
+    {
+      "phase_name": "repo_profile",
+      "started_at": "2026-03-25T17:13:29.817938+00:00",
+      "ended_at": "2026-03-25T17:13:29.819639+00:00",
+      "duration_ms": 1.7002000022330321,
+      "status": "completed",
+      "notes": ""
+    },
+    {
+      "phase_name": "contract_spec",
+      "started_at": "2026-03-25T17:13:29.819804+00:00",
+      "ended_at": "2026-03-25T17:13:29.820461+00:00",
+      "duration_ms": 0.6559999965247698,
+      "status": "completed",
+      "notes": ""
+    },
+    {
+      "phase_name": "decision_planner",
+      "started_at": "2026-03-25T17:13:29.820479+00:00",
+      "ended_at": "2026-03-25T17:13:29.820490+00:00",
+      "duration_ms": 0.010899995686486363,
+      "status": "completed",
+      "notes": ""
+    },
+    {
+      "phase_name": "retrieval",
+      "started_at": "2026-03-25T17:13:29.820495+00:00",
+      "ended_at": "2026-03-25T17:13:29.820508+00:00",
+      "duration_ms": 0.01309999788645655,
+      "status": "completed",
+      "notes": ""
+    },
+    {
+      "phase_name": "execution_agent",
+      "started_at": "2026-03-25T17:13:29.820512+00:00",
+      "ended_at": "2026-03-25T17:13:29.820520+00:00",
+      "duration_ms": 0.008100003469735384,
+      "status": "completed",
+      "notes": ""
+    },
+    {
+      "phase_name": "conclusion",
+      "started_at": "2026-03-25T17:14:35.705153+00:00",
+      "ended_at": "2026-03-25T17:14:35.705718+00:00",
+      "duration_ms": 0.5654000051436014,
+      "status": "completed",
+      "notes": ""
+    }
+  ],
+  "phase_coverage": [
+    {
+      "phase_name": "repo_profile",
+      "status": "completed",
+      "duration_ms": 1.7002000022330321,
+      "notes": ""
+    },
+    {
+      "phase_name": "contract_spec",
+      "status": "completed",
+      "duration_ms": 0.6559999965247698,
+      "notes": ""
+    },
+    {
+      "phase_name": "parallel_preamble",
+      "status": "skipped",
+      "duration_ms": 0.0,
+      "notes": "sequential planner+retrieval path"
+    },
+    {
+      "phase_name": "decision_planner",
+      "status": "completed",
+      "duration_ms": 0.010899995686486363,
+      "notes": ""
+    },
+    {
+      "phase_name": "retrieval",
+      "status": "completed",
+      "duration_ms": 0.01309999788645655,
+      "notes": ""
+    },
+    {
+      "phase_name": "execution_agent",
+      "status": "completed",
+      "duration_ms": 0.008100003469735384,
+      "notes": ""
+    },
+    {
+      "phase_name": "verification",
+      "status": "skipped",
+      "duration_ms": 0.0,
+      "notes": "phase not entered"
+    },
+    {
+      "phase_name": "repair",
+      "status": "skipped",
+      "duration_ms": 0.0,
+      "notes": "no repair cycle"
+    },
+    {
+      "phase_name": "conclusion",
+      "status": "completed",
+      "duration_ms": 0.5654000051436014,
+      "notes": ""
+    }
+  ],
+  "model_calls": [
+    {
+      "role": "general",
+      "model": "kimi",
+      "provider_backend": "openai_compatible",
+      "started_at": "2026-03-25T17:13:30.000665+00:00",
+      "first_token_at": null,
+      "ended_at": "2026-03-25T17:13:34.953484+00:00",
+      "ttft_ms": null,
+      "duration_ms": 4952.798799997254,
+      "status": "completed",
+      "ok": true,
+      "error_message": "",
+      "prompt_chars": 6303,
+      "output_chars": 0
+    },
+    {
+      "role": "general",
+      "model": "kimi",
+      "provider_backend": "openai_compatible",
+      "started_at": "2026-03-25T17:13:35.141033+00:00",
+      "first_token_at": "2026-03-25T17:13:45.721408+00:00",
+      "ended_at": "2026-03-25T17:13:48.698904+00:00",
+      "ttft_ms": 10580.359500003397,
+      "duration_ms": 13557.84990000393,
+      "status": "completed",
+      "ok": true,
+      "error_message": "",
+      "prompt_chars": 10256,
+      "output_chars": 177
+    },
+    {
+      "role": "general",
+      "model": "kimi",
+      "provider_backend": "openai_compatible",
+      "started_at": "2026-03-25T17:13:48.873392+00:00",
+      "first_token_at": null,
+      "ended_at": "2026-03-25T17:13:52.002997+00:00",
+      "ttft_ms": null,
+      "duration_ms": 3129.5877000011387,
+      "status": "completed",
+      "ok": true,
+      "error_message": "",
+      "prompt_chars": 10486,
+      "output_chars": 0
+    },
+    {
+      "role": "general",
+      "model": "kimi",
+      "provider_backend": "openai_compatible",
+      "started_at": "2026-03-25T17:13:52.178926+00:00",
+      "first_token_at": "2026-03-25T17:13:55.820634+00:00",
+      "ended_at": "2026-03-25T17:13:58.120645+00:00",
+      "ttft_ms": 3641.6930999985198,
+      "duration_ms": 5941.70160000067,
+      "status": "completed",
+      "ok": true,
+      "error_message": "",
+      "prompt_chars": 10797,
+      "output_chars": 159
+    },
+    {
+      "role": "general",
+      "model": "kimi",
+      "provider_backend": "openai_compatible",
+      "started_at": "2026-03-25T17:13:58.296088+00:00",
+      "first_token_at": null,
+      "ended_at": "2026-03-25T17:14:01.181438+00:00",
+      "ttft_ms": null,
+      "duration_ms": 2885.3336999964085,
+      "status": "completed",
+      "ok": true,
+      "error_message": "",
+      "prompt_chars": 11003,
+      "output_chars": 0
+    },
+    {
+      "role": "general",
+      "model": "kimi",
+      "provider_backend": "openai_compatible",
+      "started_at": "2026-03-25T17:14:01.354191+00:00",
+      "first_token_at": "2026-03-25T17:14:04.243882+00:00",
+      "ended_at": "2026-03-25T17:14:06.187484+00:00",
+      "ttft_ms": 2889.677799998026,
+      "duration_ms": 4833.275099997991,
+      "status": "completed",
+      "ok": true,
+      "error_message": "",
+      "prompt_chars": 11050,
+      "output_chars": 78
+    },
+    {
+      "role": "general",
+      "model": "kimi",
+      "provider_backend": "openai_compatible",
+      "started_at": "2026-03-25T17:14:06.367941+00:00",
+      "first_token_at": null,
+      "ended_at": "2026-03-25T17:14:11.402075+00:00",
+      "ttft_ms": null,
+      "duration_ms": 5034.116700000595,
+      "status": "completed",
+      "ok": true,
+      "error_message": "",
+      "prompt_chars": 11175,
+      "output_chars": 0
+    },
+    {
+      "role": "general",
+      "model": "kimi",
+      "provider_backend": "openai_compatible",
+      "started_at": "2026-03-25T17:14:11.577479+00:00",
+      "first_token_at": "2026-03-25T17:14:22.860678+00:00",
+      "ended_at": "2026-03-25T17:14:25.018502+00:00",
+      "ttft_ms": 11283.184799998708,
+      "duration_ms": 13441.003599997202,
+      "status": "completed",
+      "ok": true,
+      "error_message": "",
+      "prompt_chars": 11265,
+      "output_chars": 73
+    },
+    {
+      "role": "general",
+      "model": "kimi",
+      "provider_backend": "openai_compatible",
+      "started_at": "2026-03-25T17:14:25.196492+00:00",
+      "first_token_at": "2026-03-25T17:14:31.992697+00:00",
+      "ended_at": "2026-03-25T17:14:35.704391+00:00",
+      "ttft_ms": 6796.189600005164,
+      "duration_ms": 10507.882400001108,
+      "status": "completed",
+      "ok": true,
+      "error_message": "",
+      "prompt_chars": 11428,
+      "output_chars": 393
+    }
+  ],
+  "tool_calls": [
+    {
+      "tool_name": "summarize_repo",
+      "target": "",
+      "started_at": "2026-03-25T17:13:34.953886+00:00",
+      "ended_at": "2026-03-25T17:13:34.960090+00:00",
+      "duration_ms": 6.190300002344884,
+      "status": "completed",
+      "ok": true,
+      "error_message": "",
+      "result_summary": "summary_len=3734"
+    },
+    {
+      "tool_name": "read_file",
+      "target": "README.md",
+      "started_at": "2026-03-25T17:13:34.967810+00:00",
+      "ended_at": "2026-03-25T17:13:34.968015+00:00",
+      "duration_ms": 0.1871999993454665,
+      "status": "completed",
+      "ok": true,
+      "error_message": "",
+      "result_summary": "content_len=34"
+    },
+    {
+      "tool_name": "read_file",
+      "target": "README.md",
+      "started_at": "2026-03-25T17:13:48.699124+00:00",
+      "ended_at": "2026-03-25T17:13:48.699306+00:00",
+      "duration_ms": 0.17330000264337286,
+      "status": "completed",
+      "ok": true,
+      "error_message": "",
+      "result_summary": "content_len=34"
+    },
+    {
+      "tool_name": "edit_file",
+      "target": "README.md",
+      "started_at": "2026-03-25T17:13:58.120857+00:00",
+      "ended_at": "2026-03-25T17:13:58.124190+00:00",
+      "duration_ms": 3.3209000030183233,
+      "status": "failed",
+      "ok": false,
+      "error_message": "name '_sha256_utf8' is not defined",
+      "result_summary": "['error']"
+    },
+    {
+      "tool_name": "write_file",
+      "target": "README.md",
+      "started_at": "2026-03-25T17:14:01.181795+00:00",
+      "ended_at": "2026-03-25T17:14:01.183791+00:00",
+      "duration_ms": 1.9787999990512617,
+      "status": "failed",
+      "ok": false,
+      "error_message": "name '_sha256_utf8' is not defined",
+      "result_summary": "['error']"
+    },
+    {
+      "tool_name": "edit_file",
+      "target": "README.md",
+      "started_at": "2026-03-25T17:14:06.187687+00:00",
+      "ended_at": "2026-03-25T17:14:06.193826+00:00",
+      "duration_ms": 6.12350000301376,
+      "status": "failed",
+      "ok": false,
+      "error_message": "Target string (old_str) not found.",
+      "result_summary": "['error']"
+    },
+    {
+      "tool_name": "read_file",
+      "target": "README.md",
+      "started_at": "2026-03-25T17:14:11.402416+00:00",
+      "ended_at": "2026-03-25T17:14:11.402589+00:00",
+      "duration_ms": 0.1630000042496249,
+      "status": "completed",
+      "ok": true,
+      "error_message": "",
+      "result_summary": "content_len=65"
+    },
+    {
+      "tool_name": "read_file",
+      "target": "README.md",
+      "started_at": "2026-03-25T17:14:25.018700+00:00",
+      "ended_at": "2026-03-25T17:14:25.018880+00:00",
+      "duration_ms": 0.17240000306628644,
+      "status": "completed",
+      "ok": true,
+      "error_message": "",
+      "result_summary": "content_len=65"
+    }
+  ],
+  "approvals": [],
+  "verification": [],
+  "repairs": [],
+  "summary": {
+    "total_model_time_ms": 64283.5494999963,
+    "total_tool_time_ms": 18.30940001673298,
+    "total_approval_wait_ms": 0.0,
+    "total_verification_time_ms": 0.0,
+    "accounted_wall_components_ms": 64301.85890001303,
+    "overhead_ms": 1586.6658999875654,
+    "duration_consistency_note": "components are non-overlapping sums; remainder is orchestration/overhead",
+    "bottleneck_phase": "model_total",
+    "bottleneck_tool": "",
+    "bottleneck_model": "general:kimi",
+    "bottleneck_reason": "execution model latency dominated (13558ms)",
+    "execution_loop_model_turns": 9,
+    "execution_loop_tool_rounds": 8
+  },
+  "trace_notes": [],
+  "feature_flags": {
+    "GHOST_USE_TASKSPEC": "0",
+    "GHOST_USE_DECISION_PLANNER": "0",
+    "GHOST_USE_RETRIEVAL": "0",
+    "GHOST_RETRIEVAL_INFLUENCES_RUNTIME": "0",
+    "GHOST_USE_EXECUTION_AGENT": "0",
+    "GHOST_EXECUTION_AGENT_WRITES": "0",
+    "GHOST_EXECUTION_AGENT_LIVE": "0",
+    "GHOST_PARALLEL_PIPELINE": "0",
+    "GHOST_USE_NVIDIA_NIM": "0",
+    "GHOST_USE_BATCH_EXECUTOR": "0",
+    "GHOST_USE_APPROVAL_COMPRESSION": "0",
+    "GHOST_AUTOLOAD_ENV": "0",
+    "GHOST_CLI_TRACE_SUMMARY": "0"
+  },
+  "wrong_repo_diagnostic": "",
+  "execution_loop_model_turns": 9,
+  "execution_loop_tool_rounds": 8
+}

@@ -1,0 +1,395 @@
+{
+  "session_id": "task_20260325_134150_0279",
+  "command_mode": "dev",
+  "cwd": "C:\\Users\\denis\\OneDrive\\Escritorio\\GhostLLM",
+  "repo_root": "C:\\Users\\denis\\OneDrive\\Escritorio\\GhostLLM",
+  "runtime_contract_source": "taskspec",
+  "planner_used": true,
+  "retrieval_used": true,
+  "execution_agent_used": true,
+  "batch_executor_used": false,
+  "approval_compression_used": false,
+  "compressed_approval_count": 0,
+  "batched_read_count": 0,
+  "batched_verification_count": 0,
+  "batch_executions": [],
+  "started_at": "2026-03-25T17:41:50.021989+00:00",
+  "ended_at": "2026-03-25T17:41:58.467290+00:00",
+  "total_duration_ms": 8445.307199996023,
+  "artifact_path": "C:\\Users\\denis\\OneDrive\\Escritorio\\GhostLLM\\.ghost\\artifacts\\task_20260325_134150_0279.json",
+  "final_outcome": "already_implemented",
+  "final_state": "DONE",
+  "phases": [
+    {
+      "phase_name": "repo_profile",
+      "started_at": "2026-03-25T17:41:50.022405+00:00",
+      "ended_at": "2026-03-25T17:41:50.025926+00:00",
+      "duration_ms": 3.52030000067316,
+      "status": "completed",
+      "notes": ""
+    },
+    {
+      "phase_name": "contract_spec",
+      "started_at": "2026-03-25T17:41:50.026067+00:00",
+      "ended_at": "2026-03-25T17:41:50.026680+00:00",
+      "duration_ms": 0.6121999977040105,
+      "status": "completed",
+      "notes": ""
+    },
+    {
+      "phase_name": "parallel_preamble",
+      "started_at": "2026-03-25T17:41:50.026706+00:00",
+      "ended_at": "2026-03-25T17:41:50.243742+00:00",
+      "duration_ms": 217.03200000047218,
+      "status": "completed",
+      "notes": "planner_ms=0.4;index_ms=148.2;apply_ms=66.4;wall_ms=215.6;serialized_est_ms=215.0;overlap_saved_ms=0.0"
+    },
+    {
+      "phase_name": "execution_agent",
+      "started_at": "2026-03-25T17:41:50.243788+00:00",
+      "ended_at": "2026-03-25T17:41:50.244191+00:00",
+      "duration_ms": 0.40269999590236694,
+      "status": "completed",
+      "notes": ""
+    },
+    {
+      "phase_name": "conclusion",
+      "started_at": "2026-03-25T17:41:58.466253+00:00",
+      "ended_at": "2026-03-25T17:41:58.466999+00:00",
+      "duration_ms": 0.7452999998349696,
+      "status": "completed",
+      "notes": ""
+    }
+  ],
+  "phase_coverage": [
+    {
+      "phase_name": "repo_profile",
+      "status": "completed",
+      "duration_ms": 3.52030000067316,
+      "notes": ""
+    },
+    {
+      "phase_name": "contract_spec",
+      "status": "completed",
+      "duration_ms": 0.6121999977040105,
+      "notes": ""
+    },
+    {
+      "phase_name": "parallel_preamble",
+      "status": "completed",
+      "duration_ms": 217.03200000047218,
+      "notes": "planner_ms=0.4;index_ms=148.2;apply_ms=66.4;wall_ms=215.6;serialized_est_ms=215.0;overlap_saved_ms=0.0"
+    },
+    {
+      "phase_name": "decision_planner",
+      "status": "completed",
+      "duration_ms": 0.0,
+      "notes": "folded into parallel_preamble"
+    },
+    {
+      "phase_name": "retrieval",
+      "status": "completed",
+      "duration_ms": 0.0,
+      "notes": "folded into parallel_preamble"
+    },
+    {
+      "phase_name": "execution_agent",
+      "status": "completed",
+      "duration_ms": 0.40269999590236694,
+      "notes": ""
+    },
+    {
+      "phase_name": "verification",
+      "status": "skipped",
+      "duration_ms": 0.0,
+      "notes": "phase not entered"
+    },
+    {
+      "phase_name": "repair",
+      "status": "skipped",
+      "duration_ms": 0.0,
+      "notes": "no repair cycle"
+    },
+    {
+      "phase_name": "conclusion",
+      "status": "completed",
+      "duration_ms": 0.7452999998349696,
+      "notes": ""
+    }
+  ],
+  "model_calls": [
+    {
+      "role": "general",
+      "model": "smart",
+      "provider_backend": "openai_compatible",
+      "started_at": "2026-03-25T17:41:50.473904+00:00",
+      "first_token_at": null,
+      "ended_at": "2026-03-25T17:41:51.400742+00:00",
+      "ttft_ms": null,
+      "duration_ms": 926.8116000021109,
+      "status": "completed",
+      "ok": true,
+      "error_message": "",
+      "prompt_chars": 13151,
+      "output_chars": 0
+    },
+    {
+      "role": "general",
+      "model": "smart",
+      "provider_backend": "openai_compatible",
+      "started_at": "2026-03-25T17:41:51.576303+00:00",
+      "first_token_at": null,
+      "ended_at": "2026-03-25T17:41:52.271887+00:00",
+      "ttft_ms": null,
+      "duration_ms": 695.5659000013839,
+      "status": "completed",
+      "ok": true,
+      "error_message": "",
+      "prompt_chars": 14046,
+      "output_chars": 0
+    },
+    {
+      "role": "general",
+      "model": "smart",
+      "provider_backend": "openai_compatible",
+      "started_at": "2026-03-25T17:41:52.441096+00:00",
+      "first_token_at": null,
+      "ended_at": "2026-03-25T17:41:52.942250+00:00",
+      "ttft_ms": null,
+      "duration_ms": 501.1361999931978,
+      "status": "completed",
+      "ok": true,
+      "error_message": "",
+      "prompt_chars": 14123,
+      "output_chars": 0
+    },
+    {
+      "role": "general",
+      "model": "smart",
+      "provider_backend": "openai_compatible",
+      "started_at": "2026-03-25T17:41:53.110622+00:00",
+      "first_token_at": null,
+      "ended_at": "2026-03-25T17:41:54.173421+00:00",
+      "ttft_ms": null,
+      "duration_ms": 1062.7813000028254,
+      "status": "completed",
+      "ok": true,
+      "error_message": "",
+      "prompt_chars": 14234,
+      "output_chars": 0
+    },
+    {
+      "role": "general",
+      "model": "smart",
+      "provider_backend": "openai_compatible",
+      "started_at": "2026-03-25T17:41:54.347431+00:00",
+      "first_token_at": null,
+      "ended_at": "2026-03-25T17:41:55.036458+00:00",
+      "ttft_ms": null,
+      "duration_ms": 689.0084000042407,
+      "status": "completed",
+      "ok": true,
+      "error_message": "",
+      "prompt_chars": 15959,
+      "output_chars": 0
+    },
+    {
+      "role": "general",
+      "model": "smart",
+      "provider_backend": "openai_compatible",
+      "started_at": "2026-03-25T17:41:55.213033+00:00",
+      "first_token_at": null,
+      "ended_at": "2026-03-25T17:41:55.736788+00:00",
+      "ttft_ms": null,
+      "duration_ms": 523.7383999992744,
+      "status": "completed",
+      "ok": true,
+      "error_message": "",
+      "prompt_chars": 17684,
+      "output_chars": 0
+    },
+    {
+      "role": "general",
+      "model": "smart",
+      "provider_backend": "openai_compatible",
+      "started_at": "2026-03-25T17:41:55.911020+00:00",
+      "first_token_at": null,
+      "ended_at": "2026-03-25T17:41:56.660950+00:00",
+      "ttft_ms": null,
+      "duration_ms": 749.9136000042199,
+      "status": "completed",
+      "ok": true,
+      "error_message": "",
+      "prompt_chars": 19486,
+      "output_chars": 0
+    },
+    {
+      "role": "general",
+      "model": "smart",
+      "provider_backend": "openai_compatible",
+      "started_at": "2026-03-25T17:41:56.830723+00:00",
+      "first_token_at": null,
+      "ended_at": "2026-03-25T17:41:57.614934+00:00",
+      "ttft_ms": null,
+      "duration_ms": 784.1946000044118,
+      "status": "completed",
+      "ok": true,
+      "error_message": "",
+      "prompt_chars": 20381,
+      "output_chars": 0
+    },
+    {
+      "role": "general",
+      "model": "smart",
+      "provider_backend": "openai_compatible",
+      "started_at": "2026-03-25T17:41:57.784157+00:00",
+      "first_token_at": null,
+      "ended_at": "2026-03-25T17:41:58.465031+00:00",
+      "ttft_ms": null,
+      "duration_ms": 680.8553000009852,
+      "status": "completed",
+      "ok": true,
+      "error_message": "",
+      "prompt_chars": 28729,
+      "output_chars": 0
+    }
+  ],
+  "tool_calls": [
+    {
+      "tool_name": "retrieval_index",
+      "target": "",
+      "started_at": "2026-03-25T17:41:50.026708+00:00",
+      "ended_at": "2026-03-25T17:41:50.243772+00:00",
+      "duration_ms": 214.606300003652,
+      "status": "completed",
+      "ok": true,
+      "error_message": "",
+      "result_summary": "rebuilt=False incremental=True parallel_preamble=1"
+    },
+    {
+      "tool_name": "ls",
+      "target": "",
+      "started_at": "2026-03-25T17:41:51.401250+00:00",
+      "ended_at": "2026-03-25T17:41:51.401471+00:00",
+      "duration_ms": 0.207199998840224,
+      "status": "completed",
+      "ok": true,
+      "error_message": "",
+      "result_summary": "files=52"
+    },
+    {
+      "tool_name": "ls",
+      "target": "apps",
+      "started_at": "2026-03-25T17:41:52.272270+00:00",
+      "ended_at": "2026-03-25T17:41:52.272422+00:00",
+      "duration_ms": 0.1418999963789247,
+      "status": "completed",
+      "ok": true,
+      "error_message": "",
+      "result_summary": "files=6"
+    },
+    {
+      "tool_name": "ls",
+      "target": "apps/cli",
+      "started_at": "2026-03-25T17:41:52.942626+00:00",
+      "ended_at": "2026-03-25T17:41:52.942791+00:00",
+      "duration_ms": 0.15439999697264284,
+      "status": "completed",
+      "ok": true,
+      "error_message": "",
+      "result_summary": "files=8"
+    },
+    {
+      "tool_name": "ls",
+      "target": "apps/cli/runtime",
+      "started_at": "2026-03-25T17:41:54.173776+00:00",
+      "ended_at": "2026-03-25T17:41:54.173984+00:00",
+      "duration_ms": 0.19689999317051843,
+      "status": "completed",
+      "ok": true,
+      "error_message": "",
+      "result_summary": "files=74"
+    },
+    {
+      "tool_name": "ls",
+      "target": "apps/cli/runtime",
+      "started_at": "2026-03-25T17:41:55.036834+00:00",
+      "ended_at": "2026-03-25T17:41:55.037058+00:00",
+      "duration_ms": 0.2131000001099892,
+      "status": "completed",
+      "ok": true,
+      "error_message": "",
+      "result_summary": "files=74"
+    },
+    {
+      "tool_name": "ls",
+      "target": "apps/cli/runtime",
+      "started_at": "2026-03-25T17:41:55.737134+00:00",
+      "ended_at": "2026-03-25T17:41:55.737342+00:00",
+      "duration_ms": 0.19780000002356246,
+      "status": "completed",
+      "ok": true,
+      "error_message": "",
+      "result_summary": "files=74"
+    },
+    {
+      "tool_name": "ls",
+      "target": "",
+      "started_at": "2026-03-25T17:41:56.661286+00:00",
+      "ended_at": "2026-03-25T17:41:56.661514+00:00",
+      "duration_ms": 0.21669999841833487,
+      "status": "completed",
+      "ok": true,
+      "error_message": "",
+      "result_summary": "files=52"
+    },
+    {
+      "tool_name": "read_file",
+      "target": "apps/cli/runtime/task_contract.py",
+      "started_at": "2026-03-25T17:41:57.615289+00:00",
+      "ended_at": "2026-03-25T17:41:57.615497+00:00",
+      "duration_ms": 0.19800000154646114,
+      "status": "completed",
+      "ok": true,
+      "error_message": "",
+      "result_summary": "content_len=21648"
+    }
+  ],
+  "approvals": [],
+  "verification": [],
+  "repairs": [],
+  "summary": {
+    "total_model_time_ms": 6614.00530001265,
+    "total_tool_time_ms": 216.13229998911265,
+    "total_approval_wait_ms": 0.0,
+    "total_verification_time_ms": 0.0,
+    "accounted_wall_components_ms": 6830.137600001763,
+    "overhead_ms": 1615.1695999942604,
+    "duration_consistency_note": "components are non-overlapping sums; remainder is orchestration/overhead",
+    "bottleneck_phase": "model_total",
+    "bottleneck_tool": "",
+    "bottleneck_model": "",
+    "bottleneck_reason": "model calls sum to 6614ms; alto número de turnos en el loop del asistente (modelo=9 con_tools=8); acotar TaskSpec / objetivos reduce latencia",
+    "execution_loop_model_turns": 9,
+    "execution_loop_tool_rounds": 8
+  },
+  "trace_notes": [],
+  "feature_flags": {
+    "GHOST_USE_TASKSPEC": "1",
+    "GHOST_USE_DECISION_PLANNER": "1",
+    "GHOST_USE_RETRIEVAL": "1",
+    "GHOST_RETRIEVAL_INFLUENCES_RUNTIME": "1",
+    "GHOST_USE_EXECUTION_AGENT": "1",
+    "GHOST_EXECUTION_AGENT_WRITES": "0",
+    "GHOST_EXECUTION_AGENT_LIVE": "1",
+    "GHOST_PARALLEL_PIPELINE": "partial",
+    "GHOST_USE_NVIDIA_NIM": "0",
+    "GHOST_USE_BATCH_EXECUTOR": "1",
+    "GHOST_USE_APPROVAL_COMPRESSION": "1",
+    "GHOST_AUTOLOAD_ENV": "0",
+    "GHOST_CLI_TRACE_SUMMARY": "0"
+  },
+  "wrong_repo_diagnostic": "",
+  "execution_loop_model_turns": 9,
+  "execution_loop_tool_rounds": 8
+}

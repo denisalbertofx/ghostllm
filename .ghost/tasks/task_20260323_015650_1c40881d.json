@@ -1,0 +1,34 @@
+{
+  "task_id": "task_20260323_015650_1c40881d",
+  "title": "Actualizar README",
+  "mode": "Chat",
+  "status": "done",
+  "task_type": "docs_change",
+  "owner": "denis",
+  "scope": [],
+  "artifacts": [
+    "task_20260323_015650"
+  ],
+  "risks": [],
+  "status_history": [
+    {
+      "status": "created",
+      "timestamp": "2026-03-23T01:56:50.168576"
+    },
+    {
+      "status": "planned",
+      "timestamp": "2026-03-23T01:56:50.169029"
+    },
+    {
+      "status": "executing",
+      "timestamp": "2026-03-23T01:56:50.186378"
+    },
+    {
+      "status": "done",
+      "timestamp": "2026-03-23T01:56:52.485989"
+    }
+  ],
+  "created_at": "2026-03-23T01:56:50.168584",
+  "updated_at": "2026-03-23T01:56:52.485981",
+  "metadata": {}
+}

@@ -1,0 +1,35 @@
+{
+  "task_id": "task_20260323_021946_d1ec241b",
+  "title": "Success Step 1",
+  "mode": "Chat",
+  "status": "done",
+  "task_type": "direct_edit",
+  "inferred_type": "direct_edit",
+  "type_source": "inferred",
+  "batch_id": "batch_20260323_021946_1f776fb0",
+  "owner": "denis",
+  "scope": [],
+  "artifacts": [],
+  "risks": [],
+  "status_history": [
+    {
+      "status": "created",
+      "timestamp": "2026-03-23T02:19:46.671333"
+    },
+    {
+      "status": "planned",
+      "timestamp": "2026-03-23T02:19:46.671745"
+    },
+    {
+      "status": "executing",
+      "timestamp": "2026-03-23T02:19:46.677658"
+    },
+    {
+      "status": "done",
+      "timestamp": "2026-03-23T02:19:46.679351"
+    }
+  ],
+  "created_at": "2026-03-23T02:19:46.671341",
+  "updated_at": "2026-03-23T02:19:46.679347",
+  "metadata": {}
+}

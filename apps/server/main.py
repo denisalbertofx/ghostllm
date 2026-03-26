@@ -19,7 +19,11 @@ import asyncio
 import logging
 
 # Core & Providers & Auth
-from ghostllm_core.config import load_config, load_registry
+from ghostllm_core.config import (
+    load_config,
+    bootstrap_enabled_models,
+    resolve_upstream_model_id,
+)
 from apps.server.providers.nvidia import NvidiaProvider, NVIDIAError
 from apps.server.database import (
     create_db_and_tables, log_usage, 
@@ -88,17 +92,34 @@ def on_startup():
 # Load configuration
 CONFIG_PATH = "configs/default.yaml"
 REGISTRY_PATH = "configs/models.yaml"
+cfg = None
 
 try:
     cfg = load_config(CONFIG_PATH)
-    registry = load_registry(REGISTRY_PATH)
-    ENABLED_MODELS = {m.name: m for m in registry.models if m.enabled}
-    MODEL_MAPPING = {name: m.upstream_id for name, m in ENABLED_MODELS.items()}
+    ENABLED_MODELS, MODEL_MAPPING, MODEL_REGISTRY_ERROR = bootstrap_enabled_models(REGISTRY_PATH)
+    if MODEL_REGISTRY_ERROR:
+        logger.warning(f"Model registry warning: {MODEL_REGISTRY_ERROR}")
     nvidia_provider = NvidiaProvider(api_key=cfg.upstream.nvidia_api_key, base_url=cfg.upstream.base_url)
 except Exception as e:
     logger.error(f"Failed to load configurations: {e}")
-    MODEL_MAPPING = {}
+    ENABLED_MODELS, MODEL_MAPPING = {}, {}
+    MODEL_REGISTRY_ERROR = f"{type(e).__name__}: {e}"
     nvidia_provider = None
+
+
+def _model_registry_payload() -> Dict[str, Any]:
+    return {
+        "healthy": MODEL_REGISTRY_ERROR is None,
+        "enabled_count": len(ENABLED_MODELS),
+        "error": MODEL_REGISTRY_ERROR,
+        "registry_path": REGISTRY_PATH,
+    }
+
+
+def _provider_ready_payload() -> Dict[str, Any]:
+    ready = nvidia_provider is not None
+    detail = "" if ready else "NVIDIA Provider not initialized"
+    return {"ready": ready, "detail": detail}
 
 # Import translation logic
 from apps.server.api.translation import (
@@ -107,9 +128,24 @@ from apps.server.api.translation import (
     stream_openai_to_anthropic
 )
 
+# Anthropic claude aliases always allowed (Claude bridge)
+_CLAUDE_ALIASES = frozenset({
+    "sonnet", "claude-3-5-sonnet", "claude-3-5-sonnet-20241022", "claude-sonnet-4-6",
+})
+
 def is_model_allowed(model_name: str) -> bool:
-    aliases = ["sonnet", "claude-3-5-sonnet", "claude-3-5-sonnet-20241022", "claude-sonnet-4-6"]
-    return model_name in MODEL_MAPPING or model_name in MODEL_MAPPING.values() or model_name in aliases
+    """Return True if model_name is a known alias, upstream_id, or Anthropic alias."""
+    resolved = resolve_upstream_model_id(model_name, MODEL_MAPPING)
+    return (
+        model_name in MODEL_MAPPING           # registry name alias (kimi, planner, etc.)
+        or model_name in MODEL_MAPPING.values()  # direct upstream_id
+        or resolved in MODEL_MAPPING.values()    # unique basename -> upstream_id
+        or model_name in _CLAUDE_ALIASES       # anthropic bridge
+    )
+
+def resolve_model(model_name: str) -> str:
+    """Normalize model_name to its upstream_id (or return unchanged for known upstreams)."""
+    return resolve_upstream_model_id(model_name, MODEL_MAPPING)
 
 # --- Authentication Endpoints ---
 
@@ -158,14 +194,27 @@ async def create_user(request: Request, admin: User = Depends(admin_required)):
 
 @app.get("/v1/models")
 async def list_models():
-    """Mock models list for detection by agents."""
-    return {
-        "data": [
-            {"id": "claude-3-5-sonnet-20241022", "object": "model", "created": 123456789, "owned_by": "anthropic"},
-            {"id": "claude-sonnet-4-6", "object": "model", "created": 123456789, "owned_by": "anthropic"},
-            {"id": "kimi", "object": "model", "created": 123456789, "owned_by": "moonshotai"}
-        ]
-    }
+    """Registry-backed models list with diagnostics on bootstrap failure."""
+    data = [
+        {
+            "id": model.name,
+            "object": "model",
+            "created": 123456789,
+            "owned_by": "ghostllm",
+            "upstream_id": model.upstream_id,
+            "tool_calling": model.tool_calling,
+            "expensive": model.expensive,
+        }
+        for model in ENABLED_MODELS.values()
+    ]
+    payload: Dict[str, Any] = {"object": "list", "data": data}
+    if MODEL_REGISTRY_ERROR is not None:
+        payload["ghost_diagnostics"] = {
+            "model_registry_healthy": False,
+            "registry_load_error": MODEL_REGISTRY_ERROR,
+            "registry_path": REGISTRY_PATH,
+        }
+    return payload
 
 # --- OpenAI-compatible Endpoints ---
 @app.post("/v1/v1/chat/completions") # Catch double v1
@@ -174,8 +223,8 @@ async def chat_completions(request: Request, current_user: User = Depends(get_cu
     if not nvidia_provider:
         raise HTTPException(status_code=500, detail="NVIDIA Provider not initialized")
 
-    from api.adapters.scheduler import TaskScheduler
-    from api.adapters.openai import OpenAIAdapter
+    from apps.server.api.adapters.scheduler import TaskScheduler
+    from apps.server.api.adapters.openai import OpenAIAdapter
     
     body = await request.json()
     model = body.get("model")
@@ -187,7 +236,7 @@ async def chat_completions(request: Request, current_user: User = Depends(get_cu
     profile = TaskScheduler.detect_intent(body, is_openai=True)
     
     # 2. Build Optimized NVIDIA Request
-    upstream_model = MODEL_MAPPING.get(model, model)
+    upstream_model = resolve_model(model)
     optimized_body = OpenAIAdapter.build_request(
         model=upstream_model,
         messages=body.get("messages", []),
@@ -324,7 +373,23 @@ async def anthropic_messages(request: Request, forced_model: Optional[str] = Non
 @app.get("/healthz")
 @app.get("/health")
 async def health():
-    return {"status": "healthy", "version": "0.1.0"}
+    provider = _provider_ready_payload()
+    registry = _model_registry_payload()
+    status = "healthy" if provider["ready"] and registry["healthy"] else "degraded"
+    return {
+        "status": status,
+        "version": "0.1.0",
+        "provider": provider,
+        "model_registry": registry,
+    }
+
+
+@app.get("/ready")
+async def ready():
+    provider = _provider_ready_payload()
+    if provider["ready"]:
+        return provider
+    return JSONResponse(content=provider, status_code=503)
 
 @app.get("/ui")
 async def ui_root():
@@ -338,4 +403,6 @@ if os.path.exists(ui_dir):
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="127.0.0.1", port=11434)
+    host = getattr(getattr(cfg, "server", None), "host", "127.0.0.1")
+    port = getattr(getattr(cfg, "server", None), "port", 8000)
+    uvicorn.run(app, host=host, port=port)

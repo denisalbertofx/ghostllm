@@ -1,0 +1,49 @@
+{
+  "task_id": "task_20260325_142717_4a25ecb2",
+  "title": "Lista los .py directamente dentro de apps/cli/runtime/adapters (solo primer nivel, sin subcarpetas). Devuelve solo la lista de nombres de archivo, una por l\u00ednea.",
+  "mode": "Chat",
+  "status": "DONE",
+  "task_type": "direct_edit",
+  "inferred_type": "direct_edit",
+  "type_source": "inferred",
+  "batch_id": null,
+  "owner": "denis",
+  "scope": [],
+  "artifacts": [
+    "task_20260325_142717_ebd9"
+  ],
+  "risks": [],
+  "status_history": [
+    {
+      "status": "IDLE",
+      "timestamp": "2026-03-25T14:27:17.005948"
+    },
+    {
+      "status": "INTAKE",
+      "timestamp": "2026-03-25T14:27:17.006848",
+      "event": "phase",
+      "detail": "intake start"
+    },
+    {
+      "status": "EXPLORE",
+      "timestamp": "2026-03-25T14:27:17.011630",
+      "event": "phase",
+      "detail": "post-intake"
+    },
+    {
+      "status": "CLOSING",
+      "timestamp": "2026-03-25T14:27:21.265541",
+      "event": "phase",
+      "detail": "max_iterations"
+    },
+    {
+      "status": "DONE",
+      "timestamp": "2026-03-25T14:27:21.266117",
+      "event": "phase",
+      "detail": "session complete"
+    }
+  ],
+  "created_at": "2026-03-25T14:27:17.005960",
+  "updated_at": "2026-03-25T14:27:21.266116",
+  "metadata": {}
+}

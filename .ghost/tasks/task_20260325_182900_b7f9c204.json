@@ -1,0 +1,29 @@
+{
+  "task_id": "task_20260325_182900_b7f9c204",
+  "title": "\u00bfQu\u00e9 hace la funci\u00f3n seal_task_contract_after_intake? Responde en 3 frases m\u00e1ximo.",
+  "mode": "Chat",
+  "status": "INTAKE",
+  "owner": "denis",
+  "scope": [],
+  "artifacts": [],
+  "risks": [],
+  "status_history": [
+    {
+      "status": "created",
+      "timestamp": "2026-03-25T18:29:00.307168"
+    },
+    {
+      "status": "INTAKE",
+      "timestamp": "2026-03-25T18:29:00.307701",
+      "event": "phase",
+      "detail": "intake start"
+    }
+  ],
+  "created_at": "2026-03-25T18:29:00.307174",
+  "updated_at": "2026-03-25T18:29:00.307700",
+  "metadata": {},
+  "task_type": "build_fix",
+  "inferred_type": "build_fix",
+  "type_source": "inferred",
+  "batch_id": null
+}

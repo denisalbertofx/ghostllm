@@ -1,0 +1,35 @@
+{
+  "task_id": "task_20260325_193622_9339de81",
+  "title": "chat \"\u00bfEn qu\u00e9 archivo est\u00e1 definida la funci\u00f3n verification_diff_fingerprint?\"",
+  "mode": "Chat",
+  "status": "EXPLORE",
+  "owner": "denis",
+  "scope": [],
+  "artifacts": [],
+  "risks": [],
+  "status_history": [
+    {
+      "status": "created",
+      "timestamp": "2026-03-25T19:36:22.129245"
+    },
+    {
+      "status": "INTAKE",
+      "timestamp": "2026-03-25T19:36:22.130524",
+      "event": "phase",
+      "detail": "intake start"
+    },
+    {
+      "status": "EXPLORE",
+      "timestamp": "2026-03-25T19:36:22.138853",
+      "event": "phase",
+      "detail": "post-intake"
+    }
+  ],
+  "created_at": "2026-03-25T19:36:22.129269",
+  "updated_at": "2026-03-25T19:36:22.138852",
+  "metadata": {},
+  "task_type": "build_fix",
+  "inferred_type": "build_fix",
+  "type_source": "inferred",
+  "batch_id": null
+}

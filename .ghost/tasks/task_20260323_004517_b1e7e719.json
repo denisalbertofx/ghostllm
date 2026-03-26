@@ -1,0 +1,19 @@
+{
+  "task_id": "task_20260323_004517_b1e7e719",
+  "title": "Integration Test Swarm",
+  "mode": "coder",
+  "status": "created",
+  "owner": "E2E Verification",
+  "scope": [],
+  "artifacts": [],
+  "risks": [],
+  "status_history": [
+    {
+      "status": "created",
+      "timestamp": "2026-03-23T00:45:17.399725"
+    }
+  ],
+  "created_at": "2026-03-23T00:45:17.399735",
+  "updated_at": "2026-03-23T00:45:17.399736",
+  "metadata": {}
+}

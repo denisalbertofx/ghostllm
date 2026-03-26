@@ -1,0 +1,36 @@
+{
+  "task_id": "task_20260323_020407_ad0533ae",
+  "title": "Instalar uv y pytest",
+  "mode": "Chat",
+  "status": "done",
+  "task_type": "dependency_change",
+  "inferred_type": "dependency_change",
+  "type_source": "inferred",
+  "owner": "denis",
+  "scope": [],
+  "artifacts": [
+    "task_20260323_020407"
+  ],
+  "risks": [],
+  "status_history": [
+    {
+      "status": "created",
+      "timestamp": "2026-03-23T02:04:07.932257"
+    },
+    {
+      "status": "planned",
+      "timestamp": "2026-03-23T02:04:07.933651"
+    },
+    {
+      "status": "executing",
+      "timestamp": "2026-03-23T02:04:07.940158"
+    },
+    {
+      "status": "done",
+      "timestamp": "2026-03-23T02:04:10.152574"
+    }
+  ],
+  "created_at": "2026-03-23T02:04:07.932263",
+  "updated_at": "2026-03-23T02:04:10.152556",
+  "metadata": {}
+}

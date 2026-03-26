@@ -1,0 +1,35 @@
+{
+  "task_id": "task_20260325_193835_2e1ae06a",
+  "title": "\u00bfEn qu\u00e9 archivo est\u00e1 definida la funci\u00f3n verification_diff_fingerprint y para qu\u00e9 sirve a alto nivel? No modifiques archivos.",
+  "mode": "Chat",
+  "status": "EXPLORE",
+  "owner": "denis",
+  "scope": [],
+  "artifacts": [],
+  "risks": [],
+  "status_history": [
+    {
+      "status": "created",
+      "timestamp": "2026-03-25T19:38:35.112858"
+    },
+    {
+      "status": "INTAKE",
+      "timestamp": "2026-03-25T19:38:35.113471",
+      "event": "phase",
+      "detail": "intake start"
+    },
+    {
+      "status": "EXPLORE",
+      "timestamp": "2026-03-25T19:38:35.117815",
+      "event": "phase",
+      "detail": "post-intake"
+    }
+  ],
+  "created_at": "2026-03-25T19:38:35.112865",
+  "updated_at": "2026-03-25T19:38:35.117814",
+  "metadata": {},
+  "task_type": "build_fix",
+  "inferred_type": "build_fix",
+  "type_source": "inferred",
+  "batch_id": null
+}

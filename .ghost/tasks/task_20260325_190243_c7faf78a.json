@@ -1,0 +1,43 @@
+{
+  "task_id": "task_20260325_190243_c7faf78a",
+  "title": "Analiza README.md",
+  "mode": "Chat",
+  "status": "ABORTED",
+  "owner": "denis",
+  "scope": [],
+  "artifacts": [
+    "task_20260325_190243_09f3"
+  ],
+  "risks": [],
+  "status_history": [
+    {
+      "status": "created",
+      "timestamp": "2026-03-25T19:02:43.276156"
+    },
+    {
+      "status": "INTAKE",
+      "timestamp": "2026-03-25T19:02:43.276733",
+      "event": "phase",
+      "detail": "intake start"
+    },
+    {
+      "status": "EXPLORE",
+      "timestamp": "2026-03-25T19:02:43.280869",
+      "event": "phase",
+      "detail": "post-intake"
+    },
+    {
+      "status": "ABORTED",
+      "timestamp": "2026-03-25T19:02:46.117692",
+      "event": "phase",
+      "detail": "session complete"
+    }
+  ],
+  "created_at": "2026-03-25T19:02:43.276162",
+  "updated_at": "2026-03-25T19:02:46.117691",
+  "metadata": {},
+  "task_type": "docs_change",
+  "inferred_type": "docs_change",
+  "type_source": "inferred",
+  "batch_id": null
+}

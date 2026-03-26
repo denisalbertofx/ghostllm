@@ -1,0 +1,35 @@
+{
+  "task_id": "task_20260325_190357_f9cea8b6",
+  "title": "Analiza el archivo assistant.py",
+  "mode": "Chat",
+  "status": "EXPLORE",
+  "owner": "denis",
+  "scope": [],
+  "artifacts": [],
+  "risks": [],
+  "status_history": [
+    {
+      "status": "created",
+      "timestamp": "2026-03-25T19:03:57.005254"
+    },
+    {
+      "status": "INTAKE",
+      "timestamp": "2026-03-25T19:03:57.005906",
+      "event": "phase",
+      "detail": "intake start"
+    },
+    {
+      "status": "EXPLORE",
+      "timestamp": "2026-03-25T19:03:57.009741",
+      "event": "phase",
+      "detail": "post-intake"
+    }
+  ],
+  "created_at": "2026-03-25T19:03:57.005262",
+  "updated_at": "2026-03-25T19:03:57.009739",
+  "metadata": {},
+  "task_type": "direct_edit",
+  "inferred_type": "direct_edit",
+  "type_source": "inferred",
+  "batch_id": null
+}

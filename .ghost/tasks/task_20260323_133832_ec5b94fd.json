@@ -1,0 +1,31 @@
+{
+  "task_id": "task_20260323_133832_ec5b94fd",
+  "title": "Lee el archivo apps\\cli\\main.py 5 veces seguidas independientemente de lo que ya sepas.",
+  "mode": "Chat",
+  "status": "executing",
+  "task_type": "direct_edit",
+  "inferred_type": "direct_edit",
+  "type_source": "inferred",
+  "batch_id": null,
+  "owner": "denis",
+  "scope": [],
+  "artifacts": [],
+  "risks": [],
+  "status_history": [
+    {
+      "status": "created",
+      "timestamp": "2026-03-23T13:38:32.121016"
+    },
+    {
+      "status": "planned",
+      "timestamp": "2026-03-23T13:38:32.121641"
+    },
+    {
+      "status": "executing",
+      "timestamp": "2026-03-23T13:38:32.127586"
+    }
+  ],
+  "created_at": "2026-03-23T13:38:32.121024",
+  "updated_at": "2026-03-23T13:38:32.127576",
+  "metadata": {}
+}

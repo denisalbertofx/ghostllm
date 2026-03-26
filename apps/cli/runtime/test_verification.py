@@ -57,7 +57,7 @@ class TestVerificationManager(unittest.TestCase):
         self.assertEqual(res["status"], "success")
         self.assertEqual(len(res["checks"]), 1)
         self.assertEqual(res["checks"][0]["name"], "Build")
-        self.assertEqual(res["checks"][0]["status"], "success")
+        self.assertEqual(res["checks"][0]["status"], "passed")
 
 if __name__ == "__main__":
     unittest.main()

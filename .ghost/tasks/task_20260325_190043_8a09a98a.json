@@ -1,0 +1,35 @@
+{
+  "task_id": "task_20260325_190043_8a09a98a",
+  "title": "\u00bfQu\u00e9 hace seal_task_contract_after_intake?",
+  "mode": "Chat",
+  "status": "EXPLORE",
+  "owner": "denis",
+  "scope": [],
+  "artifacts": [],
+  "risks": [],
+  "status_history": [
+    {
+      "status": "created",
+      "timestamp": "2026-03-25T19:00:43.929884"
+    },
+    {
+      "status": "INTAKE",
+      "timestamp": "2026-03-25T19:00:43.930479",
+      "event": "phase",
+      "detail": "intake start"
+    },
+    {
+      "status": "EXPLORE",
+      "timestamp": "2026-03-25T19:00:43.934643",
+      "event": "phase",
+      "detail": "post-intake"
+    }
+  ],
+  "created_at": "2026-03-25T19:00:43.929890",
+  "updated_at": "2026-03-25T19:00:43.934642",
+  "metadata": {},
+  "task_type": "direct_edit",
+  "inferred_type": "direct_edit",
+  "type_source": "inferred",
+  "batch_id": null
+}

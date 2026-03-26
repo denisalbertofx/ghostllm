@@ -1,0 +1,26 @@
+{
+  "batch_id": "batch_20260323_021946_d60c84b4",
+  "steps": [
+    {
+      "step_id": 0,
+      "title": "Failure Step 1",
+      "task_id": null,
+      "status": "pending",
+      "result": null,
+      "retry_count": 0
+    },
+    {
+      "step_id": 1,
+      "title": "Should not Run",
+      "task_id": null,
+      "status": "pending",
+      "result": null,
+      "retry_count": 0
+    }
+  ],
+  "status": "running",
+  "current_step_index": 0,
+  "created_at": "2026-03-23T02:19:46.687807",
+  "updated_at": "2026-03-23T02:19:46.688946",
+  "metadata": {}
+}

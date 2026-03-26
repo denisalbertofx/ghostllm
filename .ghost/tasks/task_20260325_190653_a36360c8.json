@@ -1,0 +1,35 @@
+{
+  "task_id": "task_20260325_190653_a36360c8",
+  "title": "Repara error ficticio",
+  "mode": "Chat",
+  "status": "EXPLORE",
+  "owner": "denis",
+  "scope": [],
+  "artifacts": [],
+  "risks": [],
+  "status_history": [
+    {
+      "status": "created",
+      "timestamp": "2026-03-25T19:06:53.396039"
+    },
+    {
+      "status": "INTAKE",
+      "timestamp": "2026-03-25T19:06:53.396524",
+      "event": "phase",
+      "detail": "intake start"
+    },
+    {
+      "status": "EXPLORE",
+      "timestamp": "2026-03-25T19:06:53.403784",
+      "event": "phase",
+      "detail": "post-intake"
+    }
+  ],
+  "created_at": "2026-03-25T19:06:53.396046",
+  "updated_at": "2026-03-25T19:06:53.403783",
+  "metadata": {},
+  "task_type": "build_fix",
+  "inferred_type": "build_fix",
+  "type_source": "inferred",
+  "batch_id": null
+}

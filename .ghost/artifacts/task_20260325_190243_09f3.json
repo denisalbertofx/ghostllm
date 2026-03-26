@@ -1,0 +1,695 @@
+{
+  "session_id": "task_20260325_190243_09f3",
+  "task_id": "task_20260325_190243_c7faf78a",
+  "timestamp": "2026-03-25T19:02:43.276667",
+  "task": "Analiza README.md",
+  "task_type": "docs_change",
+  "type_source": "inferred",
+  "batch_id": null,
+  "step_id": null,
+  "plan": "Analiza README.md",
+  "root_cause": "No execution or answer produced (fallo de API o respuesta vac\u00eda). Upstream 404 (modelo o ruta API): revisa configs/models.yaml, variables GHOST_*_MODEL, y que upstream.base_url termine en /v1. No suele solucionarse cambiando el texto del prompt.",
+  "diff_summary": [],
+  "verification": {
+    "status": "skipped",
+    "checks": []
+  },
+  "verification_diff_fingerprint": "",
+  "verification_justification": "",
+  "rollback_status": "none",
+  "next_action": "Upstream 404 (modelo o ruta API): revisa configs/models.yaml, variables GHOST_*_MODEL, y que upstream.base_url termine en /v1. No suele solucionarse cambiando el texto del prompt.",
+  "events": [
+    {
+      "event": "RepoProfileInfluence",
+      "timestamp": 1774479763.2798326,
+      "details": "RepoProfile exploration: user prompt mentioned `README.md`."
+    },
+    {
+      "event": "RepoProfileInfluence",
+      "timestamp": 1774479763.2798336,
+      "details": "Verification commands derived from package_json, unknown (used at verify time)."
+    },
+    {
+      "event": "iteration_budget_applied",
+      "category": "complex_multi_file",
+      "global_cap": 15,
+      "effective_max": 15,
+      "recommended_min": 10,
+      "recommended_max": 15,
+      "rationale": "analysis_research_or_architect"
+    },
+    {
+      "event": "TaskStart",
+      "timestamp": 1774479763.2808485,
+      "details": "Mode: Chat | Task: Analiza README.md | task_mode=standard"
+    }
+  ],
+  "phase": "ABORTED",
+  "phase_history": [
+    {
+      "phase": "INTAKE",
+      "timestamp": "2026-03-25T19:02:43.276724",
+      "detail": "intake start",
+      "from": "INTAKE",
+      "iteration": null
+    },
+    {
+      "phase": "EXPLORE",
+      "timestamp": "2026-03-25T19:02:43.280859",
+      "detail": "post-intake",
+      "from": "INTAKE",
+      "iteration": null
+    },
+    {
+      "phase": "ABORTED",
+      "timestamp": "2026-03-25T19:02:46.117684",
+      "detail": "session complete",
+      "from": "EXPLORE",
+      "iteration": 1
+    }
+  ],
+  "phase_transitions": [
+    {
+      "from": "INTAKE",
+      "to": "INTAKE",
+      "reason": "intake start",
+      "ts": "2026-03-25T19:02:43.276724",
+      "iteration": null
+    },
+    {
+      "from": "INTAKE",
+      "to": "EXPLORE",
+      "reason": "post-intake",
+      "ts": "2026-03-25T19:02:43.280859",
+      "iteration": null
+    },
+    {
+      "from": "EXPLORE",
+      "to": "ABORTED",
+      "reason": "session complete",
+      "ts": "2026-03-25T19:02:46.117684",
+      "iteration": 1
+    }
+  ],
+  "promotion_decisions": [],
+  "verification_reuse_decisions": [],
+  "terminal_resolution_record": {
+    "ts": "2026-03-25T23:02:46.117641+00:00",
+    "terminal_phase": "ABORTED",
+    "outcome": "no_op",
+    "outcome_confidence": 1.0,
+    "evidence_score": 0,
+    "loop_abort_reason": null,
+    "root_cause_excerpt": "No execution or answer produced.",
+    "next_action_excerpt": "Retry with a clearer prompt, or use /do with explicit file paths.",
+    "evidence_lines": [
+      "No tool calls executed"
+    ],
+    "task_confidence": {
+      "level": "low",
+      "completion_confidence": 0.55,
+      "closure_reason": "insufficient_progress_no_op",
+      "closure_reason_summary_es": "Baja confianza: no hubo herramientas \u00fatiles ni respuesta final clara. Explorar m\u00e1s o reformular la tarea.",
+      "closure_posture_es": "Reformula el objetivo o usa /do con rutas expl\u00edcitas.",
+      "signals": {
+        "task_mode": "standard",
+        "micro_task_kind": null,
+        "iteration_budget_category": "complex_multi_file",
+        "had_evidence_sufficiency_eval": false,
+        "had_evidence_sufficient_immediate_synthesis": false,
+        "had_explore_answer_now_nudge": false,
+        "had_micro_task_detected": false,
+        "had_explore_redundant_ls_suppressed": false,
+        "repo_mismatch_detected": false,
+        "had_explore_churn_abort": false,
+        "explore_churn_abort_reason": "",
+        "had_symbol_search_no_match": false,
+        "informative_readonly_kind": null
+      }
+    },
+    "resolution_sources": {
+      "budget_exhausted": false,
+      "budget_status": "ok",
+      "provider_status": "ok",
+      "policy_status": "ok",
+      "session_failed": true,
+      "loop_abort_reason_raw": null
+    }
+  },
+  "repair_forensic_summary": {},
+  "task_outcome": "no_op",
+  "outcome_confidence": 1.0,
+  "evidence_score": 0,
+  "evidence_lines": [
+    "No tool calls executed"
+  ],
+  "task_intent": "analysis",
+  "task_scope": "api",
+  "change_expectation": "should_not_write",
+  "intent_confidence": 0.9,
+  "intent_reasoning_lines": [
+    "Intent 'analysis': start verb 'analiza' matched",
+    "Scope 'unknown': no scope keywords found",
+    "auto-repair: api scope -> typecheck=true"
+  ],
+  "task_confidence_level": "low",
+  "task_completion_confidence": 0.55,
+  "closure_reason": "insufficient_progress_no_op",
+  "closure_reason_summary_es": "Baja confianza: no hubo herramientas \u00fatiles ni respuesta final clara. Explorar m\u00e1s o reformular la tarea.",
+  "closure_posture_es": "Reformula el objetivo o usa /do con rutas expl\u00edcitas.",
+  "task_confidence_signals": {
+    "task_mode": "standard",
+    "micro_task_kind": null,
+    "iteration_budget_category": "complex_multi_file",
+    "had_evidence_sufficiency_eval": false,
+    "had_evidence_sufficient_immediate_synthesis": false,
+    "had_explore_answer_now_nudge": false,
+    "had_micro_task_detected": false,
+    "had_explore_redundant_ls_suppressed": false,
+    "repo_mismatch_detected": false,
+    "had_explore_churn_abort": false,
+    "explore_churn_abort_reason": "",
+    "had_symbol_search_no_match": false,
+    "informative_readonly_kind": null
+  },
+  "closure_operator_view": {
+    "primary_headline_es": "Ghost par\u00f3 por **falta de progreso** (sin herramientas \u00fatiles ni respuesta final clara).",
+    "completion_style": "aborted",
+    "completion_style_label_es": "abortado",
+    "completion_style_explanation_es": "La sesi\u00f3n termin\u00f3 en **ABORTED**: no se considera un cierre exitoso de tarea.",
+    "closure_reason_code": "insufficient_progress_no_op",
+    "closure_reason_operator_alias_en": "no_op_insufficient_progress",
+    "terminal_phase": "ABORTED",
+    "task_confidence_level": "low",
+    "task_completion_confidence": 0.55,
+    "outcome_confidence": 1.0,
+    "task_outcome": "no_op",
+    "iteration_limit_context": {
+      "loop_stop_signal_raw": null,
+      "assessment_kind": null,
+      "summary_es": null,
+      "narrative_is_secondary": false
+    }
+  },
+  "micro_task_kind": null,
+  "task_mode": "standard",
+  "repo_mismatch_detected": false,
+  "repo_mismatch_reason": "",
+  "repo_mismatch_reasons": [],
+  "requested_paths_missing": [],
+  "repo_mismatch_operator_message": "",
+  "explore_class_hint": "factual_question",
+  "iteration_budget": {
+    "category": "complex_multi_file",
+    "global_cap": 15,
+    "effective_max": 15,
+    "recommended_min": 10,
+    "recommended_max": 15,
+    "rationale": "analysis_research_or_architect"
+  },
+  "runtime_phase_breakdown": [
+    {
+      "phase": "EXPLORE",
+      "duration_ms": 2836.8,
+      "model_turns_segment": 0,
+      "iteration_at_transition": 1,
+      "detail_entering_next": "session complete"
+    }
+  ],
+  "intake_timing_ms": {
+    "repo_profile": 2.24,
+    "contract_spec": 1.08,
+    "decision_planner": 0.02,
+    "retrieval": 0.01,
+    "execution_agent": 0.01
+  },
+  "intake_planning_wall_ms": 0.03,
+  "repair_attempt_count": 0,
+  "repair_summary": "",
+  "budget_exhausted_reason": "",
+  "last_failed_check": "",
+  "last_repair_applied": "",
+  "repair_specialist_prompt_chars": 0,
+  "repair_specialist_usage_tokens": 0,
+  "repair_specialist_last_raw": "",
+  "repair_specialist_outcome": "",
+  "repair_specialist_outcome_detail": {},
+  "repair_outcome_log": [],
+  "tool_output_archive_meta": [],
+  "reverification_pending": false,
+  "task_contract": {
+    "version": 1,
+    "intent": {
+      "mode": "Chat",
+      "task": "Analiza README.md",
+      "task_type": "ask",
+      "scaffold_type": "none",
+      "is_slash_command": false,
+      "is_exact_command": false,
+      "requires_tools": false,
+      "requires_shell": false,
+      "requires_file_scope": false,
+      "original_text": "Analiza README.md",
+      "target_folder": null,
+      "metadata": {}
+    },
+    "allowed_tools": [
+      "ls",
+      "read_file",
+      "summarize_repo"
+    ],
+    "allowed_paths": [
+      "README.md"
+    ],
+    "budget": {
+      "max_shell_calls": 2,
+      "max_tool_calls": 12
+    },
+    "skip_verify": false,
+    "verification_policy": {
+      "required": false,
+      "typecheck": true,
+      "build": false,
+      "lint": false,
+      "tests": false
+    },
+    "repair_policy": {
+      "max_attempts": 1,
+      "rerun_failed_first": true
+    },
+    "blast_radius": "",
+    "risk_level": "",
+    "spec": {
+      "intent": "analysis",
+      "scope": [
+        "api",
+        "docs",
+        "tests"
+      ],
+      "forbidden_layers": [],
+      "change_expectation": "should_not_write",
+      "target_files": [
+        "README.md"
+      ],
+      "acceptance_criteria": [
+        "Analiza README.md"
+      ],
+      "verification_policy": {
+        "required": false,
+        "typecheck": true,
+        "build": false,
+        "lint": false,
+        "tests": false
+      },
+      "repair_policy": {
+        "max_attempts": 1,
+        "rerun_failed_first": true
+      },
+      "budget_policy": {
+        "max_shell_calls": 2,
+        "max_tool_calls": 12
+      },
+      "confidence": 0.9,
+      "reasoning_lines": [
+        "Intent 'analysis': start verb 'analiza' matched",
+        "Scope 'unknown': no scope keywords found",
+        "auto-repair: api scope -> typecheck=true"
+      ]
+    },
+    "exploration_plan": {
+      "ranked_files": [
+        "README.md"
+      ],
+      "ranked_dirs": [],
+      "ui_exploration_blocked": false,
+      "evidence_lines": [
+        "RepoProfile exploration: user prompt mentioned `README.md`.",
+        "Verification commands derived from package_json, unknown (used at verify time)."
+      ]
+    },
+    "runtime_contract_source": "taskspec",
+    "runtime_annotations": {
+      "decision_plan": {}
+    },
+    "verification_runs": [],
+    "repair_runs": []
+  },
+  "contract_spec": {
+    "intent": "analysis",
+    "scope": [
+      "api",
+      "docs",
+      "tests"
+    ],
+    "forbidden_layers": [],
+    "change_expectation": "should_not_write",
+    "target_files": [
+      "README.md"
+    ],
+    "acceptance_criteria": [
+      "Analiza README.md"
+    ],
+    "verification_policy": {
+      "required": false,
+      "typecheck": true,
+      "build": false,
+      "lint": false,
+      "tests": false
+    },
+    "repair_policy": {
+      "max_attempts": 1,
+      "rerun_failed_first": true
+    },
+    "budget_policy": {
+      "max_shell_calls": 2,
+      "max_tool_calls": 12
+    },
+    "confidence": 0.9,
+    "reasoning_lines": [
+      "Intent 'analysis': start verb 'analiza' matched",
+      "Scope 'unknown': no scope keywords found",
+      "auto-repair: api scope -> typecheck=true"
+    ]
+  },
+  "taskspec": {
+    "intent": "analysis",
+    "scope": [
+      "api",
+      "docs",
+      "tests"
+    ],
+    "forbidden_layers": [],
+    "change_expectation": "should_not_write",
+    "target_files": [
+      "README.md"
+    ],
+    "acceptance_criteria": [
+      "Analiza README.md"
+    ],
+    "verification_policy": {
+      "required": false,
+      "typecheck": true,
+      "build": false,
+      "lint": false,
+      "tests": false
+    },
+    "repair_policy": {
+      "max_attempts": 1,
+      "rerun_failed_first": true
+    },
+    "budget_policy": {
+      "max_shell_calls": 2,
+      "max_tool_calls": 12
+    },
+    "confidence": 0.9,
+    "reasoning_lines": [
+      "Intent 'analysis': start verb 'analiza' matched",
+      "Scope 'unknown': no scope keywords found",
+      "auto-repair: api scope -> typecheck=true"
+    ]
+  },
+  "contract_spec_validation_status": "repaired",
+  "contract_spec_repaired": true,
+  "contract_spec_validation_errors": [],
+  "taskspec_validation_status": "repaired",
+  "taskspec_repaired": true,
+  "taskspec_validation_errors": [],
+  "repo_profile": {
+    "root": "C:\\Users\\denis\\OneDrive\\Escritorio\\GhostLLM",
+    "stack": "python",
+    "layers_detected": [
+      "api",
+      "docs",
+      "tests"
+    ],
+    "has_package_json": false,
+    "important_folders": [
+      "apps",
+      "docs",
+      "packages",
+      "pyproject.toml",
+      "tests"
+    ],
+    "version": "2.0.0",
+    "confidence": 0.35,
+    "stack_detail": {
+      "runtime": "python",
+      "language": [
+        "python"
+      ],
+      "framework": [
+        "none"
+      ],
+      "orm": [
+        "none"
+      ],
+      "database": [
+        "unknown"
+      ],
+      "package_manager": [
+        "unknown"
+      ],
+      "test_runner": [
+        "unknown"
+      ]
+    },
+    "entrypoints": {
+      "api_roots": [],
+      "ui_roots": [],
+      "db_schema_roots": []
+    },
+    "key_files": [],
+    "api_routes": [],
+    "db_schema_files": [],
+    "validation_files": [],
+    "verification_commands": {
+      "typecheck": null,
+      "build": null,
+      "lint": null,
+      "tests": null,
+      "source": [
+        "package_json",
+        "unknown"
+      ]
+    },
+    "evidence_lines": [
+      "Python project (pyproject.toml or requirements.txt)"
+    ],
+    "cache": {
+      "used": true,
+      "cache_key": "6d49fc644001e1a441fce37aca94b025421ce407957c845df82c98b5334c26c4",
+      "source": "cache"
+    },
+    "profile_v2": {
+      "version": "2.0.0",
+      "root": "C:\\Users\\denis\\OneDrive\\Escritorio\\GhostLLM",
+      "generated_at": "2026-03-25T22:20:45.171863Z",
+      "cache": {
+        "used": true,
+        "cache_key": "6d49fc644001e1a441fce37aca94b025421ce407957c845df82c98b5334c26c4",
+        "source": "cache"
+      },
+      "stack": {
+        "runtime": "python",
+        "language": [
+          "python"
+        ],
+        "framework": [
+          "none"
+        ],
+        "orm": [
+          "none"
+        ],
+        "database": [
+          "unknown"
+        ],
+        "package_manager": [
+          "unknown"
+        ],
+        "test_runner": [
+          "unknown"
+        ]
+      },
+      "layers_detected": [
+        "api",
+        "docs",
+        "tests"
+      ],
+      "key_files": [],
+      "important_folders": [
+        "apps",
+        "docs",
+        "packages",
+        "pyproject.toml",
+        "tests"
+      ],
+      "entrypoints": {
+        "api_roots": [],
+        "ui_roots": [],
+        "db_schema_roots": []
+      },
+      "api_routes": [],
+      "db_schema_files": [],
+      "validation_files": [],
+      "verification_commands": {
+        "typecheck": null,
+        "build": null,
+        "lint": null,
+        "tests": null,
+        "source": [
+          "package_json",
+          "unknown"
+        ]
+      },
+      "constraints": {
+        "ignored_dirs": [
+          ".ghost",
+          ".git",
+          ".mypy_cache",
+          ".next",
+          ".pnpm-store",
+          ".turbo",
+          ".venv",
+          "__pycache__",
+          "build",
+          "coverage",
+          "dist",
+          "node_modules",
+          "out",
+          "venv"
+        ],
+        "max_files_scanned": 5000,
+        "max_bytes_per_file": 262144
+      },
+      "confidence": 0.35,
+      "evidence_lines": [
+        "Python project (pyproject.toml or requirements.txt)"
+      ]
+    }
+  },
+  "runtime_contract_source": "taskspec",
+  "exploration_plan": {
+    "ranked_files": [
+      "README.md"
+    ],
+    "ranked_dirs": [],
+    "ui_exploration_blocked": false,
+    "evidence_lines": [
+      "RepoProfile exploration: user prompt mentioned `README.md`.",
+      "Verification commands derived from package_json, unknown (used at verify time)."
+    ]
+  },
+  "repo_profile_influence": [
+    "RepoProfile exploration: user prompt mentioned `README.md`.",
+    "Verification commands derived from package_json, unknown (used at verify time)."
+  ],
+  "decision_plan": {},
+  "planner_version": "",
+  "planner_advisory_mode": true,
+  "planner_risk_level": "",
+  "planner_estimated_complexity": "",
+  "planner_provenance": {},
+  "planner_used": false,
+  "retrieval_enabled": false,
+  "retrieval_query": {},
+  "retrieval_result": {},
+  "retrieval_top_files": [],
+  "retrieval_top_symbols": [],
+  "retrieval_index_stats": {},
+  "retrieval_cache_info": {},
+  "retrieval_used_embeddings": false,
+  "retrieval_provenance": {},
+  "retrieval_actionable": false,
+  "retrieval_confidence": 0.0,
+  "retrieval_mode": "",
+  "retrieval_runtime_influenced": false,
+  "likely_edit_targets": [],
+  "likely_edit_target_reasons": [],
+  "merged_candidate_order": [],
+  "retrieval_highlight_chunks": [],
+  "execution_agent_used": false,
+  "execution_mode": "",
+  "selected_execution_model": "",
+  "selected_targets": [],
+  "execution_context_summary": {},
+  "proposed_edits": [],
+  "execution_confidence": 0.0,
+  "execution_reasoning_lines": [],
+  "execution_agent_provenance": {},
+  "execution_agent_prompt": "",
+  "execution_agent_writes_enabled": false,
+  "planner_model": "",
+  "execution_model_resolved": "",
+  "repair_model_resolved": "",
+  "general_fallback_model": "",
+  "execution_fallback_model": "",
+  "provider_backend": "",
+  "live_generation_used": false,
+  "provider_ok": true,
+  "provider_error_message": "",
+  "provider_latency_ms": 0.0,
+  "provider_model": "",
+  "proposal_parsed": false,
+  "execution_raw_proposal": "",
+  "provider_response_snapshot": {},
+  "benchmark_results": [],
+  "trace_path": "C:\\Users\\denis\\OneDrive\\Escritorio\\GhostLLM\\.ghost\\traces\\task_20260325_190243_09f3.json",
+  "trace_summary_short": "total=2842ms | model=459ms | tool=0ms | approval_wait=0ms | verif=0ms | overhead\u22482383ms | bottleneck=model calls sum to 459ms",
+  "trace_detail_md": "**Trace file:** `C:\\Users\\denis\\OneDrive\\Escritorio\\GhostLLM\\.ghost\\traces\\task_20260325_190243_09f3.json`\n**cwd:** `C:\\Users\\denis\\OneDrive\\Escritorio\\GhostLLM` | **repo_root:** `C:\\Users\\denis\\OneDrive\\Escritorio\\GhostLLM`\n**Total (wall):** 2842 ms\n**Model:** 459 ms | **Tool:** 0 ms | **Approval wait:** 0 ms | **Verification:** 0 ms | **Overhead (est.):** 2383 ms\n**Bottleneck:** model calls sum to 459ms\n*components are non-overlapping sums; remainder is orchestration/overhead*",
+  "batch_executor_used": false,
+  "batch_plans": [],
+  "batch_results": [],
+  "approval_compression_used": false,
+  "compressed_approval_count": 0,
+  "batched_read_count": 0,
+  "batched_verification_count": 0,
+  "config_source": "environment variables only (GHOST_AUTOLOAD_ENV off)",
+  "autoload_env_used": false,
+  "env_file_loaded": "",
+  "active_feature_flags": {
+    "GHOST_USE_TASKSPEC": "0",
+    "GHOST_USE_DECISION_PLANNER": "0",
+    "GHOST_USE_RETRIEVAL": "0",
+    "GHOST_RETRIEVAL_INFLUENCES_RUNTIME": "0",
+    "GHOST_USE_EXECUTION_AGENT": "0",
+    "GHOST_EXECUTION_AGENT_LIVE": "0",
+    "GHOST_PARALLEL_PIPELINE": "0",
+    "GHOST_USE_BATCH_EXECUTOR": "0",
+    "GHOST_USE_APPROVAL_COMPRESSION": "0",
+    "GHOST_USE_NVIDIA_NIM": "0",
+    "GHOST_AUTOLOAD_ENV": "0",
+    "GHOST_CLI_TRACE_SUMMARY": "0"
+  },
+  "startup_warnings": [],
+  "effective_repo_root": "C:\\Users\\denis\\OneDrive\\Escritorio\\GhostLLM",
+  "cli_command_mode": "dev",
+  "operational_metrics": {
+    "total_loop_iterations": 1,
+    "total_model_turns": 0,
+    "total_act_phases": 0,
+    "total_verify_phases": 0,
+    "total_repair_phases": 0,
+    "repair_attempts": 0,
+    "repair_success_count": 0,
+    "verification_pass_count": 0,
+    "verification_fail_count": 0,
+    "verification_reuse_count": 0,
+    "total_tool_calls": 0,
+    "total_write_tool_calls": 0,
+    "total_read_tool_calls": 0,
+    "prompt_chars_sent": 0,
+    "repair_prompt_chars_sent": 0,
+    "tool_output_archived_count": 0,
+    "final_aborted_reason": "aborted",
+    "model_turns_by_phase": {}
+  },
+  "runtime_health": {
+    "schema_version": 1,
+    "health_status": "failed",
+    "verify_status": "skipped",
+    "repair_status": "not_needed",
+    "exploration_status": "normal",
+    "terminal_status": "aborted",
+    "main_risk_flags": []
+  }
+}

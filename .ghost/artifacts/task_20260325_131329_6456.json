@@ -1,0 +1,740 @@
+{
+  "session_id": "task_20260325_131329_6456",
+  "task_id": "task_20260325_131329_5668c6e8",
+  "timestamp": "2026-03-25T13:13:29.817468",
+  "task": "A\u00f1ade al final de README.md en la ra\u00edz del repo una l\u00ednea en blanco y una l\u00ednea de comentario HTML: <!-- ghost-manual-sc1 -->. No cambies ning\u00fan otro contenido.",
+  "task_type": "docs_change",
+  "type_source": "inferred",
+  "batch_id": null,
+  "step_id": null,
+  "plan": "A\u00f1ade al final de README.md en la ra\u00edz del repo una l\u00ednea en blanco y una l\u00ednea de comentario HTML: <!-- ghost-manual-sc1 -->. No cambies ning\u00fan otro contenido.",
+  "root_cause": "Tool execution failed before any file change. Tool error: Phase EXPLORE is read-only (allowed: ls, read_file, summariz; Tool error: name '_sha256_utf8' is not defined",
+  "diff_summary": [],
+  "verification": {
+    "status": "skipped",
+    "checks": []
+  },
+  "verification_diff_fingerprint": "",
+  "verification_justification": "",
+  "rollback_status": "none",
+  "next_action": "Ejecuta continua: lee el fichero con read_file y usa edit_file con un old_str copiado exactamente del disco. Para branding/UI prioriza app/, components/ y estilos; evita tocar rutas API salvo que el encargo lo requiera.",
+  "events": [
+    {
+      "event": "RepoProfileInfluence",
+      "timestamp": 1774458809.8200989,
+      "details": "RepoProfile exploration: user prompt mentioned `README.md`."
+    },
+    {
+      "event": "RepoProfileInfluence",
+      "timestamp": 1774458809.8201,
+      "details": "Verification commands derived from package_json, unknown (used at verify time)."
+    },
+    {
+      "event": "TaskStart",
+      "timestamp": 1774458809.8205774,
+      "details": "Mode: Chat | Task: A\u00f1ade al final de README.md en la ra\u00edz del repo una l\u00ednea en blanco y una l\u00ednea de comentario HTML: <!-- ghost-manual-sc1 -->. No cambies ning\u00fan otro contenido."
+    },
+    {
+      "event": "PreToolUse",
+      "timestamp": 1774458814.9538815,
+      "details": "Initializing tool: summarize_repo"
+    },
+    {
+      "event": "PostToolUse",
+      "timestamp": 1774458814.9600804,
+      "details": "Completed: summarize_repo (success)"
+    },
+    {
+      "event": "PreToolUse",
+      "timestamp": 1774458814.9678035,
+      "details": "Initializing tool: read_file"
+    },
+    {
+      "event": "PostToolUse",
+      "timestamp": 1774458814.968006,
+      "details": "Completed: read_file (success)"
+    },
+    {
+      "event": "PreToolUse",
+      "timestamp": 1774458828.69912,
+      "details": "Initializing tool: read_file"
+    },
+    {
+      "event": "PostToolUse",
+      "timestamp": 1774458828.699299,
+      "details": "Completed: read_file (success)"
+    },
+    {
+      "event": "explore_promote_act",
+      "reason_code": "rejected_write_attempt",
+      "executed_tools": [],
+      "when": "post_tools"
+    },
+    {
+      "event": "PreToolUse",
+      "timestamp": 1774458838.1208534,
+      "details": "Initializing tool: edit_file"
+    },
+    {
+      "event": "TaskFailed",
+      "timestamp": 1774458838.1241786,
+      "details": "Critical Error: name '_sha256_utf8' is not defined"
+    },
+    {
+      "event": "PreToolUse",
+      "timestamp": 1774458841.1817908,
+      "details": "Initializing tool: write_file"
+    },
+    {
+      "event": "TaskFailed",
+      "timestamp": 1774458841.1837754,
+      "details": "Critical Error: name '_sha256_utf8' is not defined"
+    },
+    {
+      "event": "PreToolUse",
+      "timestamp": 1774458846.1876836,
+      "details": "Initializing tool: edit_file"
+    },
+    {
+      "event": "PostToolUse",
+      "timestamp": 1774458846.1938121,
+      "details": "Completed: edit_file (failed)"
+    },
+    {
+      "event": "PreToolUse",
+      "timestamp": 1774458851.4024115,
+      "details": "Initializing tool: read_file"
+    },
+    {
+      "event": "PostToolUse",
+      "timestamp": 1774458851.4025831,
+      "details": "Completed: read_file (success)"
+    },
+    {
+      "event": "PreToolUse",
+      "timestamp": 1774458865.0186965,
+      "details": "Initializing tool: read_file"
+    },
+    {
+      "event": "PostToolUse",
+      "timestamp": 1774458865.018875,
+      "details": "Completed: read_file (success)"
+    }
+  ],
+  "phase": "ABORTED",
+  "phase_history": [
+    {
+      "phase": "INTAKE",
+      "timestamp": "2026-03-25T13:13:29.817530",
+      "detail": "intake start",
+      "from": "INTAKE",
+      "iteration": null
+    },
+    {
+      "phase": "EXPLORE",
+      "timestamp": "2026-03-25T13:13:29.820588",
+      "detail": "post-intake",
+      "from": "INTAKE",
+      "iteration": null
+    },
+    {
+      "phase": "ACT",
+      "timestamp": "2026-03-25T13:13:52.010992",
+      "detail": "explore_promote:rejected_write_attempt",
+      "from": "EXPLORE",
+      "iteration": 3
+    },
+    {
+      "phase": "CLOSING",
+      "timestamp": "2026-03-25T13:14:35.704686",
+      "detail": "no write scope",
+      "from": "ACT",
+      "iteration": 9
+    },
+    {
+      "phase": "ABORTED",
+      "timestamp": "2026-03-25T13:14:35.705354",
+      "detail": "session complete",
+      "from": "CLOSING",
+      "iteration": 9
+    }
+  ],
+  "phase_transitions": [
+    {
+      "from": "INTAKE",
+      "to": "INTAKE",
+      "reason": "intake start",
+      "ts": "2026-03-25T13:13:29.817530",
+      "iteration": null
+    },
+    {
+      "from": "INTAKE",
+      "to": "EXPLORE",
+      "reason": "post-intake",
+      "ts": "2026-03-25T13:13:29.820588",
+      "iteration": null
+    },
+    {
+      "from": "EXPLORE",
+      "to": "ACT",
+      "reason": "explore_promote:rejected_write_attempt",
+      "ts": "2026-03-25T13:13:52.010992",
+      "iteration": 3
+    },
+    {
+      "from": "ACT",
+      "to": "CLOSING",
+      "reason": "no write scope",
+      "ts": "2026-03-25T13:14:35.704686",
+      "iteration": 9
+    },
+    {
+      "from": "CLOSING",
+      "to": "ABORTED",
+      "reason": "session complete",
+      "ts": "2026-03-25T13:14:35.705354",
+      "iteration": 9
+    }
+  ],
+  "promotion_decisions": [
+    {
+      "kind": "explore_to_act",
+      "reason_code": "rejected_write_attempt",
+      "from": "EXPLORE",
+      "to": "ACT",
+      "ts": "2026-03-25T13:13:52.010979",
+      "iteration": 3,
+      "extra": {
+        "executed_tools": [],
+        "when": "post_tools"
+      }
+    }
+  ],
+  "verification_reuse_decisions": [],
+  "terminal_resolution_record": {
+    "ts": "2026-03-25T17:14:35.705339+00:00",
+    "terminal_phase": "ABORTED",
+    "outcome": "partially_implemented",
+    "outcome_confidence": 0.82,
+    "evidence_score": 0,
+    "loop_abort_reason": null,
+    "root_cause_excerpt": "Tool execution failed before any file change. Tool error: Phase EXPLORE is read-only (allowed: ls, read_file, summariz; Tool error: name '_sha256_utf8' is not defined",
+    "next_action_excerpt": "Ejecuta continua: lee el fichero con read_file y usa edit_file con un old_str copiado exactamente del disco. Para branding/UI prioriza app/, components/ y estilos; evita tocar rutas API salvo que el encargo lo requiera.",
+    "evidence_lines": [
+      "Relevant files read: 4",
+      "Exploration: ls(0), summarize_repo(1)",
+      "Matching implementation found (relevant files inspected)",
+      "Verification: no checks executed (incomplete or skipped)",
+      "Tool error: Phase EXPLORE is read-only (allowed: ls, read_file, summariz",
+      "Tool error: name '_sha256_utf8' is not defined",
+      "Tool error: Phase EXPLORE is read-only (allowed: ls, read_file, summariz",
+      "Tool error: name '_sha256_utf8' is not defined",
+      "Tool error: name '_sha256_utf8' is not defined",
+      "Tool error: Target string (old_str) not found."
+    ],
+    "resolution_sources": {
+      "budget_exhausted": false,
+      "budget_status": "ok",
+      "provider_status": "ok",
+      "policy_status": "ok",
+      "session_failed": true,
+      "loop_abort_reason_raw": null
+    }
+  },
+  "repair_forensic_summary": {},
+  "task_outcome": "partially_implemented",
+  "outcome_confidence": 0.82,
+  "evidence_score": 0,
+  "evidence_lines": [
+    "Relevant files read: 4",
+    "Exploration: ls(0), summarize_repo(1)",
+    "Matching implementation found (relevant files inspected)",
+    "Verification: no checks executed (incomplete or skipped)",
+    "Tool error: Phase EXPLORE is read-only (allowed: ls, read_file, summariz",
+    "Tool error: name '_sha256_utf8' is not defined",
+    "Tool error: Phase EXPLORE is read-only (allowed: ls, read_file, summariz",
+    "Tool error: name '_sha256_utf8' is not defined",
+    "Tool error: name '_sha256_utf8' is not defined",
+    "Tool error: Target string (old_str) not found."
+  ],
+  "task_intent": "implementation",
+  "task_scope": "api",
+  "change_expectation": "must_write",
+  "intent_confidence": 0.9,
+  "intent_reasoning_lines": [
+    "Intent 'implementation': start verb 'a\u00f1ade' matched",
+    "Scope 'unknown': no scope keywords found",
+    "auto-repair: api scope -> typecheck=true"
+  ],
+  "repair_attempt_count": 0,
+  "repair_summary": "",
+  "budget_exhausted_reason": "",
+  "last_failed_check": "",
+  "last_repair_applied": "",
+  "repair_specialist_prompt_chars": 0,
+  "repair_specialist_usage_tokens": 0,
+  "repair_specialist_last_raw": "",
+  "repair_specialist_outcome": "",
+  "repair_specialist_outcome_detail": {},
+  "repair_outcome_log": [],
+  "tool_output_archive_meta": [],
+  "reverification_pending": false,
+  "task_contract": {
+    "version": 1,
+    "intent": {
+      "mode": "Chat",
+      "task": "A\u00f1ade al final de README.md en la ra\u00edz del repo una l\u00ednea en blanco y una l\u00ednea de comentario HTML: <!-- ghost-manual-sc1 -->. No cambies ning\u00fan otro contenido.",
+      "task_type": "ask",
+      "scaffold_type": "extend",
+      "is_slash_command": false,
+      "is_exact_command": false,
+      "requires_tools": true,
+      "requires_shell": false,
+      "requires_file_scope": true,
+      "original_text": "A\u00f1ade al final de README.md en la ra\u00edz del repo una l\u00ednea en blanco y una l\u00ednea de comentario HTML: <!-- ghost-manual-sc1 -->. No cambies ning\u00fan otro contenido.",
+      "target_folder": null,
+      "metadata": {}
+    },
+    "allowed_tools": [
+      "delete_file",
+      "edit_file",
+      "ls",
+      "read_file",
+      "run_shell",
+      "summarize_repo",
+      "write_file"
+    ],
+    "allowed_paths": [
+      "README.md"
+    ],
+    "budget": {
+      "max_shell_calls": 2,
+      "max_tool_calls": 12
+    },
+    "skip_verify": false,
+    "verification_policy": {
+      "required": true,
+      "typecheck": true,
+      "build": false,
+      "lint": false,
+      "tests": false
+    },
+    "repair_policy": {
+      "max_attempts": 1,
+      "rerun_failed_first": true
+    },
+    "blast_radius": "",
+    "risk_level": "",
+    "spec": {
+      "intent": "implementation",
+      "scope": [
+        "api",
+        "docs",
+        "tests"
+      ],
+      "forbidden_layers": [],
+      "change_expectation": "must_write",
+      "target_files": [
+        "README.md"
+      ],
+      "acceptance_criteria": [
+        "A\u00f1ade al final de README.md en la ra\u00edz del repo una l\u00ednea en blanco y una l\u00ednea de comentario HTML: <!-- ghost-manual-sc1 -->. No cambies ning\u00fan otro contenido."
+      ],
+      "verification_policy": {
+        "required": true,
+        "typecheck": true,
+        "build": false,
+        "lint": false,
+        "tests": false
+      },
+      "repair_policy": {
+        "max_attempts": 1,
+        "rerun_failed_first": true
+      },
+      "budget_policy": {
+        "max_shell_calls": 2,
+        "max_tool_calls": 12
+      },
+      "confidence": 0.9,
+      "reasoning_lines": [
+        "Intent 'implementation': start verb 'a\u00f1ade' matched",
+        "Scope 'unknown': no scope keywords found",
+        "auto-repair: api scope -> typecheck=true"
+      ]
+    },
+    "exploration_plan": {
+      "ranked_files": [
+        "README.md"
+      ],
+      "ranked_dirs": [],
+      "ui_exploration_blocked": false,
+      "evidence_lines": [
+        "RepoProfile exploration: user prompt mentioned `README.md`.",
+        "Verification commands derived from package_json, unknown (used at verify time)."
+      ]
+    },
+    "runtime_contract_source": "taskspec",
+    "runtime_annotations": {
+      "decision_plan": {}
+    },
+    "verification_runs": [],
+    "repair_runs": []
+  },
+  "contract_spec": {
+    "intent": "implementation",
+    "scope": [
+      "api",
+      "docs",
+      "tests"
+    ],
+    "forbidden_layers": [],
+    "change_expectation": "must_write",
+    "target_files": [
+      "README.md"
+    ],
+    "acceptance_criteria": [
+      "A\u00f1ade al final de README.md en la ra\u00edz del repo una l\u00ednea en blanco y una l\u00ednea de comentario HTML: <!-- ghost-manual-sc1 -->. No cambies ning\u00fan otro contenido."
+    ],
+    "verification_policy": {
+      "required": true,
+      "typecheck": true,
+      "build": false,
+      "lint": false,
+      "tests": false
+    },
+    "repair_policy": {
+      "max_attempts": 1,
+      "rerun_failed_first": true
+    },
+    "budget_policy": {
+      "max_shell_calls": 2,
+      "max_tool_calls": 12
+    },
+    "confidence": 0.9,
+    "reasoning_lines": [
+      "Intent 'implementation': start verb 'a\u00f1ade' matched",
+      "Scope 'unknown': no scope keywords found",
+      "auto-repair: api scope -> typecheck=true"
+    ]
+  },
+  "taskspec": {
+    "intent": "implementation",
+    "scope": [
+      "api",
+      "docs",
+      "tests"
+    ],
+    "forbidden_layers": [],
+    "change_expectation": "must_write",
+    "target_files": [
+      "README.md"
+    ],
+    "acceptance_criteria": [
+      "A\u00f1ade al final de README.md en la ra\u00edz del repo una l\u00ednea en blanco y una l\u00ednea de comentario HTML: <!-- ghost-manual-sc1 -->. No cambies ning\u00fan otro contenido."
+    ],
+    "verification_policy": {
+      "required": true,
+      "typecheck": true,
+      "build": false,
+      "lint": false,
+      "tests": false
+    },
+    "repair_policy": {
+      "max_attempts": 1,
+      "rerun_failed_first": true
+    },
+    "budget_policy": {
+      "max_shell_calls": 2,
+      "max_tool_calls": 12
+    },
+    "confidence": 0.9,
+    "reasoning_lines": [
+      "Intent 'implementation': start verb 'a\u00f1ade' matched",
+      "Scope 'unknown': no scope keywords found",
+      "auto-repair: api scope -> typecheck=true"
+    ]
+  },
+  "contract_spec_validation_status": "repaired",
+  "contract_spec_repaired": true,
+  "contract_spec_validation_errors": [],
+  "taskspec_validation_status": "repaired",
+  "taskspec_repaired": true,
+  "taskspec_validation_errors": [],
+  "repo_profile": {
+    "root": "C:\\Users\\denis\\OneDrive\\Escritorio\\GhostLLM",
+    "stack": "python",
+    "layers_detected": [
+      "api",
+      "docs",
+      "tests"
+    ],
+    "has_package_json": false,
+    "important_folders": [
+      "apps",
+      "docs",
+      "packages",
+      "pyproject.toml",
+      "tests"
+    ],
+    "version": "2.0.0",
+    "confidence": 0.35,
+    "stack_detail": {
+      "runtime": "python",
+      "language": [
+        "python"
+      ],
+      "framework": [
+        "none"
+      ],
+      "orm": [
+        "none"
+      ],
+      "database": [
+        "unknown"
+      ],
+      "package_manager": [
+        "unknown"
+      ],
+      "test_runner": [
+        "pytest"
+      ]
+    },
+    "entrypoints": {
+      "api_roots": [],
+      "ui_roots": [],
+      "db_schema_roots": []
+    },
+    "key_files": [],
+    "api_routes": [],
+    "db_schema_files": [],
+    "validation_files": [],
+    "verification_commands": {
+      "typecheck": null,
+      "build": null,
+      "lint": null,
+      "tests": null,
+      "source": [
+        "package_json",
+        "unknown"
+      ]
+    },
+    "evidence_lines": [
+      "Python project (pyproject.toml or requirements.txt)"
+    ],
+    "cache": {
+      "used": true,
+      "cache_key": "16ebf4aec1c2709b560db6cee1daaa65488949d2de7436614e64c80507987f4b",
+      "source": "cache"
+    },
+    "profile_v2": {
+      "version": "2.0.0",
+      "root": "C:\\Users\\denis\\OneDrive\\Escritorio\\GhostLLM",
+      "generated_at": "2026-03-25T17:06:48.360365Z",
+      "cache": {
+        "used": true,
+        "cache_key": "16ebf4aec1c2709b560db6cee1daaa65488949d2de7436614e64c80507987f4b",
+        "source": "cache"
+      },
+      "stack": {
+        "runtime": "python",
+        "language": [
+          "python"
+        ],
+        "framework": [
+          "none"
+        ],
+        "orm": [
+          "none"
+        ],
+        "database": [
+          "unknown"
+        ],
+        "package_manager": [
+          "unknown"
+        ],
+        "test_runner": [
+          "pytest"
+        ]
+      },
+      "layers_detected": [
+        "api",
+        "docs",
+        "tests"
+      ],
+      "key_files": [],
+      "important_folders": [
+        "apps",
+        "docs",
+        "packages",
+        "pyproject.toml",
+        "tests"
+      ],
+      "entrypoints": {
+        "api_roots": [],
+        "ui_roots": [],
+        "db_schema_roots": []
+      },
+      "api_routes": [],
+      "db_schema_files": [],
+      "validation_files": [],
+      "verification_commands": {
+        "typecheck": null,
+        "build": null,
+        "lint": null,
+        "tests": null,
+        "source": [
+          "package_json",
+          "unknown"
+        ]
+      },
+      "constraints": {
+        "ignored_dirs": [
+          ".ghost",
+          ".git",
+          ".mypy_cache",
+          ".next",
+          ".pnpm-store",
+          ".turbo",
+          ".venv",
+          "__pycache__",
+          "build",
+          "coverage",
+          "dist",
+          "node_modules",
+          "out",
+          "venv"
+        ],
+        "max_files_scanned": 5000,
+        "max_bytes_per_file": 262144
+      },
+      "confidence": 0.35,
+      "evidence_lines": [
+        "Python project (pyproject.toml or requirements.txt)"
+      ]
+    }
+  },
+  "runtime_contract_source": "taskspec",
+  "exploration_plan": {
+    "ranked_files": [
+      "README.md"
+    ],
+    "ranked_dirs": [],
+    "ui_exploration_blocked": false,
+    "evidence_lines": [
+      "RepoProfile exploration: user prompt mentioned `README.md`.",
+      "Verification commands derived from package_json, unknown (used at verify time)."
+    ]
+  },
+  "repo_profile_influence": [
+    "RepoProfile exploration: user prompt mentioned `README.md`.",
+    "Verification commands derived from package_json, unknown (used at verify time)."
+  ],
+  "decision_plan": {},
+  "planner_version": "",
+  "planner_advisory_mode": true,
+  "planner_risk_level": "",
+  "planner_estimated_complexity": "",
+  "planner_provenance": {},
+  "planner_used": false,
+  "retrieval_enabled": false,
+  "retrieval_query": {},
+  "retrieval_result": {},
+  "retrieval_top_files": [],
+  "retrieval_top_symbols": [],
+  "retrieval_index_stats": {},
+  "retrieval_cache_info": {},
+  "retrieval_used_embeddings": false,
+  "retrieval_provenance": {},
+  "retrieval_actionable": false,
+  "retrieval_confidence": 0.0,
+  "retrieval_mode": "",
+  "retrieval_runtime_influenced": false,
+  "likely_edit_targets": [],
+  "likely_edit_target_reasons": [],
+  "merged_candidate_order": [],
+  "retrieval_highlight_chunks": [],
+  "execution_agent_used": false,
+  "execution_mode": "",
+  "selected_execution_model": "",
+  "selected_targets": [],
+  "execution_context_summary": {},
+  "proposed_edits": [],
+  "execution_confidence": 0.0,
+  "execution_reasoning_lines": [],
+  "execution_agent_provenance": {},
+  "execution_agent_prompt": "",
+  "execution_agent_writes_enabled": false,
+  "planner_model": "",
+  "execution_model_resolved": "",
+  "repair_model_resolved": "",
+  "general_fallback_model": "",
+  "execution_fallback_model": "",
+  "provider_backend": "",
+  "live_generation_used": false,
+  "provider_ok": true,
+  "provider_error_message": "",
+  "provider_latency_ms": 0.0,
+  "provider_model": "",
+  "proposal_parsed": false,
+  "execution_raw_proposal": "",
+  "provider_response_snapshot": {},
+  "benchmark_results": [],
+  "trace_path": "C:\\Users\\denis\\OneDrive\\Escritorio\\GhostLLM\\.ghost\\traces\\task_20260325_131329_6456.json",
+  "trace_summary_short": "total=65889ms | model=64284ms | tool=18ms | approval_wait=0ms | verif=0ms | overhead\u22481587ms | bottleneck=execution model latency dominated (13558ms) | loop_turns=9 tool_rounds=8",
+  "trace_detail_md": "**Trace file:** `C:\\Users\\denis\\OneDrive\\Escritorio\\GhostLLM\\.ghost\\traces\\task_20260325_131329_6456.json`\n**cwd:** `C:\\Users\\denis\\OneDrive\\Escritorio\\GhostLLM` | **repo_root:** `C:\\Users\\denis\\OneDrive\\Escritorio\\GhostLLM`\n**Total (wall):** 65889 ms\n**Model:** 64284 ms | **Tool:** 18 ms | **Approval wait:** 0 ms | **Verification:** 0 ms | **Overhead (est.):** 1587 ms\n**Bottleneck:** execution model latency dominated (13558ms)\n**Slowest model call:** `general:kimi`\n**Chat loop:** model_turns=9 | tool_rounds=8\n*components are non-overlapping sums; remainder is orchestration/overhead*",
+  "batch_executor_used": false,
+  "batch_plans": [],
+  "batch_results": [],
+  "approval_compression_used": false,
+  "compressed_approval_count": 0,
+  "batched_read_count": 0,
+  "batched_verification_count": 0,
+  "config_source": "environment variables only (GHOST_AUTOLOAD_ENV off)",
+  "autoload_env_used": false,
+  "env_file_loaded": "",
+  "active_feature_flags": {
+    "GHOST_USE_TASKSPEC": "0",
+    "GHOST_USE_DECISION_PLANNER": "0",
+    "GHOST_USE_RETRIEVAL": "0",
+    "GHOST_RETRIEVAL_INFLUENCES_RUNTIME": "0",
+    "GHOST_USE_EXECUTION_AGENT": "0",
+    "GHOST_EXECUTION_AGENT_LIVE": "0",
+    "GHOST_PARALLEL_PIPELINE": "0",
+    "GHOST_USE_BATCH_EXECUTOR": "0",
+    "GHOST_USE_APPROVAL_COMPRESSION": "0",
+    "GHOST_USE_NVIDIA_NIM": "0",
+    "GHOST_AUTOLOAD_ENV": "0",
+    "GHOST_CLI_TRACE_SUMMARY": "0"
+  },
+  "startup_warnings": [],
+  "effective_repo_root": "C:\\Users\\denis\\OneDrive\\Escritorio\\GhostLLM",
+  "cli_command_mode": "do",
+  "operational_metrics": {
+    "total_loop_iterations": 9,
+    "total_model_turns": 9,
+    "total_act_phases": 1,
+    "total_verify_phases": 0,
+    "total_repair_phases": 0,
+    "repair_attempts": 0,
+    "repair_success_count": 0,
+    "verification_pass_count": 0,
+    "verification_fail_count": 0,
+    "verification_reuse_count": 0,
+    "total_tool_calls": 6,
+    "total_write_tool_calls": 1,
+    "total_read_tool_calls": 5,
+    "prompt_chars_sent": 93763,
+    "repair_prompt_chars_sent": 0,
+    "tool_output_archived_count": 0,
+    "final_aborted_reason": "aborted"
+  },
+  "runtime_health": {
+    "schema_version": 1,
+    "health_status": "failed",
+    "verify_status": "skipped",
+    "repair_status": "not_needed",
+    "exploration_status": "normal",
+    "terminal_status": "aborted",
+    "main_risk_flags": []
+  }
+}

@@ -1,0 +1,31 @@
+{
+  "task_id": "task_20260323_151057_8d19f64e",
+  "title": "/do ejecuta exactamente: head -10 pyproject.toml",
+  "mode": "Execute",
+  "status": "executing",
+  "task_type": "config_change",
+  "inferred_type": "config_change",
+  "type_source": "inferred",
+  "batch_id": null,
+  "owner": "denis",
+  "scope": [],
+  "artifacts": [],
+  "risks": [],
+  "status_history": [
+    {
+      "status": "created",
+      "timestamp": "2026-03-23T15:10:57.482794"
+    },
+    {
+      "status": "planned",
+      "timestamp": "2026-03-23T15:10:57.483387"
+    },
+    {
+      "status": "executing",
+      "timestamp": "2026-03-23T15:10:57.491201"
+    }
+  ],
+  "created_at": "2026-03-23T15:10:57.482802",
+  "updated_at": "2026-03-23T15:10:57.491176",
+  "metadata": {}
+}

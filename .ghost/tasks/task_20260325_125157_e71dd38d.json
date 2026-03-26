@@ -1,0 +1,43 @@
+{
+  "task_id": "task_20260325_125157_e71dd38d",
+  "title": "En menos de 12 l\u00edneas, lista los archivos bajo apps/cli/runtime que contengan 'verification' en el nombre y di qu\u00e9 hace cada uno a alto nivel. No modifiques archivos.",
+  "mode": "Chat",
+  "status": "ABORTED",
+  "task_type": "direct_edit",
+  "inferred_type": "direct_edit",
+  "type_source": "inferred",
+  "batch_id": null,
+  "owner": "denis",
+  "scope": [],
+  "artifacts": [
+    "task_20260325_125157_74ad"
+  ],
+  "risks": [],
+  "status_history": [
+    {
+      "status": "IDLE",
+      "timestamp": "2026-03-25T12:51:57.644084"
+    },
+    {
+      "status": "INTAKE",
+      "timestamp": "2026-03-25T12:51:57.644767",
+      "event": "phase",
+      "detail": "intake start"
+    },
+    {
+      "status": "EXPLORE",
+      "timestamp": "2026-03-25T12:51:57.649652",
+      "event": "phase",
+      "detail": "post-intake"
+    },
+    {
+      "status": "ABORTED",
+      "timestamp": "2026-03-25T12:51:57.835346",
+      "event": "phase",
+      "detail": "session complete"
+    }
+  ],
+  "created_at": "2026-03-25T12:51:57.644092",
+  "updated_at": "2026-03-25T12:51:57.835345",
+  "metadata": {}
+}

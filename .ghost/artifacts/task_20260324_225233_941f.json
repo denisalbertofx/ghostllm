@@ -1,0 +1,1263 @@
+{
+  "session_id": "task_20260324_225233_941f",
+  "task_id": "task_20260324_225115_2c42bd83",
+  "timestamp": "2026-03-24T22:52:33.053783",
+  "task": "/do implementa el plan",
+  "task_type": "direct_edit",
+  "type_source": "inferred",
+  "batch_id": null,
+  "step_id": null,
+  "plan": "implementa el plan",
+  "root_cause": "Code changes were made but verification failed (Python Tests (uv)).",
+  "diff_summary": [
+    {
+      "file": "apps/web/src/app/page.tsx",
+      "type": "Edit File",
+      "status": "success"
+    },
+    {
+      "file": "apps/web/src/app/components/UI.tsx",
+      "type": "Write File",
+      "status": "success"
+    }
+  ],
+  "verification": {
+    "status": "failed",
+    "justification": "TaskSpec-driven verification plan (cheap-first order preserved). | RepoProfile: plan names unavailable; using detected checks.",
+    "checks": [
+      {
+        "name": "Python Tests (uv)",
+        "command": "uv run pytest",
+        "command_executed": "uv run pytest",
+        "command_source": "VerificationManager",
+        "status": "failed",
+        "provenance": "executed",
+        "started_at": 1774407332.9213266,
+        "completed_at": 1774407332.9516294,
+        "exit_code": 2,
+        "output_summary": "error: Workspace member `C:\\Users\\denis\\OneDrive\\Escritorio\\GhostLLM\\apps\\server` is missing a `pyproject.toml` (matches: `apps/server`) ",
+        "stdout": "",
+        "stderr": "error: Workspace member `C:\\Users\\denis\\OneDrive\\Escritorio\\GhostLLM\\apps\\server` is missing a `pyproject.toml` (matches: `apps/server`)\n"
+      }
+    ],
+    "steps_executed_count": 1,
+    "manual_verification_notes": "",
+    "verification_source": "VerificationManager"
+  },
+  "verification_justification": "TaskSpec-driven verification plan (cheap-first order preserved). | RepoProfile: plan names unavailable; using detected checks.",
+  "rollback_status": "none",
+  "next_action": "Python Tests (uv) still failing in apps/web/src/app/page.tsx, apps/web/src/app/components/UI.tsx. Likely cause: error: Workspace member `C:\\Users\\denis\\OneDrive\\Escritorio\\GhostLLM\\apps\\server` is missing a `pyproject.toml` (matches: `apps/server`). Re-run typecheck/build to confirm fix. If it still fails, inspect the failing check output and fix the reported errors.",
+  "events": [
+    {
+      "event": "RepoProfileInfluence",
+      "timestamp": 1774407153.0567262,
+      "details": "Verification commands derived from package_json, unknown (used at verify time)."
+    },
+    {
+      "event": "TaskStart",
+      "timestamp": 1774407154.3380573,
+      "details": "Mode: Execute | Task: /do implementa el plan"
+    },
+    {
+      "event": "PreToolUse",
+      "timestamp": 1774407161.1749656,
+      "details": "Initializing tool: edit_file"
+    },
+    {
+      "event": "PostToolUse",
+      "timestamp": 1774407161.1793096,
+      "details": "Completed: edit_file (success)"
+    },
+    {
+      "event": "PreToolUse",
+      "timestamp": 1774407164.155461,
+      "details": "Initializing tool: run_shell"
+    },
+    {
+      "event": "PostToolUse",
+      "timestamp": 1774407173.2843704,
+      "details": "Completed: run_shell (success)"
+    },
+    {
+      "event": "PreToolUse",
+      "timestamp": 1774407176.0704665,
+      "details": "Initializing tool: read_file"
+    },
+    {
+      "event": "PostToolUse",
+      "timestamp": 1774407176.0706463,
+      "details": "Completed: read_file (success)"
+    },
+    {
+      "event": "PreToolUse",
+      "timestamp": 1774407177.6729991,
+      "details": "Initializing tool: ls"
+    },
+    {
+      "event": "PostToolUse",
+      "timestamp": 1774407177.6733334,
+      "details": "Completed: ls (success)"
+    },
+    {
+      "event": "PreToolUse",
+      "timestamp": 1774407320.7271504,
+      "details": "Initializing tool: write_file"
+    },
+    {
+      "event": "PostToolUse",
+      "timestamp": 1774407320.7409515,
+      "details": "Completed: write_file (success)"
+    },
+    {
+      "event": "PreToolUse",
+      "timestamp": 1774407323.7635972,
+      "details": "Initializing tool: read_file"
+    },
+    {
+      "event": "PostToolUse",
+      "timestamp": 1774407323.7638116,
+      "details": "Completed: read_file (success)"
+    },
+    {
+      "event": "PreVerification",
+      "timestamp": 1774407332.4647772,
+      "details": "Starting integrity verification cycle"
+    },
+    {
+      "event": "PostVerification",
+      "timestamp": 1774407332.9517107,
+      "details": "Verification finished with status: FAILED"
+    },
+    {
+      "event": "TaskComplete",
+      "timestamp": 1774407332.9559715,
+      "details": "Session finalized successfully. Changes detected."
+    }
+  ],
+  "execution_state": "FAILED_VERIFICATION",
+  "task_outcome": "verification_failed",
+  "outcome_confidence": 0.95,
+  "evidence_score": 16,
+  "evidence_lines": [
+    "Relevant files read: 3",
+    "Exploration: ls(6), summarize_repo(0)",
+    "Files changed: 2 (apps/web/src/app/page.tsx, apps/web/src/app/components/UI.tsx)",
+    "Verification steps run: 1",
+    "Verification: failed"
+  ],
+  "task_intent": "implementation",
+  "task_scope": "api",
+  "change_expectation": "must_write",
+  "intent_confidence": 0.9,
+  "intent_reasoning_lines": [
+    "Intent 'implementation': start verb 'implementa' matched",
+    "Scope 'unknown': no scope keywords found",
+    "auto-repair: api scope -> typecheck=true"
+  ],
+  "repair_attempt_count": 0,
+  "repair_summary": "",
+  "budget_exhausted_reason": "",
+  "last_failed_check": "",
+  "last_repair_applied": "",
+  "reverification_pending": false,
+  "taskspec": {
+    "intent": "implementation",
+    "scope": [
+      "api",
+      "docs",
+      "tests"
+    ],
+    "forbidden_layers": [],
+    "change_expectation": "must_write",
+    "target_files": null,
+    "acceptance_criteria": [
+      "/do implementa el plan"
+    ],
+    "verification_policy": {
+      "required": true,
+      "typecheck": true,
+      "build": false,
+      "lint": false,
+      "tests": false
+    },
+    "repair_policy": {
+      "max_attempts": 1,
+      "rerun_failed_first": true
+    },
+    "budget_policy": {
+      "max_shell_calls": 2,
+      "max_tool_calls": 12
+    },
+    "confidence": 0.9,
+    "reasoning_lines": [
+      "Intent 'implementation': start verb 'implementa' matched",
+      "Scope 'unknown': no scope keywords found",
+      "auto-repair: api scope -> typecheck=true"
+    ]
+  },
+  "taskspec_validation_status": "repaired",
+  "taskspec_repaired": true,
+  "taskspec_validation_errors": [],
+  "repo_profile": {
+    "root": "C:\\Users\\denis\\OneDrive\\Escritorio\\GhostLLM",
+    "stack": "python",
+    "layers_detected": [
+      "api",
+      "docs",
+      "tests"
+    ],
+    "has_package_json": false,
+    "important_folders": [
+      "apps",
+      "docs",
+      "packages",
+      "pyproject.toml",
+      "tests"
+    ],
+    "version": "2.0.0",
+    "confidence": 0.35,
+    "stack_detail": {
+      "runtime": "python",
+      "language": [
+        "python"
+      ],
+      "framework": [
+        "none"
+      ],
+      "orm": [
+        "none"
+      ],
+      "database": [
+        "unknown"
+      ],
+      "package_manager": [
+        "unknown"
+      ],
+      "test_runner": [
+        "unknown"
+      ]
+    },
+    "entrypoints": {
+      "api_roots": [],
+      "ui_roots": [],
+      "db_schema_roots": []
+    },
+    "key_files": [],
+    "api_routes": [],
+    "db_schema_files": [],
+    "validation_files": [],
+    "verification_commands": {
+      "typecheck": null,
+      "build": null,
+      "lint": null,
+      "tests": null,
+      "source": [
+        "package_json",
+        "unknown"
+      ]
+    },
+    "evidence_lines": [
+      "Python project (pyproject.toml or requirements.txt)"
+    ],
+    "cache": {
+      "used": true,
+      "cache_key": "ea89f8358c42f525ac60061b9adf438edd509fb48096d3ace5287834f74731d2",
+      "source": "cache"
+    },
+    "profile_v2": {
+      "version": "2.0.0",
+      "root": "C:\\Users\\denis\\OneDrive\\Escritorio\\GhostLLM",
+      "generated_at": "2026-03-25T00:55:31.474892Z",
+      "cache": {
+        "used": true,
+        "cache_key": "ea89f8358c42f525ac60061b9adf438edd509fb48096d3ace5287834f74731d2",
+        "source": "cache"
+      },
+      "stack": {
+        "runtime": "python",
+        "language": [
+          "python"
+        ],
+        "framework": [
+          "none"
+        ],
+        "orm": [
+          "none"
+        ],
+        "database": [
+          "unknown"
+        ],
+        "package_manager": [
+          "unknown"
+        ],
+        "test_runner": [
+          "unknown"
+        ]
+      },
+      "layers_detected": [
+        "api",
+        "docs",
+        "tests"
+      ],
+      "key_files": [],
+      "important_folders": [
+        "apps",
+        "docs",
+        "packages",
+        "pyproject.toml",
+        "tests"
+      ],
+      "entrypoints": {
+        "api_roots": [],
+        "ui_roots": [],
+        "db_schema_roots": []
+      },
+      "api_routes": [],
+      "db_schema_files": [],
+      "validation_files": [],
+      "verification_commands": {
+        "typecheck": null,
+        "build": null,
+        "lint": null,
+        "tests": null,
+        "source": [
+          "package_json",
+          "unknown"
+        ]
+      },
+      "constraints": {
+        "ignored_dirs": [
+          ".git",
+          ".mypy_cache",
+          ".next",
+          ".pnpm-store",
+          ".turbo",
+          ".venv",
+          "__pycache__",
+          "build",
+          "coverage",
+          "dist",
+          "node_modules",
+          "out",
+          "venv"
+        ],
+        "max_files_scanned": 5000,
+        "max_bytes_per_file": 262144
+      },
+      "confidence": 0.35,
+      "evidence_lines": [
+        "Python project (pyproject.toml or requirements.txt)"
+      ]
+    }
+  },
+  "runtime_contract_source": "taskspec",
+  "exploration_plan": {
+    "ranked_files": [],
+    "ranked_dirs": [],
+    "ui_exploration_blocked": false,
+    "evidence_lines": [
+      "Verification commands derived from package_json, unknown (used at verify time)."
+    ]
+  },
+  "repo_profile_influence": [
+    "Verification commands derived from package_json, unknown (used at verify time)."
+  ],
+  "decision_plan": {
+    "exploration_plan": {
+      "version": "1.0.0",
+      "goal": "implementation",
+      "ranked_candidates": [
+        {
+          "path": "package.json",
+          "kind": "file",
+          "reason": "Fallback generic project marker (no rich RepoProfile key_files)",
+          "score": 0.35,
+          "source": "heuristic"
+        },
+        {
+          "path": "pyproject.toml",
+          "kind": "file",
+          "reason": "Fallback generic project marker (no rich RepoProfile key_files)",
+          "score": 0.35,
+          "source": "heuristic"
+        },
+        {
+          "path": "tsconfig.json",
+          "kind": "file",
+          "reason": "Fallback generic project marker (no rich RepoProfile key_files)",
+          "score": 0.35,
+          "source": "heuristic"
+        }
+      ],
+      "avoid": {
+        "forbidden_layers": [],
+        "forbidden_roots": [],
+        "forbidden_paths": []
+      },
+      "limits": {
+        "max_reads": 20,
+        "max_bytes_per_file": 262144,
+        "max_shell_calls": 2,
+        "reserve_for_repair": 0
+      }
+    },
+    "execution_plan": {
+      "version": "1.0.0",
+      "execution_strategy": "staged_edit",
+      "expected_files_changed": [
+        "package.json",
+        "pyproject.toml",
+        "tsconfig.json"
+      ],
+      "guardrails": {
+        "forbid_layers": [],
+        "touch_only": [
+          "api",
+          "tests"
+        ],
+        "max_diff_lines": 200
+      },
+      "blast_radius": "system",
+      "risk": {
+        "level": "medium",
+        "reasons": [
+          "config/build manifest: package.json",
+          "config/build manifest: pyproject.toml",
+          "multiple expected files (+1)"
+        ],
+        "score": 5
+      },
+      "estimated_complexity": "medium"
+    },
+    "verification_plan": {
+      "version": "1.0.0",
+      "required": true,
+      "strategy": "cheap_first",
+      "steps": [
+        {
+          "check": "typecheck",
+          "command": "npx tsc --noEmit",
+          "source": "defaults",
+          "cost": "standard",
+          "gate": true,
+          "reason": "TS/API/data scope: typecheck first (cheap-first)"
+        },
+        {
+          "check": "build",
+          "command": "npm run build",
+          "source": "defaults",
+          "cost": "expensive",
+          "gate": true,
+          "reason": "Build required by policy/risk; default command"
+        }
+      ],
+      "policy": {
+        "rerun_failed_first": true,
+        "no_custom_pipes": true,
+        "must_be_truthful": true
+      }
+    },
+    "repair_plan": {
+      "version": "1.0.0",
+      "max_attempts": 1,
+      "attempts_used": 0,
+      "repair_on": [
+        "typecheck",
+        "build",
+        "tests"
+      ],
+      "stop_on": [
+        "budget_exhausted",
+        "policy_block",
+        "permission_denied"
+      ],
+      "rerun_failed_first": true,
+      "last_failed_check": null,
+      "next_actions": []
+    },
+    "provenance": {
+      "planner_version": "1.0.0",
+      "advisory_mode": true,
+      "rules_applied": [
+        "exploration_rank_v1",
+        "execution_strategy_v1",
+        "verification_cheap_first_v1",
+        "repair_policy_v1"
+      ],
+      "generated_at": "2026-03-25T02:52:33.057609+00:00",
+      "notes": "Sprint 1 deterministic planner; advisory only."
+    }
+  },
+  "planner_version": "1.0.0",
+  "planner_advisory_mode": true,
+  "planner_risk_level": "medium",
+  "planner_estimated_complexity": "medium",
+  "planner_provenance": {
+    "planner_version": "1.0.0",
+    "advisory_mode": true,
+    "rules_applied": [
+      "exploration_rank_v1",
+      "execution_strategy_v1",
+      "verification_cheap_first_v1",
+      "repair_policy_v1"
+    ],
+    "generated_at": "2026-03-25T02:52:33.057609+00:00",
+    "notes": "Sprint 1 deterministic planner; advisory only."
+  },
+  "planner_used": true,
+  "retrieval_enabled": true,
+  "retrieval_query": {
+    "text": "/do implementa el plan /do implementa el plan",
+    "allowed_roots": [],
+    "forbidden_roots": [],
+    "target_files": [],
+    "preferred_files": [
+      "package.json",
+      "pyproject.toml",
+      "tsconfig.json"
+    ],
+    "preferred_symbols": [],
+    "max_hits": 14,
+    "languages": [],
+    "layer_boost_api": true,
+    "layer_boost_data": false
+  },
+  "retrieval_result": {
+    "hits": [
+      {
+        "file_path": ".ghost/worktrees/test_manual/apps/web/package.json",
+        "chunk_id": "94ca1a9c628e9b880c32c7e3",
+        "score": 54.0,
+        "reasons": [
+          "planner_preferred",
+          "lexical"
+        ],
+        "start_line": 1,
+        "end_line": 29,
+        "preview": "{\n  \"name\": \"web\",\n  \"version\": \"0.1.0\",\n  \"private\": true,",
+        "symbol_names": []
+      },
+      {
+        "file_path": ".ghost/worktrees/test_manual/apps/web/tsconfig.json",
+        "chunk_id": "e5ac6a3d54fd5531c2fc7815",
+        "score": 54.0,
+        "reasons": [
+          "planner_preferred",
+          "lexical"
+        ],
+        "start_line": 1,
+        "end_line": 26,
+        "preview": "{\n  \"compilerOptions\": {\n    \"lib\": [\"dom\", \"dom.iterable\", \"esnext\"],\n    \"allowJs\": true,",
+        "symbol_names": []
+      },
+      {
+        "file_path": ".ghost/worktrees/worker_0ff6c94c/apps/web/package.json",
+        "chunk_id": "ce99300698ee0efd90b15199",
+        "score": 54.0,
+        "reasons": [
+          "planner_preferred",
+          "lexical"
+        ],
+        "start_line": 1,
+        "end_line": 29,
+        "preview": "{\n  \"name\": \"web\",\n  \"version\": \"0.1.0\",\n  \"private\": true,",
+        "symbol_names": []
+      },
+      {
+        "file_path": ".ghost/worktrees/worker_0ff6c94c/apps/web/tsconfig.json",
+        "chunk_id": "c27e04207ca72d3815d031ae",
+        "score": 54.0,
+        "reasons": [
+          "planner_preferred",
+          "lexical"
+        ],
+        "start_line": 1,
+        "end_line": 26,
+        "preview": "{\n  \"compilerOptions\": {\n    \"lib\": [\"dom\", \"dom.iterable\", \"esnext\"],\n    \"allowJs\": true,",
+        "symbol_names": []
+      },
+      {
+        "file_path": ".ghost/worktrees/worker_17b2d3e9/apps/web/package.json",
+        "chunk_id": "10e70a57370f25f6d4b59f3d",
+        "score": 54.0,
+        "reasons": [
+          "planner_preferred",
+          "lexical"
+        ],
+        "start_line": 1,
+        "end_line": 29,
+        "preview": "{\n  \"name\": \"web\",\n  \"version\": \"0.1.0\",\n  \"private\": true,",
+        "symbol_names": []
+      },
+      {
+        "file_path": ".ghost/worktrees/worker_17b2d3e9/apps/web/tsconfig.json",
+        "chunk_id": "864059caccbb13603ce8db2f",
+        "score": 54.0,
+        "reasons": [
+          "planner_preferred",
+          "lexical"
+        ],
+        "start_line": 1,
+        "end_line": 26,
+        "preview": "{\n  \"compilerOptions\": {\n    \"lib\": [\"dom\", \"dom.iterable\", \"esnext\"],\n    \"allowJs\": true,",
+        "symbol_names": []
+      },
+      {
+        "file_path": ".ghost/worktrees/worker_340b7f2b/apps/web/package.json",
+        "chunk_id": "20f1d4866b1c9c4f7aad1d39",
+        "score": 54.0,
+        "reasons": [
+          "planner_preferred",
+          "lexical"
+        ],
+        "start_line": 1,
+        "end_line": 29,
+        "preview": "{\n  \"name\": \"web\",\n  \"version\": \"0.1.0\",\n  \"private\": true,",
+        "symbol_names": []
+      },
+      {
+        "file_path": ".ghost/worktrees/worker_340b7f2b/apps/web/tsconfig.json",
+        "chunk_id": "b95146042995dddbfe5efb26",
+        "score": 54.0,
+        "reasons": [
+          "planner_preferred",
+          "lexical"
+        ],
+        "start_line": 1,
+        "end_line": 26,
+        "preview": "{\n  \"compilerOptions\": {\n    \"lib\": [\"dom\", \"dom.iterable\", \"esnext\"],\n    \"allowJs\": true,",
+        "symbol_names": []
+      },
+      {
+        "file_path": ".ghost/worktrees/worker_54ef1aef/apps/web/package.json",
+        "chunk_id": "a3fdc872cda1ba2ef605a916",
+        "score": 54.0,
+        "reasons": [
+          "planner_preferred",
+          "lexical"
+        ],
+        "start_line": 1,
+        "end_line": 29,
+        "preview": "{\n  \"name\": \"web\",\n  \"version\": \"0.1.0\",\n  \"private\": true,",
+        "symbol_names": []
+      },
+      {
+        "file_path": ".ghost/worktrees/worker_54ef1aef/apps/web/tsconfig.json",
+        "chunk_id": "593f0ada0612aa293f7f3816",
+        "score": 54.0,
+        "reasons": [
+          "planner_preferred",
+          "lexical"
+        ],
+        "start_line": 1,
+        "end_line": 26,
+        "preview": "{\n  \"compilerOptions\": {\n    \"lib\": [\"dom\", \"dom.iterable\", \"esnext\"],\n    \"allowJs\": true,",
+        "symbol_names": []
+      },
+      {
+        "file_path": ".ghost/worktrees/worker_64b00422/apps/web/package.json",
+        "chunk_id": "a8f839b01f3af18edb8abc44",
+        "score": 54.0,
+        "reasons": [
+          "planner_preferred",
+          "lexical"
+        ],
+        "start_line": 1,
+        "end_line": 29,
+        "preview": "{\n  \"name\": \"web\",\n  \"version\": \"0.1.0\",\n  \"private\": true,",
+        "symbol_names": []
+      },
+      {
+        "file_path": ".ghost/worktrees/worker_64b00422/apps/web/tsconfig.json",
+        "chunk_id": "93264a435b5129072edafc4d",
+        "score": 54.0,
+        "reasons": [
+          "planner_preferred",
+          "lexical"
+        ],
+        "start_line": 1,
+        "end_line": 26,
+        "preview": "{\n  \"compilerOptions\": {\n    \"lib\": [\"dom\", \"dom.iterable\", \"esnext\"],\n    \"allowJs\": true,",
+        "symbol_names": []
+      },
+      {
+        "file_path": ".ghost/worktrees/worker_6f839e4d/apps/web/package.json",
+        "chunk_id": "495ec44c1a3e1ff32e314b0d",
+        "score": 54.0,
+        "reasons": [
+          "planner_preferred",
+          "lexical"
+        ],
+        "start_line": 1,
+        "end_line": 29,
+        "preview": "{\n  \"name\": \"web\",\n  \"version\": \"0.1.0\",\n  \"private\": true,",
+        "symbol_names": []
+      },
+      {
+        "file_path": ".ghost/worktrees/worker_6f839e4d/apps/web/tsconfig.json",
+        "chunk_id": "6696a36d5b30b2a11158fe2a",
+        "score": 54.0,
+        "reasons": [
+          "planner_preferred",
+          "lexical"
+        ],
+        "start_line": 1,
+        "end_line": 26,
+        "preview": "{\n  \"compilerOptions\": {\n    \"lib\": [\"dom\", \"dom.iterable\", \"esnext\"],\n    \"allowJs\": true,",
+        "symbol_names": []
+      }
+    ],
+    "top_files": [
+      [
+        ".ghost/worktrees/test_manual/apps/web/package.json",
+        54.0
+      ],
+      [
+        ".ghost/worktrees/test_manual/apps/web/tsconfig.json",
+        54.0
+      ],
+      [
+        ".ghost/worktrees/worker_0ff6c94c/apps/web/package.json",
+        54.0
+      ],
+      [
+        ".ghost/worktrees/worker_0ff6c94c/apps/web/tsconfig.json",
+        54.0
+      ],
+      [
+        ".ghost/worktrees/worker_17b2d3e9/apps/web/package.json",
+        54.0
+      ],
+      [
+        ".ghost/worktrees/worker_17b2d3e9/apps/web/tsconfig.json",
+        54.0
+      ],
+      [
+        ".ghost/worktrees/worker_340b7f2b/apps/web/package.json",
+        54.0
+      ],
+      [
+        ".ghost/worktrees/worker_340b7f2b/apps/web/tsconfig.json",
+        54.0
+      ]
+    ],
+    "top_symbols": [
+      [
+        "test_multiline_fidelity",
+        ".ghost/worktrees/worker_fdc150c8/verify_fidelity.py"
+      ],
+      [
+        "doctor",
+        "apps/cli/main.py"
+      ],
+      [
+        "plan",
+        "apps/cli/main.py"
+      ],
+      [
+        "do",
+        "apps/cli/main.py"
+      ],
+      [
+        "to_markdown",
+        "apps/cli/runtime/artifacts.py"
+      ],
+      [
+        "test_plan_mode_restrictions",
+        "apps/cli/runtime/test_policy_gate.py"
+      ],
+      [
+        "test_delete_hardening",
+        "apps/cli/runtime/test_policy_gate.py"
+      ],
+      [
+        "test_windows_compatibility_regex",
+        "apps/cli/runtime/test_policy_gate.py"
+      ],
+      [
+        "tearDown",
+        "apps/cli/runtime/test_verification.py"
+      ],
+      [
+        "render_help",
+        "apps/cli/ui/renderer.py"
+      ],
+      [
+        "is_model_allowed",
+        "apps/server/main.py"
+      ],
+      [
+        "list_models",
+        "apps/server/main.py"
+      ]
+    ],
+    "provenance": {
+      "method": "hybrid_lexical_path_symbol_priors",
+      "chunks_scored": 8896,
+      "hits_returned": 14,
+      "retrieval_mode": "influencing",
+      "retrieval_actionable": true,
+      "retrieval_confidence": 0.793,
+      "retrieval_runtime_influenced": true
+    },
+    "embeddings_used": false,
+    "query_ms": 126.30720000015572,
+    "chunks_scored": 8896
+  },
+  "retrieval_top_files": [
+    {
+      "path": ".ghost/worktrees/test_manual/apps/web/package.json",
+      "score": 54.0
+    },
+    {
+      "path": ".ghost/worktrees/test_manual/apps/web/tsconfig.json",
+      "score": 54.0
+    },
+    {
+      "path": ".ghost/worktrees/worker_0ff6c94c/apps/web/package.json",
+      "score": 54.0
+    },
+    {
+      "path": ".ghost/worktrees/worker_0ff6c94c/apps/web/tsconfig.json",
+      "score": 54.0
+    },
+    {
+      "path": ".ghost/worktrees/worker_17b2d3e9/apps/web/package.json",
+      "score": 54.0
+    },
+    {
+      "path": ".ghost/worktrees/worker_17b2d3e9/apps/web/tsconfig.json",
+      "score": 54.0
+    },
+    {
+      "path": ".ghost/worktrees/worker_340b7f2b/apps/web/package.json",
+      "score": 54.0
+    },
+    {
+      "path": ".ghost/worktrees/worker_340b7f2b/apps/web/tsconfig.json",
+      "score": 54.0
+    }
+  ],
+  "retrieval_top_symbols": [
+    {
+      "symbol": "test_multiline_fidelity",
+      "file": ".ghost/worktrees/worker_fdc150c8/verify_fidelity.py"
+    },
+    {
+      "symbol": "doctor",
+      "file": "apps/cli/main.py"
+    },
+    {
+      "symbol": "plan",
+      "file": "apps/cli/main.py"
+    },
+    {
+      "symbol": "do",
+      "file": "apps/cli/main.py"
+    },
+    {
+      "symbol": "to_markdown",
+      "file": "apps/cli/runtime/artifacts.py"
+    },
+    {
+      "symbol": "test_plan_mode_restrictions",
+      "file": "apps/cli/runtime/test_policy_gate.py"
+    },
+    {
+      "symbol": "test_delete_hardening",
+      "file": "apps/cli/runtime/test_policy_gate.py"
+    },
+    {
+      "symbol": "test_windows_compatibility_regex",
+      "file": "apps/cli/runtime/test_policy_gate.py"
+    },
+    {
+      "symbol": "tearDown",
+      "file": "apps/cli/runtime/test_verification.py"
+    },
+    {
+      "symbol": "render_help",
+      "file": "apps/cli/ui/renderer.py"
+    },
+    {
+      "symbol": "is_model_allowed",
+      "file": "apps/server/main.py"
+    },
+    {
+      "symbol": "list_models",
+      "file": "apps/server/main.py"
+    }
+  ],
+  "retrieval_index_stats": {
+    "file_count": 2341,
+    "chunk_count": 8896,
+    "symbol_count": 4875,
+    "edge_count": 3892,
+    "skipped_count": 0
+  },
+  "retrieval_cache_info": {
+    "cache_path": "C:\\Users\\denis\\OneDrive\\Escritorio\\GhostLLM\\.ghost\\cache\\repo_retrieval_index.json",
+    "rebuilt": false,
+    "incremental": true,
+    "files_updated": 116,
+    "cache_version": "1.0.0"
+  },
+  "retrieval_used_embeddings": false,
+  "retrieval_provenance": {
+    "method": "hybrid_lexical_path_symbol_priors",
+    "chunks_scored": 8896,
+    "hits_returned": 14,
+    "retrieval_mode": "influencing",
+    "retrieval_actionable": true,
+    "retrieval_confidence": 0.793,
+    "retrieval_runtime_influenced": true
+  },
+  "retrieval_actionable": true,
+  "retrieval_confidence": 0.793,
+  "retrieval_mode": "influencing",
+  "retrieval_runtime_influenced": true,
+  "likely_edit_targets": [
+    ".ghost/worktrees/test_manual/apps/web/package.json",
+    ".ghost/worktrees/test_manual/apps/web/tsconfig.json",
+    ".ghost/worktrees/worker_0ff6c94c/apps/web/package.json",
+    ".ghost/worktrees/worker_0ff6c94c/apps/web/tsconfig.json",
+    ".ghost/worktrees/worker_17b2d3e9/apps/web/package.json",
+    ".ghost/worktrees/worker_17b2d3e9/apps/web/tsconfig.json",
+    ".ghost/worktrees/worker_340b7f2b/apps/web/package.json",
+    ".ghost/worktrees/worker_340b7f2b/apps/web/tsconfig.json"
+  ],
+  "likely_edit_target_reasons": [
+    "top retrieval file (score=54.0)",
+    "top retrieval file (score=54.0)",
+    "top retrieval file (score=54.0)",
+    "top retrieval file (score=54.0)",
+    "top retrieval file (score=54.0)",
+    "top retrieval file (score=54.0)",
+    "top retrieval file (score=54.0)",
+    "top retrieval file (score=54.0)"
+  ],
+  "merged_candidate_order": [
+    {
+      "path": "ghost/worktrees/test_manual/apps/web/package.json",
+      "source": "retrieval",
+      "reason": "retrieval ranked file (score=54.0)"
+    },
+    {
+      "path": "ghost/worktrees/test_manual/apps/web/tsconfig.json",
+      "source": "retrieval",
+      "reason": "retrieval ranked file (score=54.0)"
+    },
+    {
+      "path": "ghost/worktrees/worker_0ff6c94c/apps/web/package.json",
+      "source": "retrieval",
+      "reason": "retrieval ranked file (score=54.0)"
+    },
+    {
+      "path": "ghost/worktrees/worker_0ff6c94c/apps/web/tsconfig.json",
+      "source": "retrieval",
+      "reason": "retrieval ranked file (score=54.0)"
+    },
+    {
+      "path": "ghost/worktrees/worker_17b2d3e9/apps/web/package.json",
+      "source": "retrieval",
+      "reason": "retrieval ranked file (score=54.0)"
+    },
+    {
+      "path": "ghost/worktrees/worker_17b2d3e9/apps/web/tsconfig.json",
+      "source": "retrieval",
+      "reason": "retrieval ranked file (score=54.0)"
+    },
+    {
+      "path": "ghost/worktrees/worker_340b7f2b/apps/web/package.json",
+      "source": "retrieval",
+      "reason": "retrieval ranked file (score=54.0)"
+    },
+    {
+      "path": "ghost/worktrees/worker_340b7f2b/apps/web/tsconfig.json",
+      "source": "retrieval",
+      "reason": "retrieval ranked file (score=54.0)"
+    },
+    {
+      "path": "package.json",
+      "source": "planner",
+      "reason": "Decision planner exploration / execution candidate"
+    },
+    {
+      "path": "pyproject.toml",
+      "source": "planner",
+      "reason": "Decision planner exploration / execution candidate"
+    },
+    {
+      "path": "tsconfig.json",
+      "source": "planner",
+      "reason": "Decision planner exploration / execution candidate"
+    }
+  ],
+  "retrieval_highlight_chunks": [
+    {
+      "file_path": ".ghost/worktrees/test_manual/apps/web/package.json",
+      "start_line": 1,
+      "end_line": 29,
+      "reason": "planner_preferred, lexical"
+    },
+    {
+      "file_path": ".ghost/worktrees/test_manual/apps/web/tsconfig.json",
+      "start_line": 1,
+      "end_line": 26,
+      "reason": "planner_preferred, lexical"
+    },
+    {
+      "file_path": ".ghost/worktrees/worker_0ff6c94c/apps/web/package.json",
+      "start_line": 1,
+      "end_line": 29,
+      "reason": "planner_preferred, lexical"
+    },
+    {
+      "file_path": ".ghost/worktrees/worker_0ff6c94c/apps/web/tsconfig.json",
+      "start_line": 1,
+      "end_line": 26,
+      "reason": "planner_preferred, lexical"
+    },
+    {
+      "file_path": ".ghost/worktrees/worker_17b2d3e9/apps/web/package.json",
+      "start_line": 1,
+      "end_line": 29,
+      "reason": "planner_preferred, lexical"
+    },
+    {
+      "file_path": ".ghost/worktrees/worker_17b2d3e9/apps/web/tsconfig.json",
+      "start_line": 1,
+      "end_line": 26,
+      "reason": "planner_preferred, lexical"
+    },
+    {
+      "file_path": ".ghost/worktrees/worker_340b7f2b/apps/web/package.json",
+      "start_line": 1,
+      "end_line": 29,
+      "reason": "planner_preferred, lexical"
+    },
+    {
+      "file_path": ".ghost/worktrees/worker_340b7f2b/apps/web/tsconfig.json",
+      "start_line": 1,
+      "end_line": 26,
+      "reason": "planner_preferred, lexical"
+    }
+  ],
+  "execution_agent_used": true,
+  "execution_mode": "staged_edit",
+  "selected_execution_model": "moonshotai/kimi-k2.5",
+  "selected_targets": [
+    "ghost/worktrees/test_manual/apps/web/package.json",
+    "ghost/worktrees/test_manual/apps/web/tsconfig.json",
+    "ghost/worktrees/worker_0ff6c94c/apps/web/package.json",
+    "ghost/worktrees/worker_0ff6c94c/apps/web/tsconfig.json",
+    "ghost/worktrees/worker_17b2d3e9/apps/web/package.json",
+    "ghost/worktrees/worker_17b2d3e9/apps/web/tsconfig.json",
+    "ghost/worktrees/worker_340b7f2b/apps/web/package.json",
+    "ghost/worktrees/worker_340b7f2b/apps/web/tsconfig.json",
+    "package.json",
+    "pyproject.toml",
+    "tsconfig.json"
+  ],
+  "execution_context_summary": {
+    "targets_count": 11,
+    "chunks_count": 18,
+    "total_chars_approx": 2229,
+    "truncated": false,
+    "planner_paths_sample": [
+      "package.json",
+      "pyproject.toml",
+      "tsconfig.json"
+    ]
+  },
+  "proposed_edits": [
+    {
+      "file_path": "ghost/worktrees/test_manual/apps/web/package.json",
+      "priority": 90,
+      "summary": "Target from retrieval (confidence 0.85)",
+      "suggested_actions": [
+        {
+          "path": "ghost/worktrees/test_manual/apps/web/package.json",
+          "action": "edit",
+          "rationale": "top retrieval file (score=54.0)"
+        }
+      ],
+      "diff_or_patch": null,
+      "action_type": "edit",
+      "nim_confidence": null,
+      "parsed_from_model": false
+    },
+    {
+      "file_path": "ghost/worktrees/test_manual/apps/web/tsconfig.json",
+      "priority": 80,
+      "summary": "Target from retrieval (confidence 0.85)",
+      "suggested_actions": [
+        {
+          "path": "ghost/worktrees/test_manual/apps/web/tsconfig.json",
+          "action": "edit",
+          "rationale": "top retrieval file (score=54.0)"
+        }
+      ],
+      "diff_or_patch": null,
+      "action_type": "edit",
+      "nim_confidence": null,
+      "parsed_from_model": false
+    },
+    {
+      "file_path": "ghost/worktrees/worker_0ff6c94c/apps/web/package.json",
+      "priority": 70,
+      "summary": "Target from retrieval (confidence 0.85)",
+      "suggested_actions": [
+        {
+          "path": "ghost/worktrees/worker_0ff6c94c/apps/web/package.json",
+          "action": "edit",
+          "rationale": "top retrieval file (score=54.0)"
+        }
+      ],
+      "diff_or_patch": null,
+      "action_type": "edit",
+      "nim_confidence": null,
+      "parsed_from_model": false
+    },
+    {
+      "file_path": "ghost/worktrees/worker_0ff6c94c/apps/web/tsconfig.json",
+      "priority": 60,
+      "summary": "Target from retrieval (confidence 0.85)",
+      "suggested_actions": [
+        {
+          "path": "ghost/worktrees/worker_0ff6c94c/apps/web/tsconfig.json",
+          "action": "edit",
+          "rationale": "top retrieval file (score=54.0)"
+        }
+      ],
+      "diff_or_patch": null,
+      "action_type": "edit",
+      "nim_confidence": null,
+      "parsed_from_model": false
+    },
+    {
+      "file_path": "ghost/worktrees/worker_17b2d3e9/apps/web/package.json",
+      "priority": 50,
+      "summary": "Target from retrieval (confidence 0.85)",
+      "suggested_actions": [
+        {
+          "path": "ghost/worktrees/worker_17b2d3e9/apps/web/package.json",
+          "action": "edit",
+          "rationale": "top retrieval file (score=54.0)"
+        }
+      ],
+      "diff_or_patch": null,
+      "action_type": "edit",
+      "nim_confidence": null,
+      "parsed_from_model": false
+    },
+    {
+      "file_path": "ghost/worktrees/worker_17b2d3e9/apps/web/tsconfig.json",
+      "priority": 40,
+      "summary": "Target from retrieval (confidence 0.85)",
+      "suggested_actions": [
+        {
+          "path": "ghost/worktrees/worker_17b2d3e9/apps/web/tsconfig.json",
+          "action": "edit",
+          "rationale": "top retrieval file (score=54.0)"
+        }
+      ],
+      "diff_or_patch": null,
+      "action_type": "edit",
+      "nim_confidence": null,
+      "parsed_from_model": false
+    },
+    {
+      "file_path": "ghost/worktrees/worker_340b7f2b/apps/web/package.json",
+      "priority": 30,
+      "summary": "Target from retrieval (confidence 0.85)",
+      "suggested_actions": [
+        {
+          "path": "ghost/worktrees/worker_340b7f2b/apps/web/package.json",
+          "action": "edit",
+          "rationale": "top retrieval file (score=54.0)"
+        }
+      ],
+      "diff_or_patch": null,
+      "action_type": "edit",
+      "nim_confidence": null,
+      "parsed_from_model": false
+    },
+    {
+      "file_path": "ghost/worktrees/worker_340b7f2b/apps/web/tsconfig.json",
+      "priority": 20,
+      "summary": "Target from retrieval (confidence 0.85)",
+      "suggested_actions": [
+        {
+          "path": "ghost/worktrees/worker_340b7f2b/apps/web/tsconfig.json",
+          "action": "edit",
+          "rationale": "top retrieval file (score=54.0)"
+        }
+      ],
+      "diff_or_patch": null,
+      "action_type": "edit",
+      "nim_confidence": null,
+      "parsed_from_model": false
+    }
+  ],
+  "execution_confidence": 0.5,
+  "execution_reasoning_lines": [
+    "execution_mode=staged_edit",
+    "targets_considered=11",
+    "model=moonshotai/kimi-k2.5"
+  ],
+  "execution_agent_provenance": {
+    "version": "1.0.0",
+    "advisory_only": true,
+    "writes_enabled_env": false,
+    "nim_flag": false,
+    "context_cap": 12000
+  },
+  "execution_agent_prompt": "[EXECUTION AGENT \u2014 advisory context for code writing]\nIntent: implementation | Scope: api, docs, tests\nChange expectation: must_write\nForbidden layers: (none)\n\nSelected edit targets (prioritized):\n  - ghost/worktrees/test_manual/apps/web/package.json :: role=config :: retrieval :: conf=0.85\n  - ghost/worktrees/test_manual/apps/web/tsconfig.json :: role=config :: retrieval :: conf=0.85\n  - ghost/worktrees/worker_0ff6c94c/apps/web/package.json :: role=config :: retrieval :: conf=0.85\n  - ghost/worktrees/worker_0ff6c94c/apps/web/tsconfig.json :: role=config :: retrieval :: conf=0.85\n  - ghost/worktrees/worker_17b2d3e9/apps/web/package.json :: role=config :: retrieval :: conf=0.85\n  - ghost/worktrees/worker_17b2d3e9/apps/web/tsconfig.json :: role=config :: retrieval :: conf=0.85\n  - ghost/worktrees/worker_340b7f2b/apps/web/package.json :: role=config :: retrieval :: conf=0.85\n  - ghost/worktrees/worker_340b7f2b/apps/web/tsconfig.json :: role=config :: retrieval :: conf=0.85\n  - package.json :: role=config :: planner :: conf=0.60\n  - pyproject.toml :: role=service :: planner :: conf=0.60\n  - tsconfig.json :: role=config :: planner :: conf=0.60\n\nRelevant chunks (line ranges; apply minimal patches only):\n  - [config] .ghost/worktrees/test_manual/apps/web/package.json:1-29\n    {\n  \"name\": \"web\",\n  \"version\": \"0.1.0\",\n  \"private\": true,\n  - [config] .ghost/worktrees/test_manual/apps/web/tsconfig.json:1-26\n    {\n  \"compilerOptions\": {\n    \"lib\": [\"dom\", \"dom.iterable\", \"esnext\"],\n    \"allowJs\": true,\n  - [config] .ghost/worktrees/worker_0ff6c94c/apps/web/package.json:1-29\n    {\n  \"name\": \"web\",\n  \"version\": \"0.1.0\",\n  \"private\": true,\n  - [config] .ghost/worktrees/worker_0ff6c94c/apps/web/tsconfig.json:1-26\n    {\n  \"compilerOptions\": {\n    \"lib\": [\"dom\", \"dom.iterable\", \"esnext\"],\n    \"allowJs\": true,\n  - [config] .ghost/worktrees/worker_17b2d3e9/apps/web/package.json:1-29\n    {\n  \"name\": \"web\",\n  \"version\": \"0.1.0\",\n  \"private\": true,\n  - [config] .ghost/worktrees/worker_17b2d3e9/apps/web/tsconfig.json:1-26\n    {\n  \"compilerOptions\": {\n    \"lib\": [\"dom\", \"dom.iterable\", \"esnext\"],\n    \"allowJs\": true,\n  - [config] .ghost/worktrees/worker_340b7f2b/apps/web/package.json:1-29\n    {\n  \"name\": \"web\",\n  \"version\": \"0.1.0\",\n  \"private\": true,\n  - [config] .ghost/worktrees/worker_340b7f2b/apps/web/tsconfig.json:1-26\n    {\n  \"compilerOptions\": {\n    \"lib\": [\"dom\", \"dom.iterable\", \"esnext\"],\n    \"allowJs\": true,\n  - [config] .ghost/worktrees/worker_54ef1aef/apps/web/package.json:1-29\n    {\n  \"name\": \"web\",\n  \"version\": \"0.1.0\",\n  \"private\": true,\n  - [config] .ghost/worktrees/worker_54ef1aef/apps/web/tsconfig.json:1-26\n    {\n  \"compilerOptions\": {\n    \"lib\": [\"dom\", \"dom.iterable\", \"esnext\"],\n    \"allowJs\": true,\n\nVerification expectations:\n  required=True typecheck=True lint=False build=False tests=False\n  guardrails: forbid_layers=[] max_diff_lines=200\n\nInstructions: Produce minimal, targeted edits; respect forbidden layers; prefer edit_file-style patches over full rewrites; do not invent files.\n",
+  "execution_agent_writes_enabled": false,
+  "planner_model": "openai/gpt-oss-120b",
+  "execution_model_resolved": "moonshotai/kimi-k2.5",
+  "repair_model_resolved": "moonshotai/kimi-k2.5",
+  "general_fallback_model": "meta/llama-3.1-8b-instruct",
+  "execution_fallback_model": "openai/gpt-oss-120b",
+  "provider_backend": "null",
+  "live_generation_used": false,
+  "provider_ok": true,
+  "provider_error_message": "",
+  "provider_latency_ms": 0.0,
+  "provider_model": "moonshotai/kimi-k2.5",
+  "proposal_parsed": false,
+  "execution_raw_proposal": "",
+  "provider_response_snapshot": {},
+  "benchmark_results": [],
+  "trace_path": "C:\\Users\\denis\\OneDrive\\Escritorio\\GhostLLM\\.ghost\\traces\\task_20260324_225233_941f.json",
+  "trace_summary_short": "total=179902ms | model=45606ms | tool=10421ms | approval_wait=129849ms | verif=48ms | overhead\u2248-6022ms | bottleneck=approval_wait dominated (129849ms of human wait)",
+  "trace_detail_md": "**Trace file:** `C:\\Users\\denis\\OneDrive\\Escritorio\\GhostLLM\\.ghost\\traces\\task_20260324_225233_941f.json`\n**cwd:** `C:\\Users\\denis\\OneDrive\\Escritorio\\GhostLLM` | **repo_root:** `C:\\Users\\denis\\OneDrive\\Escritorio\\GhostLLM`\n**Total (wall):** 179902 ms\n**Model:** 45606 ms | **Tool:** 10421 ms | **Approval wait:** 129849 ms | **Verification:** 48 ms | **Overhead (est.):** -6022 ms\n**Bottleneck:** approval_wait dominated (129849ms of human wait)\n*accounted components exceed wall clock (overlap or clock); components are additive per category, not disjoint wall spans*",
+  "batch_executor_used": false,
+  "batch_plans": [],
+  "batch_results": [],
+  "approval_compression_used": false,
+  "compressed_approval_count": 0,
+  "batched_read_count": 0,
+  "batched_verification_count": 0,
+  "config_source": "environment variables only (GHOST_AUTOLOAD_ENV off)",
+  "autoload_env_used": false,
+  "env_file_loaded": "",
+  "active_feature_flags": {
+    "GHOST_USE_TASKSPEC": "1",
+    "GHOST_USE_DECISION_PLANNER": "1",
+    "GHOST_USE_RETRIEVAL": "1",
+    "GHOST_RETRIEVAL_INFLUENCES_RUNTIME": "1",
+    "GHOST_USE_EXECUTION_AGENT": "1",
+    "GHOST_EXECUTION_AGENT_LIVE": "1",
+    "GHOST_PARALLEL_PIPELINE": "1",
+    "GHOST_USE_BATCH_EXECUTOR": "1",
+    "GHOST_USE_APPROVAL_COMPRESSION": "1",
+    "GHOST_USE_NVIDIA_NIM": "0",
+    "GHOST_AUTOLOAD_ENV": "0",
+    "GHOST_CLI_TRACE_SUMMARY": "0"
+  },
+  "startup_warnings": [],
+  "effective_repo_root": "C:\\Users\\denis\\OneDrive\\Escritorio\\GhostLLM",
+  "cli_command_mode": "dev"
+}

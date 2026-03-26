@@ -1,0 +1,36 @@
+{
+  "task_id": "task_20260323_020429_fb50abe6",
+  "title": "Instalar requests",
+  "mode": "Chat",
+  "status": "done",
+  "task_type": "bug_fix",
+  "inferred_type": "bug_fix",
+  "type_source": "manual",
+  "owner": "denis",
+  "scope": [],
+  "artifacts": [
+    "task_20260323_020429"
+  ],
+  "risks": [],
+  "status_history": [
+    {
+      "status": "created",
+      "timestamp": "2026-03-23T02:04:29.721677"
+    },
+    {
+      "status": "planned",
+      "timestamp": "2026-03-23T02:04:29.722121"
+    },
+    {
+      "status": "executing",
+      "timestamp": "2026-03-23T02:04:29.729458"
+    },
+    {
+      "status": "done",
+      "timestamp": "2026-03-23T02:04:31.928897"
+    }
+  ],
+  "created_at": "2026-03-23T02:04:29.721686",
+  "updated_at": "2026-03-23T02:04:31.928885",
+  "metadata": {}
+}

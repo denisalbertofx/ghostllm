@@ -1,0 +1,18 @@
+{
+  "batch_id": "batch_20260323_021603_97f2bb94",
+  "steps": [
+    {
+      "step_id": 0,
+      "title": "Stop Me",
+      "task_id": null,
+      "status": "pending",
+      "result": null,
+      "retry_count": 0
+    }
+  ],
+  "status": "stopped",
+  "current_step_index": 0,
+  "created_at": "2026-03-23T02:16:03.400725",
+  "updated_at": "2026-03-23T02:16:03.403565",
+  "metadata": {}
+}

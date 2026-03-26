@@ -1,0 +1,35 @@
+{
+  "task_id": "task_20260325_130904_d23c3b79",
+  "title": "A\u00f1ade al final de README.md en la ra\u00edz del repo una l\u00ednea en blanco y una l\u00ednea de comentario HTML: <!-- ghost-manual-sc1 -->. No cambies ning\u00fan otro contenido.",
+  "mode": "Chat",
+  "status": "EXPLORE",
+  "task_type": "docs_change",
+  "inferred_type": "docs_change",
+  "type_source": "inferred",
+  "batch_id": null,
+  "owner": "denis",
+  "scope": [],
+  "artifacts": [],
+  "risks": [],
+  "status_history": [
+    {
+      "status": "IDLE",
+      "timestamp": "2026-03-25T13:09:04.865881"
+    },
+    {
+      "status": "INTAKE",
+      "timestamp": "2026-03-25T13:09:04.866558",
+      "event": "phase",
+      "detail": "intake start"
+    },
+    {
+      "status": "EXPLORE",
+      "timestamp": "2026-03-25T13:09:04.871066",
+      "event": "phase",
+      "detail": "post-intake"
+    }
+  ],
+  "created_at": "2026-03-25T13:09:04.865889",
+  "updated_at": "2026-03-25T13:09:04.871065",
+  "metadata": {}
+}

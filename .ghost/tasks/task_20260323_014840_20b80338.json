@@ -1,0 +1,19 @@
+{
+  "task_id": "task_20260323_014840_20b80338",
+  "title": "Hardening B",
+  "mode": "coder",
+  "status": "created",
+  "owner": "High Risk Block Test",
+  "scope": [],
+  "artifacts": [],
+  "risks": [],
+  "status_history": [
+    {
+      "status": "created",
+      "timestamp": "2026-03-23T01:48:40.723079"
+    }
+  ],
+  "created_at": "2026-03-23T01:48:40.723089",
+  "updated_at": "2026-03-23T01:48:40.723090",
+  "metadata": {}
+}

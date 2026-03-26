@@ -1,0 +1,61 @@
+{
+  "task_id": "task_20260325_015051_9ec83ccc",
+  "title": "implementa una nueva feature a nuestra app",
+  "mode": "Execute",
+  "status": "DONE",
+  "task_type": "direct_edit",
+  "inferred_type": "direct_edit",
+  "type_source": "inferred",
+  "batch_id": null,
+  "owner": "denis",
+  "scope": [],
+  "artifacts": [
+    "task_20260325_015051_a0b2"
+  ],
+  "risks": [],
+  "status_history": [
+    {
+      "status": "IDLE",
+      "timestamp": "2026-03-25T01:50:51.791349"
+    },
+    {
+      "status": "INTAKE",
+      "timestamp": "2026-03-25T01:50:51.792206",
+      "event": "phase",
+      "detail": "intake start"
+    },
+    {
+      "status": "EXPLORE",
+      "timestamp": "2026-03-25T01:50:52.499588",
+      "event": "phase",
+      "detail": "post-intake"
+    },
+    {
+      "status": "EXPLORE",
+      "timestamp": "2026-03-25T01:53:23.365067",
+      "event": "phase",
+      "detail": "discovery cap nudge"
+    },
+    {
+      "status": "ACT",
+      "timestamp": "2026-03-25T01:53:34.532590",
+      "event": "phase",
+      "detail": "explore complete"
+    },
+    {
+      "status": "DONE",
+      "timestamp": "2026-03-25T01:53:46.763634",
+      "event": "phase",
+      "detail": "no write scope"
+    },
+    {
+      "status": "DONE",
+      "timestamp": "2026-03-25T01:53:46.764887",
+      "event": "phase",
+      "detail": "session complete"
+    }
+  ],
+  "created_at": "2026-03-25T01:50:51.791366",
+  "updated_at": "2026-03-25T01:53:46.764886",
+  "metadata": {}
+}

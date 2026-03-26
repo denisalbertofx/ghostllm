@@ -1,0 +1,31 @@
+{
+  "task_id": "task_20260323_132311_b50cad1a",
+  "title": "Crea una carpeta temporal ghost_approval_test y dentro crea dos archivos: a.txt con 'hello' y b.txt con 'world'. Hazlo en un solo turno si puedes.",
+  "mode": "Chat",
+  "status": "executing",
+  "task_type": "direct_edit",
+  "inferred_type": "direct_edit",
+  "type_source": "inferred",
+  "batch_id": null,
+  "owner": "denis",
+  "scope": [],
+  "artifacts": [],
+  "risks": [],
+  "status_history": [
+    {
+      "status": "created",
+      "timestamp": "2026-03-23T13:23:11.218542"
+    },
+    {
+      "status": "planned",
+      "timestamp": "2026-03-23T13:23:11.218995"
+    },
+    {
+      "status": "executing",
+      "timestamp": "2026-03-23T13:23:11.224903"
+    }
+  ],
+  "created_at": "2026-03-23T13:23:11.218549",
+  "updated_at": "2026-03-23T13:23:11.224896",
+  "metadata": {}
+}

@@ -1,0 +1,81 @@
+﻿python : .EEEF.
+En línea: 1 Carácter: 1
++ python scripts\verify_paths_v1.py > test_output.txt 2>&1; cat 
+test_ou ...
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (.EEEF.:String) [], R 
+   emoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+==================================================================
+====
+ERROR: test_is_absolute 
+(__main__.TestPathComposer.test_is_absolute)
+------------------------------------------------------------------
+----
+Traceback (most recent call last):
+  File "C:\Users\denis\OneDrive\Escritorio\GhostLLM\scripts\verify
+_paths_v1.py", line 26, in test_is_absolute
+    self.assertTrue(PathComposer.is_absolute("C:\\foo"))
+                    ^^^^^^^^^^^^^^^^^^^^^^^^
+AttributeError: type object 'PathComposer' has no attribute 
+'is_absolute'
+
+==================================================================
+====
+ERROR: test_get_context_empty 
+(__main__.TestWorkingDirectoryGuard.test_get_context_empty)
+------------------------------------------------------------------
+----
+Traceback (most recent call last):
+  File "C:\Python314\Lib\unittest\mock.py", line 1432, in patched
+    return func(*newargs, **newkeywargs)
+  File "C:\Users\denis\OneDrive\Escritorio\GhostLLM\scripts\verify
+_paths_v1.py", line 37, in test_get_context_empty
+    
+self.assertEqual(WorkingDirectoryGuard.get_context("/tmp/empty"), 
+"empty")
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AttributeError: type object 'WorkingDirectoryGuard' has no 
+attribute 'get_context'. Did you mean: 'detect_context'?
+
+==================================================================
+====
+ERROR: test_get_context_project 
+(__main__.TestWorkingDirectoryGuard.test_get_context_project)
+------------------------------------------------------------------
+----
+Traceback (most recent call last):
+  File "C:\Python314\Lib\unittest\mock.py", line 1432, in patched
+    return func(*newargs, **newkeywargs)
+  File "C:\Users\denis\OneDrive\Escritorio\GhostLLM\scripts\verify
+_paths_v1.py", line 45, in test_get_context_project
+    self.assertEqual(WorkingDirectoryGuard.get_context("/repo"), 
+"project")
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AttributeError: type object 'WorkingDirectoryGuard' has no 
+attribute 'get_context'. Did you mean: 'detect_context'?
+
+==================================================================
+====
+FAIL: test_validate_scaffold_conflict (__main__.TestWorkingDirecto
+ryGuard.test_validate_scaffold_conflict)
+------------------------------------------------------------------
+----
+Traceback (most recent call last):
+  File "C:\Python314\Lib\unittest\mock.py", line 1432, in patched
+    return func(*newargs, **newkeywargs)
+  File "C:\Users\denis\OneDrive\Escritorio\GhostLLM\scripts\verify
+_paths_v1.py", line 53, in test_validate_scaffold_conflict
+    self.assertIn("already active", msg)
+    ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: 'already active' not found in 'Ya te encuentras 
+en un proyecto activo (detectado: package.json, pyproject.toml, 
+requirements.txt, app/, src/, .git, README.md, next.config.js, 
+next.config.ts). No se recomienda reinicializar aquÝ.'
+
+------------------------------------------------------------------
+----
+Ran 6 tests in 0.003s
+
+FAILED (failures=1, errors=3)

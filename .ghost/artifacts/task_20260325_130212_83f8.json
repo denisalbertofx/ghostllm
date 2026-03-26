@@ -1,0 +1,1646 @@
+{
+  "session_id": "task_20260325_130212_83f8",
+  "task_id": "task_20260325_130212_6f4cb729",
+  "timestamp": "2026-03-25T13:02:12.175757",
+  "task": "\u00bfQu\u00e9 hace la funci\u00f3n seal_task_contract_after_intake y en qu\u00e9 archivo est\u00e1? Responde en 5 frases m\u00e1ximo. No uses herramientas si ya sabes la respuesta; si no, lee solo ese archivo.",
+  "task_type": "build_fix",
+  "type_source": "inferred",
+  "batch_id": null,
+  "step_id": null,
+  "plan": "\u00bfQu\u00e9 hace la funci\u00f3n seal_task_contract_after_intake y en qu\u00e9 archivo est\u00e1? Responde en 5 frases m\u00e1ximo. No uses herramientas si ya sabes la respuesta; si no, lee solo ese archivo.",
+  "root_cause": "Tool execution failed before any file change. Tool error: Phase EXPLORE is read-only (allowed: ls, read_file, summariz; Tool error: Phase EXPLORE is read-only (allowed: ls, read_file, summariz",
+  "diff_summary": [],
+  "verification": {
+    "status": "skipped",
+    "checks": []
+  },
+  "verification_diff_fingerprint": "",
+  "verification_justification": "",
+  "rollback_status": "none",
+  "next_action": "Ejecuta continua: lee el fichero con read_file y usa edit_file con un old_str copiado exactamente del disco. Para branding/UI prioriza app/, components/ y estilos; evita tocar rutas API salvo que el encargo lo requiera.",
+  "events": [
+    {
+      "event": "RepoProfileInfluence",
+      "timestamp": 1774458132.1885302,
+      "details": "Verification commands derived from package_json, unknown (used at verify time)."
+    },
+    {
+      "event": "TaskStart",
+      "timestamp": 1774458132.3580072,
+      "details": "Mode: Chat | Task: \u00bfQu\u00e9 hace la funci\u00f3n seal_task_contract_after_intake y en qu\u00e9 archivo est\u00e1? Responde en 5 frases m\u00e1ximo. No uses herramientas si ya sabes la respuesta; si no, lee solo ese archivo."
+    },
+    {
+      "event": "PreToolUse",
+      "timestamp": 1774458133.3366332,
+      "details": "Initializing tool: ls"
+    },
+    {
+      "event": "PostToolUse",
+      "timestamp": 1774458133.336858,
+      "details": "Completed: ls (success)"
+    },
+    {
+      "event": "PreToolUse",
+      "timestamp": 1774458136.663077,
+      "details": "Initializing tool: ls"
+    },
+    {
+      "event": "PostToolUse",
+      "timestamp": 1774458136.6632586,
+      "details": "Completed: ls (success)"
+    },
+    {
+      "event": "PreToolUse",
+      "timestamp": 1774458138.6261578,
+      "details": "Initializing tool: ls"
+    },
+    {
+      "event": "PostToolUse",
+      "timestamp": 1774458138.6263008,
+      "details": "Completed: ls (success)"
+    },
+    {
+      "event": "PreToolUse",
+      "timestamp": 1774458139.624635,
+      "details": "Initializing tool: ls"
+    },
+    {
+      "event": "PostToolUse",
+      "timestamp": 1774458139.624792,
+      "details": "Completed: ls (success)"
+    },
+    {
+      "event": "PreToolUse",
+      "timestamp": 1774458140.6395092,
+      "details": "Initializing tool: ls"
+    },
+    {
+      "event": "PostToolUse",
+      "timestamp": 1774458140.63966,
+      "details": "Completed: ls (success)"
+    },
+    {
+      "event": "PreToolUse",
+      "timestamp": 1774458141.375135,
+      "details": "Initializing tool: read_file"
+    },
+    {
+      "event": "PostToolUse",
+      "timestamp": 1774458141.375318,
+      "details": "Completed: read_file (success)"
+    },
+    {
+      "event": "PreToolUse",
+      "timestamp": 1774458143.3133705,
+      "details": "Initializing tool: summarize_repo"
+    },
+    {
+      "event": "PostToolUse",
+      "timestamp": 1774458143.319776,
+      "details": "Completed: summarize_repo (success)"
+    },
+    {
+      "event": "PreToolUse",
+      "timestamp": 1774458145.6378098,
+      "details": "Initializing tool: ls"
+    },
+    {
+      "event": "PostToolUse",
+      "timestamp": 1774458145.6379914,
+      "details": "Completed: ls (success)"
+    },
+    {
+      "event": "PreToolUse",
+      "timestamp": 1774458147.1357381,
+      "details": "Initializing tool: ls"
+    },
+    {
+      "event": "PostToolUse",
+      "timestamp": 1774458147.1359506,
+      "details": "Completed: ls (success)"
+    },
+    {
+      "event": "PreToolUse",
+      "timestamp": 1774458148.3840733,
+      "details": "Initializing tool: read_file"
+    },
+    {
+      "event": "PostToolUse",
+      "timestamp": 1774458148.384276,
+      "details": "Completed: read_file (success)"
+    }
+  ],
+  "phase": "ABORTED",
+  "phase_history": [
+    {
+      "phase": "INTAKE",
+      "timestamp": "2026-03-25T13:02:12.175818",
+      "detail": "intake start",
+      "from": "INTAKE",
+      "iteration": null
+    },
+    {
+      "phase": "EXPLORE",
+      "timestamp": "2026-03-25T13:02:12.358022",
+      "detail": "post-intake",
+      "from": "INTAKE",
+      "iteration": null
+    },
+    {
+      "phase": "EXPLORE",
+      "timestamp": "2026-03-25T13:02:28.391605",
+      "detail": "discovery cap nudge",
+      "from": "EXPLORE",
+      "iteration": 15
+    },
+    {
+      "phase": "CLOSING",
+      "timestamp": "2026-03-25T13:02:33.685753",
+      "detail": "max_iterations",
+      "from": "EXPLORE",
+      "iteration": 15
+    },
+    {
+      "phase": "ABORTED",
+      "timestamp": "2026-03-25T13:02:33.686668",
+      "detail": "session complete",
+      "from": "CLOSING",
+      "iteration": 15
+    }
+  ],
+  "phase_transitions": [
+    {
+      "from": "INTAKE",
+      "to": "INTAKE",
+      "reason": "intake start",
+      "ts": "2026-03-25T13:02:12.175818",
+      "iteration": null
+    },
+    {
+      "from": "INTAKE",
+      "to": "EXPLORE",
+      "reason": "post-intake",
+      "ts": "2026-03-25T13:02:12.358022",
+      "iteration": null
+    },
+    {
+      "from": "EXPLORE",
+      "to": "EXPLORE",
+      "reason": "discovery cap nudge",
+      "ts": "2026-03-25T13:02:28.391605",
+      "iteration": 15
+    },
+    {
+      "from": "EXPLORE",
+      "to": "CLOSING",
+      "reason": "max_iterations",
+      "ts": "2026-03-25T13:02:33.685753",
+      "iteration": 15
+    },
+    {
+      "from": "CLOSING",
+      "to": "ABORTED",
+      "reason": "session complete",
+      "ts": "2026-03-25T13:02:33.686668",
+      "iteration": 15
+    }
+  ],
+  "promotion_decisions": [],
+  "verification_reuse_decisions": [],
+  "terminal_resolution_record": {
+    "ts": "2026-03-25T17:02:33.686650+00:00",
+    "terminal_phase": "ABORTED",
+    "outcome": "partially_implemented",
+    "outcome_confidence": 0.82,
+    "evidence_score": 0,
+    "loop_abort_reason": "max_iterations",
+    "root_cause_excerpt": "Tool execution failed before any file change. Tool error: Phase EXPLORE is read-only (allowed: ls, read_file, summariz; Tool error: Phase EXPLORE is read-only (allowed: ls, read_file, summariz",
+    "next_action_excerpt": "Ejecuta continua: lee el fichero con read_file y usa edit_file con un old_str copiado exactamente del disco. Para branding/UI prioriza app/, components/ y estilos; evita tocar rutas API salvo que el encargo lo requiera.",
+    "evidence_lines": [
+      "Relevant files read: 2",
+      "Exploration: ls(7), summarize_repo(1)",
+      "Implementation explored (files read, scope inspected)",
+      "Verification: no checks executed (incomplete or skipped)",
+      "Tool error: Phase EXPLORE is read-only (allowed: ls, read_file, summariz",
+      "Tool error: Phase EXPLORE is read-only (allowed: ls, read_file, summariz",
+      "Tool error: Phase EXPLORE is read-only (allowed: ls, read_file, summariz",
+      "Tool error: Phase EXPLORE is read-only (allowed: ls, read_file, summariz",
+      "Tool error: Phase EXPLORE is read-only (allowed: ls, read_file, summariz"
+    ],
+    "resolution_sources": {
+      "budget_exhausted": false,
+      "budget_status": "ok",
+      "provider_status": "ok",
+      "policy_status": "ok",
+      "session_failed": false,
+      "loop_abort_reason_raw": "max_iterations"
+    }
+  },
+  "repair_forensic_summary": {},
+  "task_outcome": "partially_implemented",
+  "outcome_confidence": 0.82,
+  "evidence_score": 0,
+  "evidence_lines": [
+    "Relevant files read: 2",
+    "Exploration: ls(7), summarize_repo(1)",
+    "Implementation explored (files read, scope inspected)",
+    "Verification: no checks executed (incomplete or skipped)",
+    "Tool error: Phase EXPLORE is read-only (allowed: ls, read_file, summariz",
+    "Tool error: Phase EXPLORE is read-only (allowed: ls, read_file, summariz",
+    "Tool error: Phase EXPLORE is read-only (allowed: ls, read_file, summariz",
+    "Tool error: Phase EXPLORE is read-only (allowed: ls, read_file, summariz",
+    "Tool error: Phase EXPLORE is read-only (allowed: ls, read_file, summariz"
+  ],
+  "task_intent": "modification",
+  "task_scope": "infra",
+  "change_expectation": "must_write",
+  "intent_confidence": 0.75,
+  "intent_reasoning_lines": [
+    "Intent 'modification': no specific keyword matched, using default",
+    "Scope 'infra': keyword matched"
+  ],
+  "repair_attempt_count": 0,
+  "repair_summary": "",
+  "budget_exhausted_reason": "",
+  "last_failed_check": "",
+  "last_repair_applied": "",
+  "repair_specialist_prompt_chars": 0,
+  "repair_specialist_usage_tokens": 0,
+  "repair_specialist_last_raw": "",
+  "repair_specialist_outcome": "",
+  "repair_specialist_outcome_detail": {},
+  "repair_outcome_log": [],
+  "tool_output_archive_meta": [
+    {
+      "ref": "to_0",
+      "tool": "read_file",
+      "approx_chars": 22949
+    }
+  ],
+  "reverification_pending": false,
+  "task_contract": {
+    "version": 1,
+    "intent": {
+      "mode": "Chat",
+      "task": "\u00bfQu\u00e9 hace la funci\u00f3n seal_task_contract_after_intake y en qu\u00e9 archivo est\u00e1? Responde en 5 frases m\u00e1ximo. No uses herramientas si ya sabes la respuesta; si no, lee solo ese archivo.",
+      "task_type": "ask",
+      "scaffold_type": "none",
+      "is_slash_command": false,
+      "is_exact_command": false,
+      "requires_tools": true,
+      "requires_shell": false,
+      "requires_file_scope": true,
+      "original_text": "\u00bfQu\u00e9 hace la funci\u00f3n seal_task_contract_after_intake y en qu\u00e9 archivo est\u00e1? Responde en 5 frases m\u00e1ximo. No uses herramientas si ya sabes la respuesta; si no, lee solo ese archivo.",
+      "target_folder": null,
+      "metadata": {}
+    },
+    "allowed_tools": [
+      "delete_file",
+      "edit_file",
+      "ls",
+      "read_file",
+      "run_shell",
+      "summarize_repo",
+      "write_file"
+    ],
+    "allowed_paths": [],
+    "budget": {
+      "max_shell_calls": 2,
+      "max_tool_calls": 12
+    },
+    "skip_verify": false,
+    "verification_policy": {
+      "required": true,
+      "typecheck": false,
+      "build": false,
+      "lint": false,
+      "tests": false
+    },
+    "repair_policy": {
+      "max_attempts": 1,
+      "rerun_failed_first": true
+    },
+    "blast_radius": "system",
+    "risk_level": "medium",
+    "spec": {
+      "intent": "modification",
+      "scope": [
+        "infra"
+      ],
+      "forbidden_layers": [],
+      "change_expectation": "must_write",
+      "target_files": null,
+      "acceptance_criteria": [
+        "\u00bfQu\u00e9 hace la funci\u00f3n seal_task_contract_after_intake y en qu\u00e9 archivo est\u00e1? Responde en 5 frases m\u00e1ximo. No uses herramientas si ya sabes la respuesta; si no, lee solo ese archivo."
+      ],
+      "verification_policy": {
+        "required": true,
+        "typecheck": false,
+        "build": false,
+        "lint": false,
+        "tests": false
+      },
+      "repair_policy": {
+        "max_attempts": 1,
+        "rerun_failed_first": true
+      },
+      "budget_policy": {
+        "max_shell_calls": 2,
+        "max_tool_calls": 12
+      },
+      "confidence": 0.75,
+      "reasoning_lines": [
+        "Intent 'modification': no specific keyword matched, using default",
+        "Scope 'infra': keyword matched"
+      ]
+    },
+    "exploration_plan": {
+      "ranked_files": [],
+      "ranked_dirs": [],
+      "ui_exploration_blocked": false,
+      "evidence_lines": [
+        "Verification commands derived from package_json, unknown (used at verify time)."
+      ]
+    },
+    "runtime_contract_source": "taskspec",
+    "runtime_annotations": {
+      "decision_plan": {
+        "exploration_plan": {
+          "version": "1.0.0",
+          "goal": "modification",
+          "ranked_candidates": [
+            {
+              "path": "package.json",
+              "kind": "file",
+              "reason": "Fallback generic project marker (no rich RepoProfile key_files)",
+              "score": 0.35,
+              "source": "heuristic"
+            },
+            {
+              "path": "pyproject.toml",
+              "kind": "file",
+              "reason": "Fallback generic project marker (no rich RepoProfile key_files)",
+              "score": 0.35,
+              "source": "heuristic"
+            },
+            {
+              "path": "tsconfig.json",
+              "kind": "file",
+              "reason": "Fallback generic project marker (no rich RepoProfile key_files)",
+              "score": 0.35,
+              "source": "heuristic"
+            }
+          ],
+          "avoid": {
+            "forbidden_layers": [],
+            "forbidden_roots": [],
+            "forbidden_paths": []
+          },
+          "limits": {
+            "max_reads": 20,
+            "max_bytes_per_file": 262144,
+            "max_shell_calls": 2,
+            "reserve_for_repair": 0
+          }
+        },
+        "execution_plan": {
+          "version": "1.0.0",
+          "execution_strategy": "staged_edit",
+          "expected_files_changed": [
+            "package.json",
+            "pyproject.toml",
+            "tsconfig.json"
+          ],
+          "guardrails": {
+            "forbid_layers": [],
+            "touch_only": [
+              "infra"
+            ],
+            "max_diff_lines": 200
+          },
+          "blast_radius": "system",
+          "risk": {
+            "level": "medium",
+            "reasons": [
+              "config/build manifest: package.json",
+              "config/build manifest: pyproject.toml",
+              "multiple expected files (+1)"
+            ],
+            "score": 5
+          },
+          "estimated_complexity": "medium"
+        },
+        "verification_plan": {
+          "version": "1.0.0",
+          "required": true,
+          "strategy": "targeted",
+          "steps": [
+            {
+              "check": "build",
+              "command": "npm run build",
+              "source": "defaults",
+              "cost": "expensive",
+              "gate": true,
+              "reason": "Build required by policy/risk; default command"
+            }
+          ],
+          "policy": {
+            "rerun_failed_first": true,
+            "no_custom_pipes": true,
+            "must_be_truthful": true
+          }
+        },
+        "repair_plan": {
+          "version": "1.0.0",
+          "max_attempts": 1,
+          "attempts_used": 0,
+          "repair_on": [
+            "typecheck",
+            "build",
+            "tests"
+          ],
+          "stop_on": [
+            "budget_exhausted",
+            "policy_block",
+            "permission_denied"
+          ],
+          "rerun_failed_first": true,
+          "last_failed_check": null,
+          "next_actions": []
+        },
+        "provenance": {
+          "planner_version": "1.0.0",
+          "advisory_mode": true,
+          "rules_applied": [
+            "exploration_rank_v1",
+            "execution_strategy_v1",
+            "verification_cheap_first_v1",
+            "repair_policy_v1"
+          ],
+          "generated_at": "2026-03-25T17:02:12.189634+00:00",
+          "notes": "Sprint 1 deterministic planner; advisory only."
+        }
+      }
+    },
+    "verification_runs": [],
+    "repair_runs": []
+  },
+  "contract_spec": {
+    "intent": "modification",
+    "scope": [
+      "infra"
+    ],
+    "forbidden_layers": [],
+    "change_expectation": "must_write",
+    "target_files": null,
+    "acceptance_criteria": [
+      "\u00bfQu\u00e9 hace la funci\u00f3n seal_task_contract_after_intake y en qu\u00e9 archivo est\u00e1? Responde en 5 frases m\u00e1ximo. No uses herramientas si ya sabes la respuesta; si no, lee solo ese archivo."
+    ],
+    "verification_policy": {
+      "required": true,
+      "typecheck": false,
+      "build": false,
+      "lint": false,
+      "tests": false
+    },
+    "repair_policy": {
+      "max_attempts": 1,
+      "rerun_failed_first": true
+    },
+    "budget_policy": {
+      "max_shell_calls": 2,
+      "max_tool_calls": 12
+    },
+    "confidence": 0.75,
+    "reasoning_lines": [
+      "Intent 'modification': no specific keyword matched, using default",
+      "Scope 'infra': keyword matched"
+    ]
+  },
+  "taskspec": {
+    "intent": "modification",
+    "scope": [
+      "infra"
+    ],
+    "forbidden_layers": [],
+    "change_expectation": "must_write",
+    "target_files": null,
+    "acceptance_criteria": [
+      "\u00bfQu\u00e9 hace la funci\u00f3n seal_task_contract_after_intake y en qu\u00e9 archivo est\u00e1? Responde en 5 frases m\u00e1ximo. No uses herramientas si ya sabes la respuesta; si no, lee solo ese archivo."
+    ],
+    "verification_policy": {
+      "required": true,
+      "typecheck": false,
+      "build": false,
+      "lint": false,
+      "tests": false
+    },
+    "repair_policy": {
+      "max_attempts": 1,
+      "rerun_failed_first": true
+    },
+    "budget_policy": {
+      "max_shell_calls": 2,
+      "max_tool_calls": 12
+    },
+    "confidence": 0.75,
+    "reasoning_lines": [
+      "Intent 'modification': no specific keyword matched, using default",
+      "Scope 'infra': keyword matched"
+    ]
+  },
+  "contract_spec_validation_status": "valid",
+  "contract_spec_repaired": false,
+  "contract_spec_validation_errors": [],
+  "taskspec_validation_status": "valid",
+  "taskspec_repaired": false,
+  "taskspec_validation_errors": [],
+  "repo_profile": {
+    "root": "C:\\Users\\denis\\OneDrive\\Escritorio\\GhostLLM",
+    "stack": "python",
+    "layers_detected": [
+      "api",
+      "docs",
+      "tests"
+    ],
+    "has_package_json": false,
+    "important_folders": [
+      "apps",
+      "docs",
+      "packages",
+      "pyproject.toml",
+      "tests"
+    ],
+    "version": "2.0.0",
+    "confidence": 0.35,
+    "stack_detail": {
+      "runtime": "python",
+      "language": [
+        "python"
+      ],
+      "framework": [
+        "none"
+      ],
+      "orm": [
+        "none"
+      ],
+      "database": [
+        "unknown"
+      ],
+      "package_manager": [
+        "unknown"
+      ],
+      "test_runner": [
+        "pytest"
+      ]
+    },
+    "entrypoints": {
+      "api_roots": [],
+      "ui_roots": [],
+      "db_schema_roots": []
+    },
+    "key_files": [],
+    "api_routes": [],
+    "db_schema_files": [],
+    "validation_files": [],
+    "verification_commands": {
+      "typecheck": null,
+      "build": null,
+      "lint": null,
+      "tests": null,
+      "source": [
+        "package_json",
+        "unknown"
+      ]
+    },
+    "evidence_lines": [
+      "Python project (pyproject.toml or requirements.txt)"
+    ],
+    "cache": {
+      "used": true,
+      "cache_key": "2c46e610e9cd7689c901661cd802c22f3194543f97d3807ee48fc28e250068b6",
+      "source": "cache"
+    },
+    "profile_v2": {
+      "version": "2.0.0",
+      "root": "C:\\Users\\denis\\OneDrive\\Escritorio\\GhostLLM",
+      "generated_at": "2026-03-25T16:59:50.841819Z",
+      "cache": {
+        "used": true,
+        "cache_key": "2c46e610e9cd7689c901661cd802c22f3194543f97d3807ee48fc28e250068b6",
+        "source": "cache"
+      },
+      "stack": {
+        "runtime": "python",
+        "language": [
+          "python"
+        ],
+        "framework": [
+          "none"
+        ],
+        "orm": [
+          "none"
+        ],
+        "database": [
+          "unknown"
+        ],
+        "package_manager": [
+          "unknown"
+        ],
+        "test_runner": [
+          "pytest"
+        ]
+      },
+      "layers_detected": [
+        "api",
+        "docs",
+        "tests"
+      ],
+      "key_files": [],
+      "important_folders": [
+        "apps",
+        "docs",
+        "packages",
+        "pyproject.toml",
+        "tests"
+      ],
+      "entrypoints": {
+        "api_roots": [],
+        "ui_roots": [],
+        "db_schema_roots": []
+      },
+      "api_routes": [],
+      "db_schema_files": [],
+      "validation_files": [],
+      "verification_commands": {
+        "typecheck": null,
+        "build": null,
+        "lint": null,
+        "tests": null,
+        "source": [
+          "package_json",
+          "unknown"
+        ]
+      },
+      "constraints": {
+        "ignored_dirs": [
+          ".ghost",
+          ".git",
+          ".mypy_cache",
+          ".next",
+          ".pnpm-store",
+          ".turbo",
+          ".venv",
+          "__pycache__",
+          "build",
+          "coverage",
+          "dist",
+          "node_modules",
+          "out",
+          "venv"
+        ],
+        "max_files_scanned": 5000,
+        "max_bytes_per_file": 262144
+      },
+      "confidence": 0.35,
+      "evidence_lines": [
+        "Python project (pyproject.toml or requirements.txt)"
+      ]
+    }
+  },
+  "runtime_contract_source": "taskspec",
+  "exploration_plan": {
+    "ranked_files": [],
+    "ranked_dirs": [],
+    "ui_exploration_blocked": false,
+    "evidence_lines": [
+      "Verification commands derived from package_json, unknown (used at verify time)."
+    ]
+  },
+  "repo_profile_influence": [
+    "Verification commands derived from package_json, unknown (used at verify time)."
+  ],
+  "decision_plan": {
+    "exploration_plan": {
+      "version": "1.0.0",
+      "goal": "modification",
+      "ranked_candidates": [
+        {
+          "path": "package.json",
+          "kind": "file",
+          "reason": "Fallback generic project marker (no rich RepoProfile key_files)",
+          "score": 0.35,
+          "source": "heuristic"
+        },
+        {
+          "path": "pyproject.toml",
+          "kind": "file",
+          "reason": "Fallback generic project marker (no rich RepoProfile key_files)",
+          "score": 0.35,
+          "source": "heuristic"
+        },
+        {
+          "path": "tsconfig.json",
+          "kind": "file",
+          "reason": "Fallback generic project marker (no rich RepoProfile key_files)",
+          "score": 0.35,
+          "source": "heuristic"
+        }
+      ],
+      "avoid": {
+        "forbidden_layers": [],
+        "forbidden_roots": [],
+        "forbidden_paths": []
+      },
+      "limits": {
+        "max_reads": 20,
+        "max_bytes_per_file": 262144,
+        "max_shell_calls": 2,
+        "reserve_for_repair": 0
+      }
+    },
+    "execution_plan": {
+      "version": "1.0.0",
+      "execution_strategy": "staged_edit",
+      "expected_files_changed": [
+        "package.json",
+        "pyproject.toml",
+        "tsconfig.json"
+      ],
+      "guardrails": {
+        "forbid_layers": [],
+        "touch_only": [
+          "infra"
+        ],
+        "max_diff_lines": 200
+      },
+      "blast_radius": "system",
+      "risk": {
+        "level": "medium",
+        "reasons": [
+          "config/build manifest: package.json",
+          "config/build manifest: pyproject.toml",
+          "multiple expected files (+1)"
+        ],
+        "score": 5
+      },
+      "estimated_complexity": "medium"
+    },
+    "verification_plan": {
+      "version": "1.0.0",
+      "required": true,
+      "strategy": "targeted",
+      "steps": [
+        {
+          "check": "build",
+          "command": "npm run build",
+          "source": "defaults",
+          "cost": "expensive",
+          "gate": true,
+          "reason": "Build required by policy/risk; default command"
+        }
+      ],
+      "policy": {
+        "rerun_failed_first": true,
+        "no_custom_pipes": true,
+        "must_be_truthful": true
+      }
+    },
+    "repair_plan": {
+      "version": "1.0.0",
+      "max_attempts": 1,
+      "attempts_used": 0,
+      "repair_on": [
+        "typecheck",
+        "build",
+        "tests"
+      ],
+      "stop_on": [
+        "budget_exhausted",
+        "policy_block",
+        "permission_denied"
+      ],
+      "rerun_failed_first": true,
+      "last_failed_check": null,
+      "next_actions": []
+    },
+    "provenance": {
+      "planner_version": "1.0.0",
+      "advisory_mode": true,
+      "rules_applied": [
+        "exploration_rank_v1",
+        "execution_strategy_v1",
+        "verification_cheap_first_v1",
+        "repair_policy_v1"
+      ],
+      "generated_at": "2026-03-25T17:02:12.189634+00:00",
+      "notes": "Sprint 1 deterministic planner; advisory only."
+    }
+  },
+  "planner_version": "1.0.0",
+  "planner_advisory_mode": true,
+  "planner_risk_level": "medium",
+  "planner_estimated_complexity": "medium",
+  "planner_provenance": {
+    "planner_version": "1.0.0",
+    "advisory_mode": true,
+    "rules_applied": [
+      "exploration_rank_v1",
+      "execution_strategy_v1",
+      "verification_cheap_first_v1",
+      "repair_policy_v1"
+    ],
+    "generated_at": "2026-03-25T17:02:12.189634+00:00",
+    "notes": "Sprint 1 deterministic planner; advisory only."
+  },
+  "planner_used": true,
+  "retrieval_enabled": true,
+  "retrieval_query": {
+    "text": "\u00bfQu\u00e9 hace la funci\u00f3n seal_task_contract_after_intake y en qu\u00e9 archivo est\u00e1? Responde en 5 frases m\u00e1ximo. No uses herramientas si ya sabes la respuesta; si no, lee solo ese archivo. \u00bfQu\u00e9 hace la funci\u00f3n seal_task_contract_after_intake y en qu\u00e9 archivo est\u00e1? Responde en 5 frases m\u00e1ximo. No uses herramientas si ya sabes la respuesta; si no, lee solo ese archivo.",
+    "allowed_roots": [],
+    "forbidden_roots": [],
+    "target_files": [],
+    "preferred_files": [
+      "package.json",
+      "pyproject.toml",
+      "tsconfig.json"
+    ],
+    "preferred_symbols": [],
+    "max_hits": 14,
+    "languages": [],
+    "layer_boost_api": true,
+    "layer_boost_data": false
+  },
+  "retrieval_result": {
+    "hits": [
+      {
+        "file_path": "apps/cli/runtime/test_nim_provider.py",
+        "chunk_id": "2f8c36782547a27188576876",
+        "score": 69.0,
+        "reasons": [
+          "symbol:Resp",
+          "lexical"
+        ],
+        "start_line": 58,
+        "end_line": 108,
+        "preview": "        class Resp:\n            status_code = 401\n            text = \"no\"\n",
+        "symbol_names": [
+          "Resp"
+        ]
+      },
+      {
+        "file_path": "apps/cli/runtime/test_nim_provider.py",
+        "chunk_id": "f66b18dcdd4d529f4224e5ee",
+        "score": 69.0,
+        "reasons": [
+          "symbol:Resp",
+          "lexical"
+        ],
+        "start_line": 77,
+        "end_line": 127,
+        "preview": "        class Resp:\n            status_code = 429\n            text = \"slow\"\n",
+        "symbol_names": [
+          "Resp"
+        ]
+      },
+      {
+        "file_path": "apps/cli/runtime/test_nim_provider.py",
+        "chunk_id": "9c8145ae6b92b745cb5ff789",
+        "score": 69.0,
+        "reasons": [
+          "symbol:Resp",
+          "lexical"
+        ],
+        "start_line": 91,
+        "end_line": 141,
+        "preview": "        class Resp:\n            status_code = 200\n            text = \"{}\"\n",
+        "symbol_names": [
+          "Resp"
+        ]
+      },
+      {
+        "file_path": "apps/cli/runtime/test_nim_provider.py",
+        "chunk_id": "7a0ee7125a239f94c501df80",
+        "score": 69.0,
+        "reasons": [
+          "symbol:Resp",
+          "lexical"
+        ],
+        "start_line": 110,
+        "end_line": 160,
+        "preview": "        class Resp:\n            status_code = 200\n            text = \"{}\"\n",
+        "symbol_names": [
+          "Resp"
+        ]
+      },
+      {
+        "file_path": "tests/test_runtime_architecture_invariants.py",
+        "chunk_id": "e3bcc70c26681c780984c96d",
+        "score": 69.0,
+        "reasons": [
+          "symbol:S",
+          "lexical"
+        ],
+        "start_line": 173,
+        "end_line": 223,
+        "preview": "\n        class S:\n            verification_diff_fingerprint = fp\n            verification = {\"status\": \"success\", \"checks\": [], \"steps_executed_count\": 2}",
+        "symbol_names": [
+          "S"
+        ]
+      },
+      {
+        "file_path": "tests/test_runtime_architecture_invariants.py",
+        "chunk_id": "4bd4faf4ec2087cb43ea0791",
+        "score": 69.0,
+        "reasons": [
+          "symbol:S",
+          "lexical"
+        ],
+        "start_line": 194,
+        "end_line": 242,
+        "preview": "\n        class S:\n            verification_diff_fingerprint = fp_store\n            verification = {\"status\": \"success\", \"checks\": [], \"steps_executed_count\": 1}",
+        "symbol_names": [
+          "S"
+        ]
+      },
+      {
+        "file_path": "apps/server/api/translation.py",
+        "chunk_id": "c36599986cb08d7cc6f8e35e",
+        "score": 67.0,
+        "reasons": [
+          "api_layer",
+          "lexical"
+        ],
+        "start_line": 1,
+        "end_line": 72,
+        "preview": "import logging\nfrom typing import Dict, Any, List, Optional, AsyncGenerator\n\nfrom ghostllm_core.config import resolve_upstream_model_id",
+        "symbol_names": []
+      },
+      {
+        "file_path": "apps/web/tsconfig.json",
+        "chunk_id": "14184ff1a1cd3edec9709aee",
+        "score": 66.0,
+        "reasons": [
+          "planner_preferred",
+          "lexical"
+        ],
+        "start_line": 1,
+        "end_line": 26,
+        "preview": "{\n  \"compilerOptions\": {\n    \"lib\": [\"dom\", \"dom.iterable\", \"esnext\"],\n    \"allowJs\": true,",
+        "symbol_names": []
+      },
+      {
+        "file_path": "apps/cli/runtime/test_nim_provider.py",
+        "chunk_id": "f341a78abe484deebdab0619",
+        "score": 65.0,
+        "reasons": [
+          "symbol:Resp",
+          "lexical"
+        ],
+        "start_line": 39,
+        "end_line": 89,
+        "preview": "        class Resp:\n            status_code = 200\n            text = \"{}\"\n",
+        "symbol_names": [
+          "Resp"
+        ]
+      },
+      {
+        "file_path": "apps/cli/runtime/test_nim_provider.py",
+        "chunk_id": "a3189afb3cbc58e636b05111",
+        "score": 65.0,
+        "reasons": [
+          "symbol:Resp",
+          "lexical"
+        ],
+        "start_line": 134,
+        "end_line": 163,
+        "preview": "        class Resp:\n            status_code = 200\n            text = \"{}\"\n",
+        "symbol_names": [
+          "Resp"
+        ]
+      },
+      {
+        "file_path": "apps/server/api/translation.py",
+        "chunk_id": "b01675b7aa151729883dd615",
+        "score": 63.0,
+        "reasons": [
+          "api_layer",
+          "lexical"
+        ],
+        "start_line": 12,
+        "end_line": 47,
+        "preview": "\ndef translate_anthropic_to_openai(data: Dict[str, Any], model_mapping: Dict[str, str]) -> Dict[str, Any]:\n    \"\"\"\n    High-level orchestrator for Anthropic-to-OpenAI translation.",
+        "symbol_names": [
+          "translate_anthropic_to_openai"
+        ]
+      },
+      {
+        "file_path": "apps/web/package.json",
+        "chunk_id": "f25917ab886f8745b9af6edf",
+        "score": 62.0,
+        "reasons": [
+          "planner_preferred",
+          "lexical"
+        ],
+        "start_line": 1,
+        "end_line": 29,
+        "preview": "{\n  \"name\": \"web\",\n  \"version\": \"0.1.0\",\n  \"private\": true,",
+        "symbol_names": []
+      },
+      {
+        "file_path": "apps/cli/ui/renderer.py",
+        "chunk_id": "924f4006fe7caa357f78053d",
+        "score": 61.0,
+        "reasons": [
+          "symbol:on",
+          "lexical"
+        ],
+        "start_line": 117,
+        "end_line": 152,
+        "preview": "\n        def on(key: str) -> str:\n            return \"on\" if str(flags.get(key, \"0\")) == \"1\" else \"off\"\n",
+        "symbol_names": [
+          "on"
+        ]
+      },
+      {
+        "file_path": "apps/cli/runtime/tasks.py",
+        "chunk_id": "aca28a65aec7537375d592f4",
+        "score": 60.0,
+        "reasons": [
+          "symbol:Task",
+          "lexical"
+        ],
+        "start_line": 37,
+        "end_line": 87,
+        "preview": "class Task:\n    task_id: str\n    title: str\n    mode: str",
+        "symbol_names": [
+          "Task"
+        ]
+      }
+    ],
+    "top_files": [
+      [
+        "apps/cli/runtime/test_nim_provider.py",
+        69.0
+      ],
+      [
+        "tests/test_runtime_architecture_invariants.py",
+        69.0
+      ],
+      [
+        "apps/server/api/translation.py",
+        67.0
+      ],
+      [
+        "apps/web/tsconfig.json",
+        66.0
+      ],
+      [
+        "apps/web/package.json",
+        62.0
+      ],
+      [
+        "apps/cli/ui/renderer.py",
+        61.0
+      ],
+      [
+        "apps/cli/runtime/tasks.py",
+        60.0
+      ]
+    ],
+    "top_symbols": [
+      [
+        "test_count_tokens",
+        "test_ghost_claude.py"
+      ],
+      [
+        "test_messages",
+        "test_ghost_claude.py"
+      ],
+      [
+        "test_ghost_api",
+        "test_ghost_dev.py"
+      ],
+      [
+        "test_kimi",
+        "test_ghost_kimi.py"
+      ],
+      [
+        "test_multiline_fidelity",
+        "verify_fidelity.py"
+      ],
+      [
+        "test_intent_routing",
+        "verify_intent.py"
+      ],
+      [
+        "_tool_defs_for_session_phase",
+        "apps/cli/assistant.py"
+      ],
+      [
+        "_trace_phase_end",
+        "apps/cli/assistant.py"
+      ],
+      [
+        "_finalize_session_trace",
+        "apps/cli/assistant.py"
+      ],
+      [
+        "_apply_session_phase",
+        "apps/cli/assistant.py"
+      ],
+      [
+        "_abort_session_policy_block",
+        "apps/cli/assistant.py"
+      ],
+      [
+        "_env_truthy",
+        "apps/cli/runtime/runtime_env.py"
+      ]
+    ],
+    "provenance": {
+      "method": "hybrid_lexical_path_symbol_priors",
+      "chunks_scored": 1953,
+      "hits_returned": 14,
+      "retrieval_mode": "advisory",
+      "retrieval_actionable": true,
+      "retrieval_confidence": 0.8605,
+      "retrieval_runtime_influenced": false
+    },
+    "embeddings_used": false,
+    "query_ms": 64.51469999592518,
+    "chunks_scored": 1953
+  },
+  "retrieval_top_files": [
+    {
+      "path": "apps/cli/runtime/test_nim_provider.py",
+      "score": 69.0
+    },
+    {
+      "path": "tests/test_runtime_architecture_invariants.py",
+      "score": 69.0
+    },
+    {
+      "path": "apps/server/api/translation.py",
+      "score": 67.0
+    },
+    {
+      "path": "apps/web/tsconfig.json",
+      "score": 66.0
+    },
+    {
+      "path": "apps/web/package.json",
+      "score": 62.0
+    },
+    {
+      "path": "apps/cli/ui/renderer.py",
+      "score": 61.0
+    },
+    {
+      "path": "apps/cli/runtime/tasks.py",
+      "score": 60.0
+    }
+  ],
+  "retrieval_top_symbols": [
+    {
+      "symbol": "test_count_tokens",
+      "file": "test_ghost_claude.py"
+    },
+    {
+      "symbol": "test_messages",
+      "file": "test_ghost_claude.py"
+    },
+    {
+      "symbol": "test_ghost_api",
+      "file": "test_ghost_dev.py"
+    },
+    {
+      "symbol": "test_kimi",
+      "file": "test_ghost_kimi.py"
+    },
+    {
+      "symbol": "test_multiline_fidelity",
+      "file": "verify_fidelity.py"
+    },
+    {
+      "symbol": "test_intent_routing",
+      "file": "verify_intent.py"
+    },
+    {
+      "symbol": "_tool_defs_for_session_phase",
+      "file": "apps/cli/assistant.py"
+    },
+    {
+      "symbol": "_trace_phase_end",
+      "file": "apps/cli/assistant.py"
+    },
+    {
+      "symbol": "_finalize_session_trace",
+      "file": "apps/cli/assistant.py"
+    },
+    {
+      "symbol": "_apply_session_phase",
+      "file": "apps/cli/assistant.py"
+    },
+    {
+      "symbol": "_abort_session_policy_block",
+      "file": "apps/cli/assistant.py"
+    },
+    {
+      "symbol": "_env_truthy",
+      "file": "apps/cli/runtime/runtime_env.py"
+    }
+  ],
+  "retrieval_index_stats": {
+    "file_count": 165,
+    "chunk_count": 1953,
+    "symbol_count": 1517,
+    "edge_count": 880,
+    "skipped_count": 0
+  },
+  "retrieval_cache_info": {
+    "cache_path": "C:\\Users\\denis\\OneDrive\\Escritorio\\GhostLLM\\.ghost\\cache\\repo_retrieval_index.json",
+    "rebuilt": false,
+    "incremental": true,
+    "files_updated": 9,
+    "cache_version": "1.0.0"
+  },
+  "retrieval_used_embeddings": false,
+  "retrieval_provenance": {
+    "method": "hybrid_lexical_path_symbol_priors",
+    "chunks_scored": 1953,
+    "hits_returned": 14,
+    "retrieval_mode": "advisory",
+    "retrieval_actionable": true,
+    "retrieval_confidence": 0.8605,
+    "retrieval_runtime_influenced": false
+  },
+  "retrieval_actionable": true,
+  "retrieval_confidence": 0.8605,
+  "retrieval_mode": "advisory",
+  "retrieval_runtime_influenced": false,
+  "likely_edit_targets": [
+    "apps/cli/runtime/test_nim_provider.py",
+    "tests/test_runtime_architecture_invariants.py",
+    "apps/server/api/translation.py",
+    "apps/web/tsconfig.json",
+    "apps/web/package.json",
+    "apps/cli/ui/renderer.py",
+    "apps/cli/runtime/tasks.py"
+  ],
+  "likely_edit_target_reasons": [
+    "top retrieval file (score=69.0)",
+    "top retrieval file (score=69.0)",
+    "top retrieval file (score=67.0)",
+    "top retrieval file (score=66.0)",
+    "top retrieval file (score=62.0)",
+    "top retrieval file (score=61.0)",
+    "top retrieval file (score=60.0)"
+  ],
+  "merged_candidate_order": [
+    {
+      "path": "apps/cli/runtime/test_nim_provider.py",
+      "source": "retrieval",
+      "reason": "retrieval ranked file (score=69.0)"
+    },
+    {
+      "path": "tests/test_runtime_architecture_invariants.py",
+      "source": "retrieval",
+      "reason": "retrieval ranked file (score=69.0)"
+    },
+    {
+      "path": "apps/server/api/translation.py",
+      "source": "retrieval",
+      "reason": "retrieval ranked file (score=67.0)"
+    },
+    {
+      "path": "apps/web/tsconfig.json",
+      "source": "retrieval",
+      "reason": "retrieval ranked file (score=66.0)"
+    },
+    {
+      "path": "apps/web/package.json",
+      "source": "retrieval",
+      "reason": "retrieval ranked file (score=62.0)"
+    },
+    {
+      "path": "apps/cli/ui/renderer.py",
+      "source": "retrieval",
+      "reason": "retrieval ranked file (score=61.0)"
+    },
+    {
+      "path": "apps/cli/runtime/tasks.py",
+      "source": "retrieval",
+      "reason": "retrieval ranked file (score=60.0)"
+    },
+    {
+      "path": "package.json",
+      "source": "planner",
+      "reason": "Decision planner exploration / execution candidate"
+    },
+    {
+      "path": "pyproject.toml",
+      "source": "planner",
+      "reason": "Decision planner exploration / execution candidate"
+    },
+    {
+      "path": "tsconfig.json",
+      "source": "planner",
+      "reason": "Decision planner exploration / execution candidate"
+    }
+  ],
+  "retrieval_highlight_chunks": [
+    {
+      "file_path": "apps/cli/runtime/test_nim_provider.py",
+      "start_line": 58,
+      "end_line": 108,
+      "reason": "symbol:Resp, lexical"
+    },
+    {
+      "file_path": "apps/cli/runtime/test_nim_provider.py",
+      "start_line": 77,
+      "end_line": 127,
+      "reason": "symbol:Resp, lexical"
+    },
+    {
+      "file_path": "apps/cli/runtime/test_nim_provider.py",
+      "start_line": 91,
+      "end_line": 141,
+      "reason": "symbol:Resp, lexical"
+    },
+    {
+      "file_path": "apps/cli/runtime/test_nim_provider.py",
+      "start_line": 110,
+      "end_line": 160,
+      "reason": "symbol:Resp, lexical"
+    },
+    {
+      "file_path": "tests/test_runtime_architecture_invariants.py",
+      "start_line": 173,
+      "end_line": 223,
+      "reason": "symbol:S, lexical"
+    },
+    {
+      "file_path": "tests/test_runtime_architecture_invariants.py",
+      "start_line": 194,
+      "end_line": 242,
+      "reason": "symbol:S, lexical"
+    },
+    {
+      "file_path": "apps/server/api/translation.py",
+      "start_line": 1,
+      "end_line": 72,
+      "reason": "api_layer, lexical"
+    },
+    {
+      "file_path": "apps/web/tsconfig.json",
+      "start_line": 1,
+      "end_line": 26,
+      "reason": "planner_preferred, lexical"
+    }
+  ],
+  "execution_agent_used": true,
+  "execution_mode": "staged_edit",
+  "selected_execution_model": "openai/gpt-oss-120b",
+  "selected_targets": [
+    "apps/cli/runtime/test_nim_provider.py",
+    "tests/test_runtime_architecture_invariants.py",
+    "apps/server/api/translation.py",
+    "apps/web/tsconfig.json",
+    "apps/web/package.json",
+    "apps/cli/ui/renderer.py",
+    "apps/cli/runtime/tasks.py",
+    "package.json",
+    "pyproject.toml",
+    "tsconfig.json"
+  ],
+  "execution_context_summary": {
+    "targets_count": 10,
+    "chunks_count": 18,
+    "total_chars_approx": 2158,
+    "truncated": false,
+    "planner_paths_sample": [
+      "package.json",
+      "pyproject.toml",
+      "tsconfig.json"
+    ]
+  },
+  "proposed_edits": [
+    {
+      "file_path": "apps/cli/runtime/test_nim_provider.py",
+      "priority": 90,
+      "summary": "Target from retrieval (confidence 0.85)",
+      "suggested_actions": [
+        {
+          "path": "apps/cli/runtime/test_nim_provider.py",
+          "action": "edit",
+          "rationale": "top retrieval file (score=69.0)"
+        }
+      ],
+      "diff_or_patch": null,
+      "action_type": "edit",
+      "nim_confidence": null,
+      "parsed_from_model": false
+    },
+    {
+      "file_path": "tests/test_runtime_architecture_invariants.py",
+      "priority": 80,
+      "summary": "Target from retrieval (confidence 0.85)",
+      "suggested_actions": [
+        {
+          "path": "tests/test_runtime_architecture_invariants.py",
+          "action": "edit",
+          "rationale": "top retrieval file (score=69.0)"
+        }
+      ],
+      "diff_or_patch": null,
+      "action_type": "edit",
+      "nim_confidence": null,
+      "parsed_from_model": false
+    },
+    {
+      "file_path": "apps/server/api/translation.py",
+      "priority": 70,
+      "summary": "Target from retrieval (confidence 0.85)",
+      "suggested_actions": [
+        {
+          "path": "apps/server/api/translation.py",
+          "action": "edit",
+          "rationale": "top retrieval file (score=67.0)"
+        }
+      ],
+      "diff_or_patch": null,
+      "action_type": "edit",
+      "nim_confidence": null,
+      "parsed_from_model": false
+    },
+    {
+      "file_path": "apps/web/tsconfig.json",
+      "priority": 60,
+      "summary": "Target from retrieval (confidence 0.85)",
+      "suggested_actions": [
+        {
+          "path": "apps/web/tsconfig.json",
+          "action": "edit",
+          "rationale": "top retrieval file (score=66.0)"
+        }
+      ],
+      "diff_or_patch": null,
+      "action_type": "edit",
+      "nim_confidence": null,
+      "parsed_from_model": false
+    },
+    {
+      "file_path": "apps/web/package.json",
+      "priority": 50,
+      "summary": "Target from retrieval (confidence 0.85)",
+      "suggested_actions": [
+        {
+          "path": "apps/web/package.json",
+          "action": "edit",
+          "rationale": "top retrieval file (score=62.0)"
+        }
+      ],
+      "diff_or_patch": null,
+      "action_type": "edit",
+      "nim_confidence": null,
+      "parsed_from_model": false
+    },
+    {
+      "file_path": "apps/cli/ui/renderer.py",
+      "priority": 40,
+      "summary": "Target from retrieval (confidence 0.85)",
+      "suggested_actions": [
+        {
+          "path": "apps/cli/ui/renderer.py",
+          "action": "edit",
+          "rationale": "top retrieval file (score=61.0)"
+        }
+      ],
+      "diff_or_patch": null,
+      "action_type": "edit",
+      "nim_confidence": null,
+      "parsed_from_model": false
+    },
+    {
+      "file_path": "apps/cli/runtime/tasks.py",
+      "priority": 30,
+      "summary": "Target from retrieval (confidence 0.85)",
+      "suggested_actions": [
+        {
+          "path": "apps/cli/runtime/tasks.py",
+          "action": "edit",
+          "rationale": "top retrieval file (score=60.0)"
+        }
+      ],
+      "diff_or_patch": null,
+      "action_type": "edit",
+      "nim_confidence": null,
+      "parsed_from_model": false
+    },
+    {
+      "file_path": "package.json",
+      "priority": 20,
+      "summary": "Target from planner (confidence 0.60)",
+      "suggested_actions": [
+        {
+          "path": "package.json",
+          "action": "edit",
+          "rationale": "planner_candidate"
+        }
+      ],
+      "diff_or_patch": null,
+      "action_type": "edit",
+      "nim_confidence": null,
+      "parsed_from_model": false
+    }
+  ],
+  "execution_confidence": 0.5,
+  "execution_reasoning_lines": [
+    "execution_mode=staged_edit",
+    "targets_considered=10",
+    "model=openai/gpt-oss-120b"
+  ],
+  "execution_agent_provenance": {
+    "version": "1.0.0",
+    "advisory_only": true,
+    "writes_enabled_env": false,
+    "nim_flag": false,
+    "context_cap": 12000
+  },
+  "execution_agent_prompt": "[EXECUTION AGENT \u2014 advisory context for code writing]\nIntent: modification | Scope: infra\nChange expectation: must_write\nForbidden layers: (none)\n\nSelected edit targets (prioritized):\n  - apps/cli/runtime/test_nim_provider.py :: role=service :: retrieval :: conf=0.85\n  - tests/test_runtime_architecture_invariants.py :: role=service :: retrieval :: conf=0.85\n  - apps/server/api/translation.py :: role=api_route :: retrieval :: conf=0.85\n  - apps/web/tsconfig.json :: role=config :: retrieval :: conf=0.85\n  - apps/web/package.json :: role=config :: retrieval :: conf=0.85\n  - apps/cli/ui/renderer.py :: role=service :: retrieval :: conf=0.85\n  - apps/cli/runtime/tasks.py :: role=service :: retrieval :: conf=0.85\n  - package.json :: role=config :: planner :: conf=0.60\n  - pyproject.toml :: role=service :: planner :: conf=0.60\n  - tsconfig.json :: role=config :: planner :: conf=0.60\n\nRelevant chunks (line ranges; apply minimal patches only):\n  - [service] apps/cli/runtime/test_nim_provider.py:58-108\n            class Resp:\n            status_code = 401\n            text = \"no\"\n\n  - [service] apps/cli/runtime/test_nim_provider.py:77-127\n            class Resp:\n            status_code = 429\n            text = \"slow\"\n\n  - [service] apps/cli/runtime/test_nim_provider.py:91-141\n            class Resp:\n            status_code = 200\n            text = \"{}\"\n\n  - [service] apps/cli/runtime/test_nim_provider.py:110-160\n            class Resp:\n            status_code = 200\n            text = \"{}\"\n\n  - [service] tests/test_runtime_architecture_invariants.py:173-223\n    \n        class S:\n            verification_diff_fingerprint = fp\n            verification = {\"status\": \"success\", \"checks\": [], \"steps_executed_count\": 2}\n  - [service] tests/test_runtime_architecture_invariants.py:194-242\n    \n        class S:\n            verification_diff_fingerprint = fp_store\n            verification = {\"status\": \"success\", \"checks\": [], \"steps_executed_count\": 1}\n  - [api_route] apps/server/api/translation.py:1-72\n    import logging\nfrom typing import Dict, Any, List, Optional, AsyncGenerator\n\nfrom ghostllm_core.config import resolve_upstream_model_id\n  - [config] apps/web/tsconfig.json:1-26\n    {\n  \"compilerOptions\": {\n    \"lib\": [\"dom\", \"dom.iterable\", \"esnext\"],\n    \"allowJs\": true,\n  - [service] apps/cli/runtime/test_nim_provider.py:39-89\n            class Resp:\n            status_code = 200\n            text = \"{}\"\n\n  - [service] apps/cli/runtime/test_nim_provider.py:134-163\n            class Resp:\n            status_code = 200\n            text = \"{}\"\n\n\nVerification expectations:\n  required=True typecheck=False lint=False build=False tests=False\n  guardrails: forbid_layers=[] max_diff_lines=200\n\nInstructions: Produce minimal, targeted edits; respect forbidden layers; prefer edit_file-style patches over full rewrites; do not invent files.\n",
+  "execution_agent_writes_enabled": false,
+  "planner_model": "openai/gpt-oss-120b",
+  "execution_model_resolved": "openai/gpt-oss-120b",
+  "repair_model_resolved": "openai/gpt-oss-120b",
+  "general_fallback_model": "meta/llama-3.1-8b-instruct",
+  "execution_fallback_model": "openai/gpt-oss-120b",
+  "provider_backend": "null",
+  "live_generation_used": false,
+  "provider_ok": true,
+  "provider_error_message": "",
+  "provider_latency_ms": 0.0,
+  "provider_model": "openai/gpt-oss-120b",
+  "proposal_parsed": false,
+  "execution_raw_proposal": "",
+  "provider_response_snapshot": {},
+  "benchmark_results": [],
+  "trace_path": "C:\\Users\\denis\\OneDrive\\Escritorio\\GhostLLM\\.ghost\\traces\\task_20260325_130212_83f8.json",
+  "trace_summary_short": "total=21512ms | model=18685ms | tool=174ms | approval_wait=0ms | verif=0ms | overhead\u22482652ms | bottleneck=execution model latency dominated (5129ms) | loop_turns=15 tool_rounds=14",
+  "trace_detail_md": "**Trace file:** `C:\\Users\\denis\\OneDrive\\Escritorio\\GhostLLM\\.ghost\\traces\\task_20260325_130212_83f8.json`\n**cwd:** `C:\\Users\\denis\\OneDrive\\Escritorio\\GhostLLM` | **repo_root:** `C:\\Users\\denis\\OneDrive\\Escritorio\\GhostLLM`\n**Total (wall):** 21512 ms\n**Model:** 18685 ms | **Tool:** 174 ms | **Approval wait:** 0 ms | **Verification:** 0 ms | **Overhead (est.):** 2652 ms\n**Bottleneck:** execution model latency dominated (5129ms)\n**Slowest model call:** `general:openai/gpt-oss-120b`\n**Chat loop:** model_turns=15 | tool_rounds=14\n*components are non-overlapping sums; remainder is orchestration/overhead*",
+  "batch_executor_used": false,
+  "batch_plans": [],
+  "batch_results": [],
+  "approval_compression_used": false,
+  "compressed_approval_count": 0,
+  "batched_read_count": 0,
+  "batched_verification_count": 0,
+  "config_source": "environment variables only (GHOST_AUTOLOAD_ENV off)",
+  "autoload_env_used": false,
+  "env_file_loaded": "",
+  "active_feature_flags": {
+    "GHOST_USE_TASKSPEC": "1",
+    "GHOST_USE_DECISION_PLANNER": "1",
+    "GHOST_USE_RETRIEVAL": "1",
+    "GHOST_RETRIEVAL_INFLUENCES_RUNTIME": "0",
+    "GHOST_USE_EXECUTION_AGENT": "1",
+    "GHOST_EXECUTION_AGENT_LIVE": "0",
+    "GHOST_PARALLEL_PIPELINE": "partial",
+    "GHOST_USE_BATCH_EXECUTOR": "0",
+    "GHOST_USE_APPROVAL_COMPRESSION": "1",
+    "GHOST_USE_NVIDIA_NIM": "0",
+    "GHOST_AUTOLOAD_ENV": "0",
+    "GHOST_CLI_TRACE_SUMMARY": "0"
+  },
+  "startup_warnings": [],
+  "effective_repo_root": "C:\\Users\\denis\\OneDrive\\Escritorio\\GhostLLM",
+  "cli_command_mode": "plan",
+  "operational_metrics": {
+    "total_loop_iterations": 15,
+    "total_model_turns": 15,
+    "total_act_phases": 0,
+    "total_verify_phases": 0,
+    "total_repair_phases": 0,
+    "repair_attempts": 0,
+    "repair_success_count": 0,
+    "verification_pass_count": 0,
+    "verification_fail_count": 0,
+    "verification_reuse_count": 0,
+    "total_tool_calls": 10,
+    "total_write_tool_calls": 0,
+    "total_read_tool_calls": 10,
+    "prompt_chars_sent": 283914,
+    "repair_prompt_chars_sent": 0,
+    "tool_output_archived_count": 1,
+    "final_aborted_reason": "max_iterations"
+  },
+  "runtime_health": {
+    "schema_version": 1,
+    "health_status": "failed",
+    "verify_status": "skipped",
+    "repair_status": "not_needed",
+    "exploration_status": "normal",
+    "terminal_status": "aborted",
+    "main_risk_flags": []
+  }
+}

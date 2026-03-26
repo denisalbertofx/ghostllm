@@ -1,0 +1,277 @@
+{
+  "session_id": "task_20260325_150124_4c92",
+  "command_mode": "do",
+  "cwd": "C:\\Users\\denis\\OneDrive\\Escritorio\\GhostLLM",
+  "repo_root": "C:\\Users\\denis\\OneDrive\\Escritorio\\GhostLLM",
+  "runtime_contract_source": "taskspec",
+  "planner_used": false,
+  "retrieval_used": false,
+  "execution_agent_used": false,
+  "batch_executor_used": false,
+  "approval_compression_used": false,
+  "compressed_approval_count": 0,
+  "batched_read_count": 0,
+  "batched_verification_count": 0,
+  "batch_executions": [],
+  "started_at": "2026-03-25T19:01:24.267418+00:00",
+  "ended_at": "2026-03-25T19:02:03.817490+00:00",
+  "total_duration_ms": 39550.07900000055,
+  "artifact_path": "C:\\Users\\denis\\OneDrive\\Escritorio\\GhostLLM\\.ghost\\artifacts\\task_20260325_150124_4c92.json",
+  "final_outcome": "already_implemented",
+  "final_state": "DONE",
+  "phases": [
+    {
+      "phase_name": "repo_profile",
+      "started_at": "2026-03-25T19:01:24.267945+00:00",
+      "ended_at": "2026-03-25T19:01:24.270155+00:00",
+      "duration_ms": 2.210200000263285,
+      "status": "completed",
+      "notes": ""
+    },
+    {
+      "phase_name": "contract_spec",
+      "started_at": "2026-03-25T19:01:24.270431+00:00",
+      "ended_at": "2026-03-25T19:01:24.271356+00:00",
+      "duration_ms": 0.9254999968106858,
+      "status": "completed",
+      "notes": ""
+    },
+    {
+      "phase_name": "decision_planner",
+      "started_at": "2026-03-25T19:01:24.271469+00:00",
+      "ended_at": "2026-03-25T19:01:24.271486+00:00",
+      "duration_ms": 0.016800004232209176,
+      "status": "completed",
+      "notes": ""
+    },
+    {
+      "phase_name": "retrieval",
+      "started_at": "2026-03-25T19:01:24.271493+00:00",
+      "ended_at": "2026-03-25T19:01:24.271512+00:00",
+      "duration_ms": 0.018800004909280688,
+      "status": "completed",
+      "notes": ""
+    },
+    {
+      "phase_name": "execution_agent",
+      "started_at": "2026-03-25T19:01:24.271521+00:00",
+      "ended_at": "2026-03-25T19:01:24.271533+00:00",
+      "duration_ms": 0.011900003300979733,
+      "status": "completed",
+      "notes": ""
+    },
+    {
+      "phase_name": "conclusion",
+      "started_at": "2026-03-25T19:02:03.816692+00:00",
+      "ended_at": "2026-03-25T19:02:03.817207+00:00",
+      "duration_ms": 0.5155999970156699,
+      "status": "completed",
+      "notes": ""
+    }
+  ],
+  "phase_coverage": [
+    {
+      "phase_name": "repo_profile",
+      "status": "completed",
+      "duration_ms": 2.210200000263285,
+      "notes": ""
+    },
+    {
+      "phase_name": "contract_spec",
+      "status": "completed",
+      "duration_ms": 0.9254999968106858,
+      "notes": ""
+    },
+    {
+      "phase_name": "parallel_preamble",
+      "status": "skipped",
+      "duration_ms": 0.0,
+      "notes": "sequential planner+retrieval path"
+    },
+    {
+      "phase_name": "decision_planner",
+      "status": "completed",
+      "duration_ms": 0.016800004232209176,
+      "notes": ""
+    },
+    {
+      "phase_name": "retrieval",
+      "status": "completed",
+      "duration_ms": 0.018800004909280688,
+      "notes": ""
+    },
+    {
+      "phase_name": "execution_agent",
+      "status": "completed",
+      "duration_ms": 0.011900003300979733,
+      "notes": ""
+    },
+    {
+      "phase_name": "verification",
+      "status": "skipped",
+      "duration_ms": 0.0,
+      "notes": "phase not entered"
+    },
+    {
+      "phase_name": "repair",
+      "status": "skipped",
+      "duration_ms": 0.0,
+      "notes": "no repair cycle"
+    },
+    {
+      "phase_name": "conclusion",
+      "status": "completed",
+      "duration_ms": 0.5155999970156699,
+      "notes": ""
+    }
+  ],
+  "model_calls": [
+    {
+      "role": "general",
+      "model": "kimi",
+      "provider_backend": "openai_compatible",
+      "started_at": "2026-03-25T19:01:24.464948+00:00",
+      "first_token_at": null,
+      "ended_at": "2026-03-25T19:01:28.547320+00:00",
+      "ttft_ms": null,
+      "duration_ms": 4082.3513000068488,
+      "status": "completed",
+      "ok": true,
+      "error_message": "",
+      "prompt_chars": 6077,
+      "output_chars": 0
+    },
+    {
+      "role": "general",
+      "model": "kimi",
+      "provider_backend": "openai_compatible",
+      "started_at": "2026-03-25T19:01:28.738446+00:00",
+      "first_token_at": null,
+      "ended_at": "2026-03-25T19:01:32.783554+00:00",
+      "ttft_ms": null,
+      "duration_ms": 4045.089100000041,
+      "status": "completed",
+      "ok": true,
+      "error_message": "",
+      "prompt_chars": 11966,
+      "output_chars": 0
+    },
+    {
+      "role": "general",
+      "model": "kimi",
+      "provider_backend": "openai_compatible",
+      "started_at": "2026-03-25T19:01:32.989951+00:00",
+      "first_token_at": "2026-03-25T19:01:35.768608+00:00",
+      "ended_at": "2026-03-25T19:01:41.146603+00:00",
+      "ttft_ms": 2778.6376000003656,
+      "duration_ms": 8156.629400000384,
+      "status": "completed",
+      "ok": true,
+      "error_message": "",
+      "prompt_chars": 11999,
+      "output_chars": 315
+    },
+    {
+      "role": "general",
+      "model": "kimi",
+      "provider_backend": "openai_compatible",
+      "started_at": "2026-03-25T19:01:41.315574+00:00",
+      "first_token_at": "2026-03-25T19:01:44.430812+00:00",
+      "ended_at": "2026-03-25T19:01:52.881184+00:00",
+      "ttft_ms": 3115.2243000033195,
+      "duration_ms": 11565.592999999353,
+      "status": "completed",
+      "ok": true,
+      "error_message": "",
+      "prompt_chars": 12314,
+      "output_chars": 321
+    },
+    {
+      "role": "general",
+      "model": "kimi",
+      "provider_backend": "openai_compatible",
+      "started_at": "2026-03-25T19:01:53.055328+00:00",
+      "first_token_at": "2026-03-25T19:01:55.708430+00:00",
+      "ended_at": "2026-03-25T19:02:03.816161+00:00",
+      "ttft_ms": 2653.0882000006386,
+      "duration_ms": 10760.817500005942,
+      "status": "completed",
+      "ok": true,
+      "error_message": "",
+      "prompt_chars": 12712,
+      "output_chars": 535
+    }
+  ],
+  "tool_calls": [
+    {
+      "tool_name": "summarize_repo",
+      "target": "",
+      "started_at": "2026-03-25T19:01:28.547718+00:00",
+      "ended_at": "2026-03-25T19:01:28.554670+00:00",
+      "duration_ms": 6.93909999972675,
+      "status": "completed",
+      "ok": true,
+      "error_message": "",
+      "result_summary": "summary_len=4779"
+    },
+    {
+      "tool_name": "ls",
+      "target": "docs",
+      "started_at": "2026-03-25T19:01:28.561574+00:00",
+      "ended_at": "2026-03-25T19:01:28.561804+00:00",
+      "duration_ms": 0.2116999967256561,
+      "status": "completed",
+      "ok": true,
+      "error_message": "",
+      "result_summary": "files=31"
+    },
+    {
+      "tool_name": "read_file",
+      "target": "docs/_ghost_ms1.txt",
+      "started_at": "2026-03-25T19:01:32.783911+00:00",
+      "ended_at": "2026-03-25T19:01:32.784150+00:00",
+      "duration_ms": 0.2280000044265762,
+      "status": "completed",
+      "ok": true,
+      "error_message": "",
+      "result_summary": "content_len=14"
+    }
+  ],
+  "approvals": [],
+  "verification": [],
+  "repairs": [],
+  "summary": {
+    "total_model_time_ms": 38610.48030001257,
+    "total_tool_time_ms": 7.378800000878982,
+    "total_approval_wait_ms": 0.0,
+    "total_verification_time_ms": 0.0,
+    "accounted_wall_components_ms": 38617.85910001345,
+    "overhead_ms": 932.2198999871034,
+    "duration_consistency_note": "components are non-overlapping sums; remainder is orchestration/overhead",
+    "bottleneck_phase": "model_total",
+    "bottleneck_tool": "",
+    "bottleneck_model": "general:kimi",
+    "bottleneck_reason": "execution model latency dominated (11566ms)",
+    "execution_loop_model_turns": 5,
+    "execution_loop_tool_rounds": 2
+  },
+  "trace_notes": [],
+  "feature_flags": {
+    "GHOST_USE_TASKSPEC": "0",
+    "GHOST_USE_DECISION_PLANNER": "0",
+    "GHOST_USE_RETRIEVAL": "0",
+    "GHOST_RETRIEVAL_INFLUENCES_RUNTIME": "0",
+    "GHOST_USE_EXECUTION_AGENT": "0",
+    "GHOST_EXECUTION_AGENT_WRITES": "0",
+    "GHOST_EXECUTION_AGENT_LIVE": "0",
+    "GHOST_PARALLEL_PIPELINE": "0",
+    "GHOST_USE_NVIDIA_NIM": "0",
+    "GHOST_USE_BATCH_EXECUTOR": "0",
+    "GHOST_USE_APPROVAL_COMPRESSION": "0",
+    "GHOST_AUTOLOAD_ENV": "0",
+    "GHOST_CLI_TRACE_SUMMARY": "0"
+  },
+  "wrong_repo_diagnostic": "",
+  "execution_loop_model_turns": 5,
+  "execution_loop_tool_rounds": 2
+}

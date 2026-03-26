@@ -1,0 +1,26 @@
+{
+  "session_id": "task_20260323_021733",
+  "task_id": "task_20260323_021733_09e29980",
+  "timestamp": "2026-03-23T02:17:33.246078",
+  "task": "Stop Me",
+  "task_type": "direct_edit",
+  "type_source": "inferred",
+  "batch_id": "batch_20260323_021733_cdd27877",
+  "plan": "Stop Me",
+  "root_cause": "",
+  "diff_summary": [],
+  "verification": {
+    "status": "skipped",
+    "checks": []
+  },
+  "verification_justification": "",
+  "rollback_status": "none",
+  "next_action": "Review task outcome. Use 'continua' if needed.",
+  "events": [
+    {
+      "event": "TaskStart",
+      "timestamp": 1774246653.2460966,
+      "details": "Mode: Chat | Task: Stop Me"
+    }
+  ]
+}

@@ -1,9 +1,8 @@
 import os
 import secrets
 from datetime import datetime, timedelta
-from typing import Optional, Union
+from typing import Optional
 from jose import JWTError, jwt
-from passlib.context import CryptContext
 
 # Configuration (should be in default.yaml ideally)
 SECRET_KEY = os.environ.get("GHOST_SECRET_KEY", "ghost-ultra-secret-key-12345")

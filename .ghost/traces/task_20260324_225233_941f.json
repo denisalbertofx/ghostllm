@@ -1,0 +1,389 @@
+{
+  "session_id": "task_20260324_225233_941f",
+  "command_mode": "dev",
+  "cwd": "C:\\Users\\denis\\OneDrive\\Escritorio\\GhostLLM",
+  "repo_root": "C:\\Users\\denis\\OneDrive\\Escritorio\\GhostLLM",
+  "runtime_contract_source": "taskspec",
+  "planner_used": true,
+  "retrieval_used": true,
+  "execution_agent_used": true,
+  "batch_executor_used": false,
+  "approval_compression_used": false,
+  "compressed_approval_count": 0,
+  "batched_read_count": 0,
+  "batched_verification_count": 0,
+  "batch_executions": [],
+  "started_at": "2026-03-25T02:52:33.054409+00:00",
+  "ended_at": "2026-03-25T02:55:32.956200+00:00",
+  "total_duration_ms": 179901.79839999997,
+  "artifact_path": "C:\\Users\\denis\\OneDrive\\Escritorio\\GhostLLM\\.ghost\\artifacts\\task_20260324_225233_941f.json",
+  "final_outcome": "verification_failed",
+  "final_state": "FAILED_VERIFICATION",
+  "phases": [
+    {
+      "phase_name": "repo_profile",
+      "started_at": "2026-03-25T02:52:33.054431+00:00",
+      "ended_at": "2026-03-25T02:52:33.056359+00:00",
+      "duration_ms": 1.9271999999546097,
+      "status": "completed",
+      "notes": ""
+    },
+    {
+      "phase_name": "taskspec",
+      "started_at": "2026-03-25T02:52:33.056501+00:00",
+      "ended_at": "2026-03-25T02:52:33.057185+00:00",
+      "duration_ms": 0.6819000000177766,
+      "status": "completed",
+      "notes": ""
+    },
+    {
+      "phase_name": "parallel_preamble",
+      "started_at": "2026-03-25T02:52:33.057212+00:00",
+      "ended_at": "2026-03-25T02:52:34.337583+00:00",
+      "duration_ms": 1280.3681000000324,
+      "status": "completed",
+      "notes": "planner_ms=0.2;index_ms=1146.0;apply_ms=126.8;wall_ms=1273.5;serialized_est_ms=1273.0;overlap_saved_ms=0.0"
+    },
+    {
+      "phase_name": "execution_agent",
+      "started_at": "2026-03-25T02:52:34.337634+00:00",
+      "ended_at": "2026-03-25T02:52:34.338029+00:00",
+      "duration_ms": 0.39399999991474033,
+      "status": "completed",
+      "notes": ""
+    },
+    {
+      "phase_name": "verification",
+      "started_at": "2026-03-25T02:55:32.903328+00:00",
+      "ended_at": "2026-03-25T02:55:32.951684+00:00",
+      "duration_ms": 48.35670000011305,
+      "status": "completed",
+      "notes": ""
+    },
+    {
+      "phase_name": "conclusion",
+      "started_at": "2026-03-25T02:55:32.955283+00:00",
+      "ended_at": "2026-03-25T02:55:32.955616+00:00",
+      "duration_ms": 0.33389999998689746,
+      "status": "completed",
+      "notes": ""
+    }
+  ],
+  "phase_coverage": [
+    {
+      "phase_name": "repo_profile",
+      "status": "completed",
+      "duration_ms": 1.9271999999546097,
+      "notes": ""
+    },
+    {
+      "phase_name": "taskspec",
+      "status": "completed",
+      "duration_ms": 0.6819000000177766,
+      "notes": ""
+    },
+    {
+      "phase_name": "parallel_preamble",
+      "status": "completed",
+      "duration_ms": 1280.3681000000324,
+      "notes": "planner_ms=0.2;index_ms=1146.0;apply_ms=126.8;wall_ms=1273.5;serialized_est_ms=1273.0;overlap_saved_ms=0.0"
+    },
+    {
+      "phase_name": "decision_planner",
+      "status": "completed",
+      "duration_ms": 0.0,
+      "notes": "folded into parallel_preamble"
+    },
+    {
+      "phase_name": "retrieval",
+      "status": "completed",
+      "duration_ms": 0.0,
+      "notes": "folded into parallel_preamble"
+    },
+    {
+      "phase_name": "execution_agent",
+      "status": "completed",
+      "duration_ms": 0.39399999991474033,
+      "notes": ""
+    },
+    {
+      "phase_name": "verification",
+      "status": "completed",
+      "duration_ms": 48.35670000011305,
+      "notes": ""
+    },
+    {
+      "phase_name": "repair",
+      "status": "skipped",
+      "duration_ms": 0.0,
+      "notes": "no repair cycle"
+    },
+    {
+      "phase_name": "conclusion",
+      "status": "completed",
+      "duration_ms": 0.33389999998689746,
+      "notes": ""
+    }
+  ],
+  "model_calls": [
+    {
+      "role": "general",
+      "model": "smart",
+      "provider_backend": "openai_compatible",
+      "started_at": "2026-03-25T02:52:34.504762+00:00",
+      "first_token_at": null,
+      "ended_at": "2026-03-25T02:52:37.996447+00:00",
+      "ttft_ms": null,
+      "duration_ms": 3491.6677000001073,
+      "status": "completed",
+      "ok": true,
+      "error_message": "",
+      "prompt_chars": 41986,
+      "output_chars": 0
+    },
+    {
+      "role": "general",
+      "model": "smart",
+      "provider_backend": "openai_compatible",
+      "started_at": "2026-03-25T02:52:41.350312+00:00",
+      "first_token_at": null,
+      "ended_at": "2026-03-25T02:52:44.154172+00:00",
+      "ttft_ms": null,
+      "duration_ms": 2803.841600000169,
+      "status": "completed",
+      "ok": true,
+      "error_message": "",
+      "prompt_chars": 42084,
+      "output_chars": 0
+    },
+    {
+      "role": "general",
+      "model": "smart",
+      "provider_backend": "openai_compatible",
+      "started_at": "2026-03-25T02:52:53.449682+00:00",
+      "first_token_at": null,
+      "ended_at": "2026-03-25T02:52:56.069294+00:00",
+      "ttft_ms": null,
+      "duration_ms": 2619.5939000001545,
+      "status": "completed",
+      "ok": true,
+      "error_message": "",
+      "prompt_chars": 42756,
+      "output_chars": 0
+    },
+    {
+      "role": "general",
+      "model": "smart",
+      "provider_backend": "openai_compatible",
+      "started_at": "2026-03-25T02:52:56.237090+00:00",
+      "first_token_at": null,
+      "ended_at": "2026-03-25T02:52:57.671953+00:00",
+      "ttft_ms": null,
+      "duration_ms": 1434.8426999999901,
+      "status": "completed",
+      "ok": true,
+      "error_message": "",
+      "prompt_chars": 43489,
+      "output_chars": 0
+    },
+    {
+      "role": "general",
+      "model": "smart",
+      "provider_backend": "openai_compatible",
+      "started_at": "2026-03-25T02:52:57.841025+00:00",
+      "first_token_at": null,
+      "ended_at": "2026-03-25T02:53:21.714901+00:00",
+      "ttft_ms": null,
+      "duration_ms": 23873.8601,
+      "status": "completed",
+      "ok": true,
+      "error_message": "",
+      "prompt_chars": 48949,
+      "output_chars": 0
+    },
+    {
+      "role": "general",
+      "model": "smart",
+      "provider_backend": "openai_compatible",
+      "started_at": "2026-03-25T02:55:20.912491+00:00",
+      "first_token_at": null,
+      "ended_at": "2026-03-25T02:55:23.762070+00:00",
+      "ttft_ms": null,
+      "duration_ms": 2849.5617999999467,
+      "status": "completed",
+      "ok": true,
+      "error_message": "",
+      "prompt_chars": 48986,
+      "output_chars": 0
+    },
+    {
+      "role": "general",
+      "model": "smart",
+      "provider_backend": "openai_compatible",
+      "started_at": "2026-03-25T02:55:23.931530+00:00",
+      "first_token_at": "2026-03-25T02:55:29.922806+00:00",
+      "ended_at": "2026-03-25T02:55:32.464644+00:00",
+      "ttft_ms": 5991.260400000101,
+      "duration_ms": 8533.09779999995,
+      "status": "completed",
+      "ok": true,
+      "error_message": "",
+      "prompt_chars": 68455,
+      "output_chars": 2103
+    }
+  ],
+  "tool_calls": [
+    {
+      "tool_name": "retrieval_index",
+      "target": "",
+      "started_at": "2026-03-25T02:52:33.057215+00:00",
+      "ended_at": "2026-03-25T02:52:34.337617+00:00",
+      "duration_ms": 1272.7972999998656,
+      "status": "completed",
+      "ok": true,
+      "error_message": "",
+      "result_summary": "rebuilt=False incremental=True parallel_preamble=1"
+    },
+    {
+      "tool_name": "edit_file",
+      "target": "apps/web/src/app/page.tsx",
+      "started_at": "2026-03-25T02:52:41.174969+00:00",
+      "ended_at": "2026-03-25T02:52:41.179319+00:00",
+      "duration_ms": 4.336899999998423,
+      "status": "completed",
+      "ok": true,
+      "error_message": "",
+      "result_summary": "['status', 'file']"
+    },
+    {
+      "tool_name": "run_shell",
+      "target": "npx tsc --noEmit",
+      "started_at": "2026-03-25T02:52:44.155465+00:00",
+      "ended_at": "2026-03-25T02:52:53.284382+00:00",
+      "duration_ms": 9128.901399999904,
+      "status": "completed",
+      "ok": true,
+      "error_message": "",
+      "result_summary": "exit=1 out_len=544"
+    },
+    {
+      "tool_name": "read_file",
+      "target": "apps/web/package.json",
+      "started_at": "2026-03-25T02:52:56.070471+00:00",
+      "ended_at": "2026-03-25T02:52:56.070652+00:00",
+      "duration_ms": 0.16909999999370484,
+      "status": "completed",
+      "ok": true,
+      "error_message": "",
+      "result_summary": "content_len=601"
+    },
+    {
+      "tool_name": "ls",
+      "target": "apps/web/node_modules",
+      "started_at": "2026-03-25T02:52:57.673003+00:00",
+      "ended_at": "2026-03-25T02:52:57.673340+00:00",
+      "duration_ms": 0.32570000007581257,
+      "status": "completed",
+      "ok": true,
+      "error_message": "",
+      "result_summary": "files=327"
+    },
+    {
+      "tool_name": "write_file",
+      "target": "apps/web/src/app/components/UI.tsx",
+      "started_at": "2026-03-25T02:55:20.727155+00:00",
+      "ended_at": "2026-03-25T02:55:20.740963+00:00",
+      "duration_ms": 13.79240000005666,
+      "status": "completed",
+      "ok": true,
+      "error_message": "",
+      "result_summary": "['status', 'bytes']"
+    },
+    {
+      "tool_name": "read_file",
+      "target": "apps/web/src/app/page.tsx",
+      "started_at": "2026-03-25T02:55:23.763601+00:00",
+      "ended_at": "2026-03-25T02:55:23.763818+00:00",
+      "duration_ms": 0.20440000002963643,
+      "status": "completed",
+      "ok": true,
+      "error_message": "",
+      "result_summary": "content_len=18499"
+    }
+  ],
+  "approvals": [
+    {
+      "approval_type": "bundled_write_approval",
+      "command_or_action": "edit_file:apps/web/src/app/page.tsx",
+      "requested_at": "2026-03-25T02:52:37.998563+00:00",
+      "resolved_at": "2026-03-25T02:52:41.173656+00:00",
+      "wait_duration_ms": 3175.0741000000744,
+      "approved": true,
+      "status": "completed",
+      "reason": ""
+    },
+    {
+      "approval_type": "manual_shell_or_policy",
+      "command_or_action": "Execute Shell: npx tsc --noEmit",
+      "requested_at": "2026-03-25T02:52:44.156768+00:00",
+      "resolved_at": "2026-03-25T02:52:51.821680+00:00",
+      "wait_duration_ms": 7664.889299999913,
+      "approved": true,
+      "status": "completed",
+      "reason": ""
+    },
+    {
+      "approval_type": "bundled_write_approval",
+      "command_or_action": "write_file:apps/web/src/app/components/UI.tsx",
+      "requested_at": "2026-03-25T02:53:21.717179+00:00",
+      "resolved_at": "2026-03-25T02:55:20.725753+00:00",
+      "wait_duration_ms": 119008.54690000006,
+      "approved": true,
+      "status": "completed",
+      "reason": ""
+    }
+  ],
+  "verification": [
+    {
+      "checks_run": 1,
+      "checks_passed": 0,
+      "checks_failed": 1,
+      "checks_blocked": 0,
+      "checks_not_run": 0,
+      "total_duration_ms": 48.30579999998008,
+      "verification_source": "VerificationManager",
+      "status": "failed"
+    }
+  ],
+  "repairs": [],
+  "summary": {
+    "total_model_time_ms": 45606.465600000316,
+    "total_tool_time_ms": 10420.527199999924,
+    "total_approval_wait_ms": 129848.51030000005,
+    "total_verification_time_ms": 48.30579999998008,
+    "accounted_wall_components_ms": 185923.80890000027,
+    "overhead_ms": -6022.010500000295,
+    "duration_consistency_note": "accounted components exceed wall clock (overlap or clock); components are additive per category, not disjoint wall spans",
+    "bottleneck_phase": "approval_wait",
+    "bottleneck_tool": "",
+    "bottleneck_model": "",
+    "bottleneck_reason": "approval_wait dominated (129849ms of human wait)"
+  },
+  "trace_notes": [],
+  "feature_flags": {
+    "GHOST_USE_TASKSPEC": "1",
+    "GHOST_USE_DECISION_PLANNER": "1",
+    "GHOST_USE_RETRIEVAL": "1",
+    "GHOST_RETRIEVAL_INFLUENCES_RUNTIME": "1",
+    "GHOST_USE_EXECUTION_AGENT": "1",
+    "GHOST_EXECUTION_AGENT_WRITES": "0",
+    "GHOST_EXECUTION_AGENT_LIVE": "1",
+    "GHOST_PARALLEL_PIPELINE": "1",
+    "GHOST_USE_NVIDIA_NIM": "0",
+    "GHOST_USE_BATCH_EXECUTOR": "1",
+    "GHOST_USE_APPROVAL_COMPRESSION": "1",
+    "GHOST_AUTOLOAD_ENV": "0",
+    "GHOST_CLI_TRACE_SUMMARY": "0"
+  },
+  "wrong_repo_diagnostic": ""
+}

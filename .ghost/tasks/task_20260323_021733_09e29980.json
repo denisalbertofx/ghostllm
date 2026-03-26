@@ -1,0 +1,85 @@
+{
+  "task_id": "task_20260323_021733_09e29980",
+  "title": "e2e_1",
+  "mode": "Chat",
+  "status": "failed",
+  "task_type": "direct_edit",
+  "inferred_type": "direct_edit",
+  "type_source": "inferred",
+  "batch_id": "batch_20260323_021733_cdd27877",
+  "owner": "denis",
+  "scope": [],
+  "artifacts": [
+    "task_20260323_021733"
+  ],
+  "risks": [],
+  "status_history": [
+    {
+      "status": "created",
+      "timestamp": "2026-03-23T02:17:33.190733"
+    },
+    {
+      "status": "planned",
+      "timestamp": "2026-03-23T02:17:33.191232"
+    },
+    {
+      "status": "executing",
+      "timestamp": "2026-03-23T02:17:33.198874"
+    },
+    {
+      "status": "done",
+      "timestamp": "2026-03-23T02:17:33.200607"
+    },
+    {
+      "status": "planned",
+      "timestamp": "2026-03-23T02:17:33.209468"
+    },
+    {
+      "status": "executing",
+      "timestamp": "2026-03-23T02:17:33.216134"
+    },
+    {
+      "status": "failed",
+      "timestamp": "2026-03-23T02:17:33.217314"
+    },
+    {
+      "status": "planned",
+      "timestamp": "2026-03-23T02:17:33.218577"
+    },
+    {
+      "status": "executing",
+      "timestamp": "2026-03-23T02:17:33.225452"
+    },
+    {
+      "status": "failed",
+      "timestamp": "2026-03-23T02:17:33.227108"
+    },
+    {
+      "status": "planned",
+      "timestamp": "2026-03-23T02:17:33.237140"
+    },
+    {
+      "status": "executing",
+      "timestamp": "2026-03-23T02:17:33.243806"
+    },
+    {
+      "status": "failed",
+      "timestamp": "2026-03-23T02:17:33.245019"
+    },
+    {
+      "status": "planned",
+      "timestamp": "2026-03-23T02:17:33.246099"
+    },
+    {
+      "status": "executing",
+      "timestamp": "2026-03-23T02:17:33.252403"
+    },
+    {
+      "status": "failed",
+      "timestamp": "2026-03-23T02:17:33.253515"
+    }
+  ],
+  "created_at": "2026-03-23T02:17:33.190741",
+  "updated_at": "2026-03-23T02:17:33.253511",
+  "metadata": {}
+}

@@ -1,0 +1,28 @@
+{
+  "batch_id": "batch_20260323_023023_0ee5cf82",
+  "steps": [
+    {
+      "step_id": 0,
+      "title": "Trace Task 1",
+      "task_id": "task_20260323_023023_39b981aa",
+      "artifact_id": "task_20260323_023023_b49c",
+      "status": "success",
+      "result": null,
+      "retry_count": 0
+    },
+    {
+      "step_id": 1,
+      "title": "Trace Task 2",
+      "task_id": "task_20260323_023023_e7b98c1a",
+      "artifact_id": "task_20260323_023023_f44b",
+      "status": "success",
+      "result": null,
+      "retry_count": 0
+    }
+  ],
+  "status": "completed",
+  "current_step_index": 2,
+  "created_at": "2026-03-23T02:30:23.533173",
+  "updated_at": "2026-03-23T02:30:23.858656",
+  "metadata": {}
+}

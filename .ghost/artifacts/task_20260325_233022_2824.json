@@ -1,0 +1,786 @@
+{
+  "session_id": "task_20260325_233022_2824",
+  "task_id": "task_20260325_225924_331f7ad0",
+  "timestamp": "2026-03-25T23:30:22.696058",
+  "task": "/do corrige el comando doctor para que reporte claramente cuando el gateway responde /health pero no /ready. Mant\u00e9n el cambio m\u00ednimo, a\u00f1ade test si existe cobertura cercana, y verifica al final.",
+  "task_type": "refactor",
+  "type_source": "inferred",
+  "batch_id": null,
+  "step_id": null,
+  "plan": "corrige el comando doctor para que reporte claramente cuando el gateway responde /health pero no /ready. Mant\u00e9n el cambio m\u00ednimo, a\u00f1ade test si existe cobertura cercana, y verifica al final.",
+  "root_cause": "",
+  "diff_summary": [],
+  "verification": {},
+  "verification_diff_fingerprint": "",
+  "verification_justification": "",
+  "rollback_status": "none",
+  "next_action": "",
+  "events": [
+    {
+      "event": "RepoProfileInfluence",
+      "timestamp": 1774495822.705461,
+      "details": "RepoProfile api_roots: prefer `ls` under `apps/web/src/app/api/`."
+    },
+    {
+      "event": "RepoProfileInfluence",
+      "timestamp": 1774495822.705462,
+      "details": "RepoProfile api_roots: prefer `ls` under `apps/server/`."
+    },
+    {
+      "event": "RepoProfileInfluence",
+      "timestamp": 1774495822.7054622,
+      "details": "RepoProfile api_roots: prefer `ls` under `apps/server/api/`."
+    },
+    {
+      "event": "RepoProfileInfluence",
+      "timestamp": 1774495822.7054622,
+      "details": "RepoProfile key file: `AGENTS.md`."
+    },
+    {
+      "event": "RepoProfileInfluence",
+      "timestamp": 1774495822.7054625,
+      "details": "RepoProfile key file: `apps/cli/main.py`."
+    },
+    {
+      "event": "RepoProfileInfluence",
+      "timestamp": 1774495822.7054627,
+      "details": "RepoProfile key file: `apps/server/database.py`."
+    },
+    {
+      "event": "RepoProfileInfluence",
+      "timestamp": 1774495822.7054634,
+      "details": "RepoProfile key file: `apps/server/main.py`."
+    },
+    {
+      "event": "RepoProfileInfluence",
+      "timestamp": 1774495822.7054636,
+      "details": "RepoProfile key file: `apps/web/package.json`."
+    },
+    {
+      "event": "RepoProfileInfluence",
+      "timestamp": 1774495822.705464,
+      "details": "RepoProfile key file: `apps/web/tsconfig.json`."
+    },
+    {
+      "event": "RepoProfileInfluence",
+      "timestamp": 1774495822.7054644,
+      "details": "RepoProfile key file: `pyproject.toml`."
+    },
+    {
+      "event": "RepoProfileInfluence",
+      "timestamp": 1774495822.7054646,
+      "details": "Verification commands derived from package_json, defaults (used at verify time)."
+    },
+    {
+      "event": "iteration_budget_applied",
+      "category": "write_verify",
+      "global_cap": 15,
+      "effective_max": 14,
+      "recommended_min": 8,
+      "recommended_max": 15,
+      "rationale": "execute_or_implementation_task_type"
+    },
+    {
+      "event": "TaskStart",
+      "timestamp": 1774495822.7098458,
+      "details": "Mode: Execute | Task: /do corrige el comando doctor para que reporte claramente cuando el gateway responde /health pero no /ready. Mant\u00e9n el cambio m\u00ednimo, a\u00f1ade test si existe cobertura cercana, y verifica al final. | task_mode=standard"
+    },
+    {
+      "event": "PreToolUse",
+      "timestamp": 1774495828.424593,
+      "details": "Initializing tool: search_code"
+    },
+    {
+      "event": "PostToolUse",
+      "timestamp": 1774495828.5145252,
+      "details": "Completed: search_code (success)"
+    }
+  ],
+  "phase": "EXPLORE",
+  "phase_history": [
+    {
+      "phase": "INTAKE",
+      "timestamp": "2026-03-25T23:30:22.697686",
+      "detail": "intake start",
+      "from": "INTAKE",
+      "iteration": 6
+    },
+    {
+      "phase": "EXPLORE",
+      "timestamp": "2026-03-25T23:30:22.709919",
+      "detail": "post-intake",
+      "from": "INTAKE",
+      "iteration": 6
+    }
+  ],
+  "phase_transitions": [
+    {
+      "from": "INTAKE",
+      "to": "INTAKE",
+      "reason": "intake start",
+      "ts": "2026-03-25T23:30:22.697686",
+      "iteration": 6
+    },
+    {
+      "from": "INTAKE",
+      "to": "EXPLORE",
+      "reason": "post-intake",
+      "ts": "2026-03-25T23:30:22.709919",
+      "iteration": 6
+    }
+  ],
+  "promotion_decisions": [],
+  "verification_reuse_decisions": [],
+  "terminal_resolution_record": {},
+  "repair_forensic_summary": {},
+  "task_outcome": "",
+  "outcome_confidence": 0.0,
+  "evidence_score": 0,
+  "evidence_lines": [],
+  "task_intent": "implementation",
+  "task_scope": "api",
+  "change_expectation": "must_write",
+  "intent_confidence": 0.9,
+  "intent_reasoning_lines": [
+    "Intent 'implementation': start verb 'a\u00f1ade' matched",
+    "Scope 'unknown': no scope keywords found"
+  ],
+  "task_confidence_level": "",
+  "task_completion_confidence": 0.0,
+  "closure_reason": "",
+  "closure_reason_summary_es": "",
+  "closure_posture_es": "",
+  "task_confidence_signals": {},
+  "closure_operator_view": {
+    "primary_headline_es": "Ghost complet\u00f3 la sesi\u00f3n seg\u00fan el outcome y la fase terminal registrados en el artefacto.",
+    "completion_style": "firm",
+    "completion_style_label_es": "cierre_firme",
+    "completion_style_explanation_es": "Estado terminal distinto de DONE/ABORTED (revisar `phase` en el artefacto).",
+    "closure_reason_code": "",
+    "closure_reason_operator_alias_en": "unknown",
+    "terminal_phase": "EXPLORE",
+    "task_confidence_level": "",
+    "task_completion_confidence": 0.0,
+    "outcome_confidence": 0.0,
+    "task_outcome": "",
+    "iteration_limit_context": {
+      "loop_stop_signal_raw": null,
+      "assessment_kind": null,
+      "summary_es": null,
+      "narrative_is_secondary": false
+    }
+  },
+  "micro_task_kind": null,
+  "task_mode": "standard",
+  "repo_mismatch_detected": false,
+  "repo_mismatch_reason": "",
+  "repo_mismatch_reasons": [],
+  "requested_paths_missing": [],
+  "repo_mismatch_operator_message": "",
+  "explore_class_hint": "write_task",
+  "iteration_budget": {
+    "category": "write_verify",
+    "global_cap": 15,
+    "effective_max": 14,
+    "recommended_min": 8,
+    "recommended_max": 15,
+    "rationale": "execute_or_implementation_task_type"
+  },
+  "runtime_phase_breakdown": [
+    {
+      "phase": "INTAKE",
+      "duration_ms": 1593663.98,
+      "model_turns_segment": 0,
+      "iteration_at_transition": 6,
+      "detail_entering_next": "post-intake"
+    }
+  ],
+  "intake_timing_ms": {
+    "repo_profile": 4.21,
+    "contract_spec": 4.55,
+    "decision_planner": 0.09,
+    "retrieval": 0.07,
+    "execution_agent": 0.03
+  },
+  "intake_planning_wall_ms": 0.16,
+  "repair_attempt_count": 0,
+  "repair_summary": "",
+  "budget_exhausted_reason": "",
+  "last_failed_check": "",
+  "last_repair_applied": "",
+  "repair_specialist_prompt_chars": 0,
+  "repair_specialist_usage_tokens": 0,
+  "repair_specialist_last_raw": "",
+  "repair_specialist_outcome": "",
+  "repair_specialist_outcome_detail": {},
+  "repair_outcome_log": [],
+  "tool_output_archive_meta": [],
+  "reverification_pending": false,
+  "task_contract": {
+    "version": 1,
+    "intent": {
+      "mode": "Execute",
+      "task": "corrige el comando doctor para que reporte claramente cuando el gateway responde /health pero no /ready. Mant\u00e9n el cambio m\u00ednimo, a\u00f1ade test si existe cobertura cercana, y verifica al final.",
+      "task_type": "ask",
+      "scaffold_type": "extend",
+      "is_slash_command": true,
+      "is_exact_command": false,
+      "requires_tools": true,
+      "requires_shell": true,
+      "requires_file_scope": false,
+      "original_text": "/do corrige el comando doctor para que reporte claramente cuando el gateway responde /health pero no /ready. Mant\u00e9n el cambio m\u00ednimo, a\u00f1ade test si existe cobertura cercana, y verifica al final.",
+      "target_folder": null,
+      "metadata": {}
+    },
+    "allowed_tools": [
+      "delete_file",
+      "edit_file",
+      "ls",
+      "read_file",
+      "run_shell",
+      "summarize_repo",
+      "write_file"
+    ],
+    "allowed_paths": [],
+    "budget": {
+      "max_shell_calls": 2,
+      "max_tool_calls": 12
+    },
+    "skip_verify": false,
+    "verification_policy": {
+      "required": true,
+      "typecheck": true,
+      "build": true,
+      "lint": true,
+      "tests": false
+    },
+    "repair_policy": {
+      "max_attempts": 1,
+      "rerun_failed_first": true
+    },
+    "blast_radius": "",
+    "risk_level": "",
+    "spec": {
+      "intent": "implementation",
+      "scope": [
+        "api",
+        "config",
+        "data",
+        "docs",
+        "tests",
+        "ui"
+      ],
+      "forbidden_layers": [],
+      "change_expectation": "must_write",
+      "target_files": null,
+      "acceptance_criteria": [
+        "/do corrige el comando doctor para que reporte claramente cuando el gateway responde /health pero no /ready. Mant\u00e9n el cambio m\u00ednimo, a\u00f1ade test si existe cobertura cercana, y verifica al final."
+      ],
+      "verification_policy": {
+        "required": true,
+        "typecheck": true,
+        "build": true,
+        "lint": true,
+        "tests": false
+      },
+      "repair_policy": {
+        "max_attempts": 1,
+        "rerun_failed_first": true
+      },
+      "budget_policy": {
+        "max_shell_calls": 2,
+        "max_tool_calls": 12
+      },
+      "confidence": 0.9,
+      "reasoning_lines": [
+        "Intent 'implementation': start verb 'a\u00f1ade' matched",
+        "Scope 'unknown': no scope keywords found"
+      ]
+    },
+    "exploration_plan": {
+      "ranked_files": [
+        "AGENTS.md",
+        "apps/cli/main.py",
+        "apps/server/database.py",
+        "apps/server/main.py",
+        "apps/web/package.json",
+        "apps/web/tsconfig.json",
+        "pyproject.toml"
+      ],
+      "ranked_dirs": [
+        "apps/web/src/app/api",
+        "apps/server",
+        "apps/server/api"
+      ],
+      "ui_exploration_blocked": false,
+      "evidence_lines": [
+        "RepoProfile api_roots: prefer `ls` under `apps/web/src/app/api/`.",
+        "RepoProfile api_roots: prefer `ls` under `apps/server/`.",
+        "RepoProfile api_roots: prefer `ls` under `apps/server/api/`.",
+        "RepoProfile key file: `AGENTS.md`.",
+        "RepoProfile key file: `apps/cli/main.py`.",
+        "RepoProfile key file: `apps/server/database.py`.",
+        "RepoProfile key file: `apps/server/main.py`.",
+        "RepoProfile key file: `apps/web/package.json`.",
+        "RepoProfile key file: `apps/web/tsconfig.json`.",
+        "RepoProfile key file: `pyproject.toml`.",
+        "Verification commands derived from package_json, defaults (used at verify time)."
+      ]
+    },
+    "runtime_contract_source": "taskspec",
+    "runtime_annotations": {
+      "decision_plan": {}
+    },
+    "verification_runs": [],
+    "repair_runs": []
+  },
+  "contract_spec": {
+    "intent": "implementation",
+    "scope": [
+      "api",
+      "config",
+      "data",
+      "docs",
+      "tests",
+      "ui"
+    ],
+    "forbidden_layers": [],
+    "change_expectation": "must_write",
+    "target_files": null,
+    "acceptance_criteria": [
+      "/do corrige el comando doctor para que reporte claramente cuando el gateway responde /health pero no /ready. Mant\u00e9n el cambio m\u00ednimo, a\u00f1ade test si existe cobertura cercana, y verifica al final."
+    ],
+    "verification_policy": {
+      "required": true,
+      "typecheck": true,
+      "build": true,
+      "lint": true,
+      "tests": false
+    },
+    "repair_policy": {
+      "max_attempts": 1,
+      "rerun_failed_first": true
+    },
+    "budget_policy": {
+      "max_shell_calls": 2,
+      "max_tool_calls": 12
+    },
+    "confidence": 0.9,
+    "reasoning_lines": [
+      "Intent 'implementation': start verb 'a\u00f1ade' matched",
+      "Scope 'unknown': no scope keywords found"
+    ]
+  },
+  "taskspec": {
+    "intent": "implementation",
+    "scope": [
+      "api",
+      "config",
+      "data",
+      "docs",
+      "tests",
+      "ui"
+    ],
+    "forbidden_layers": [],
+    "change_expectation": "must_write",
+    "target_files": null,
+    "acceptance_criteria": [
+      "/do corrige el comando doctor para que reporte claramente cuando el gateway responde /health pero no /ready. Mant\u00e9n el cambio m\u00ednimo, a\u00f1ade test si existe cobertura cercana, y verifica al final."
+    ],
+    "verification_policy": {
+      "required": true,
+      "typecheck": true,
+      "build": true,
+      "lint": true,
+      "tests": false
+    },
+    "repair_policy": {
+      "max_attempts": 1,
+      "rerun_failed_first": true
+    },
+    "budget_policy": {
+      "max_shell_calls": 2,
+      "max_tool_calls": 12
+    },
+    "confidence": 0.9,
+    "reasoning_lines": [
+      "Intent 'implementation': start verb 'a\u00f1ade' matched",
+      "Scope 'unknown': no scope keywords found"
+    ]
+  },
+  "contract_spec_validation_status": "valid",
+  "contract_spec_repaired": false,
+  "contract_spec_validation_errors": [],
+  "taskspec_validation_status": "valid",
+  "taskspec_repaired": false,
+  "taskspec_validation_errors": [],
+  "repo_profile": {
+    "root": "C:\\Users\\denis\\OneDrive\\Escritorio\\GhostLLM",
+    "stack": "polyglot",
+    "layers_detected": [
+      "api",
+      "config",
+      "data",
+      "docs",
+      "tests",
+      "ui"
+    ],
+    "has_package_json": true,
+    "important_folders": [
+      "apps",
+      "apps/web",
+      "docs",
+      "packages",
+      "pyproject.toml",
+      "tests"
+    ],
+    "version": "2.1.0",
+    "confidence": 0.85,
+    "stack_detail": {
+      "runtime": "polyglot",
+      "language": [
+        "typescript",
+        "python"
+      ],
+      "framework": [
+        "nextjs",
+        "fastapi"
+      ],
+      "orm": [
+        "sqlmodel"
+      ],
+      "database": [
+        "sqlite"
+      ],
+      "package_manager": [
+        "npm",
+        "uv"
+      ],
+      "test_runner": [
+        "pytest"
+      ]
+    },
+    "entrypoints": {
+      "api_roots": [
+        "apps/web/src/app/api",
+        "apps/server",
+        "apps/server/api"
+      ],
+      "ui_roots": [
+        "apps/web/src/app"
+      ],
+      "db_schema_roots": []
+    },
+    "key_files": [
+      "AGENTS.md",
+      "apps/cli/main.py",
+      "apps/server/database.py",
+      "apps/server/main.py",
+      "apps/web/package.json",
+      "apps/web/tsconfig.json",
+      "pyproject.toml"
+    ],
+    "api_routes": [],
+    "db_schema_files": [],
+    "validation_files": [],
+    "verification_commands": {
+      "typecheck": "npx tsc --noEmit",
+      "build": "npm run build",
+      "lint": "npm run lint",
+      "tests": null,
+      "source": [
+        "package_json",
+        "defaults"
+      ]
+    },
+    "evidence_lines": [
+      "Default typecheck for TypeScript: npx tsc --noEmit",
+      "Derived build command from package.json scripts.build: npm run build",
+      "Derived lint command from package.json scripts.lint: npm run lint",
+      "Detected FastAPI dependency",
+      "Detected Next.js in apps/web via next.config.*, app router",
+      "Detected SQLModel dependency",
+      "Detected SQLite-related dependency",
+      "Python project (pyproject.toml or requirements.txt)",
+      "Read AGENTS.md for verification hints"
+    ],
+    "cache": {
+      "used": true,
+      "cache_key": "e7af21e686ab7ce826fa739bbd886430a574e9484bb825cf9f9e6a30276fc175",
+      "source": "cache"
+    },
+    "profile_v2": {
+      "version": "2.1.0",
+      "root": "C:\\Users\\denis\\OneDrive\\Escritorio\\GhostLLM",
+      "generated_at": "2026-03-26T02:36:32.649298Z",
+      "cache": {
+        "used": true,
+        "cache_key": "e7af21e686ab7ce826fa739bbd886430a574e9484bb825cf9f9e6a30276fc175",
+        "source": "cache"
+      },
+      "stack": {
+        "runtime": "polyglot",
+        "language": [
+          "typescript",
+          "python"
+        ],
+        "framework": [
+          "nextjs",
+          "fastapi"
+        ],
+        "orm": [
+          "sqlmodel"
+        ],
+        "database": [
+          "sqlite"
+        ],
+        "package_manager": [
+          "npm",
+          "uv"
+        ],
+        "test_runner": [
+          "pytest"
+        ]
+      },
+      "layers_detected": [
+        "api",
+        "config",
+        "data",
+        "docs",
+        "tests",
+        "ui"
+      ],
+      "key_files": [
+        "AGENTS.md",
+        "apps/cli/main.py",
+        "apps/server/database.py",
+        "apps/server/main.py",
+        "apps/web/package.json",
+        "apps/web/tsconfig.json",
+        "pyproject.toml"
+      ],
+      "important_folders": [
+        "apps",
+        "apps/web",
+        "docs",
+        "packages",
+        "pyproject.toml",
+        "tests"
+      ],
+      "entrypoints": {
+        "api_roots": [
+          "apps/web/src/app/api",
+          "apps/server",
+          "apps/server/api"
+        ],
+        "ui_roots": [
+          "apps/web/src/app"
+        ],
+        "db_schema_roots": []
+      },
+      "api_routes": [],
+      "db_schema_files": [],
+      "validation_files": [],
+      "verification_commands": {
+        "typecheck": "npx tsc --noEmit",
+        "build": "npm run build",
+        "lint": "npm run lint",
+        "tests": null,
+        "source": [
+          "package_json",
+          "defaults"
+        ]
+      },
+      "constraints": {
+        "ignored_dirs": [
+          ".ghost",
+          ".git",
+          ".mypy_cache",
+          ".next",
+          ".pnpm-store",
+          ".turbo",
+          ".venv",
+          "__pycache__",
+          "build",
+          "coverage",
+          "dist",
+          "node_modules",
+          "out",
+          "venv"
+        ],
+        "max_files_scanned": 5000,
+        "max_bytes_per_file": 262144
+      },
+      "confidence": 0.85,
+      "evidence_lines": [
+        "Default typecheck for TypeScript: npx tsc --noEmit",
+        "Derived build command from package.json scripts.build: npm run build",
+        "Derived lint command from package.json scripts.lint: npm run lint",
+        "Detected FastAPI dependency",
+        "Detected Next.js in apps/web via next.config.*, app router",
+        "Detected SQLModel dependency",
+        "Detected SQLite-related dependency",
+        "Python project (pyproject.toml or requirements.txt)",
+        "Read AGENTS.md for verification hints"
+      ]
+    }
+  },
+  "runtime_contract_source": "taskspec",
+  "exploration_plan": {
+    "ranked_files": [
+      "AGENTS.md",
+      "apps/cli/main.py",
+      "apps/server/database.py",
+      "apps/server/main.py",
+      "apps/web/package.json",
+      "apps/web/tsconfig.json",
+      "pyproject.toml"
+    ],
+    "ranked_dirs": [
+      "apps/web/src/app/api",
+      "apps/server",
+      "apps/server/api"
+    ],
+    "ui_exploration_blocked": false,
+    "evidence_lines": [
+      "RepoProfile api_roots: prefer `ls` under `apps/web/src/app/api/`.",
+      "RepoProfile api_roots: prefer `ls` under `apps/server/`.",
+      "RepoProfile api_roots: prefer `ls` under `apps/server/api/`.",
+      "RepoProfile key file: `AGENTS.md`.",
+      "RepoProfile key file: `apps/cli/main.py`.",
+      "RepoProfile key file: `apps/server/database.py`.",
+      "RepoProfile key file: `apps/server/main.py`.",
+      "RepoProfile key file: `apps/web/package.json`.",
+      "RepoProfile key file: `apps/web/tsconfig.json`.",
+      "RepoProfile key file: `pyproject.toml`.",
+      "Verification commands derived from package_json, defaults (used at verify time)."
+    ]
+  },
+  "repo_profile_influence": [
+    "RepoProfile api_roots: prefer `ls` under `apps/web/src/app/api/`.",
+    "RepoProfile api_roots: prefer `ls` under `apps/server/`.",
+    "RepoProfile api_roots: prefer `ls` under `apps/server/api/`.",
+    "RepoProfile key file: `AGENTS.md`.",
+    "RepoProfile key file: `apps/cli/main.py`.",
+    "RepoProfile key file: `apps/server/database.py`.",
+    "RepoProfile key file: `apps/server/main.py`.",
+    "RepoProfile key file: `apps/web/package.json`.",
+    "RepoProfile key file: `apps/web/tsconfig.json`.",
+    "RepoProfile key file: `pyproject.toml`.",
+    "Verification commands derived from package_json, defaults (used at verify time)."
+  ],
+  "decision_plan": {},
+  "planner_version": "",
+  "planner_advisory_mode": true,
+  "planner_risk_level": "",
+  "planner_estimated_complexity": "",
+  "planner_provenance": {},
+  "planner_used": false,
+  "retrieval_enabled": false,
+  "retrieval_query": {},
+  "retrieval_result": {},
+  "retrieval_top_files": [],
+  "retrieval_top_symbols": [],
+  "retrieval_index_stats": {},
+  "retrieval_cache_info": {},
+  "retrieval_used_embeddings": false,
+  "retrieval_provenance": {},
+  "retrieval_actionable": false,
+  "retrieval_confidence": 0.0,
+  "retrieval_mode": "",
+  "retrieval_runtime_influenced": false,
+  "likely_edit_targets": [],
+  "likely_edit_target_reasons": [],
+  "merged_candidate_order": [],
+  "retrieval_highlight_chunks": [],
+  "execution_agent_used": false,
+  "execution_mode": "",
+  "selected_execution_model": "",
+  "selected_targets": [],
+  "execution_context_summary": {},
+  "proposed_edits": [],
+  "execution_confidence": 0.0,
+  "execution_reasoning_lines": [],
+  "execution_agent_provenance": {},
+  "execution_agent_prompt": "",
+  "execution_agent_writes_enabled": false,
+  "planner_model": "",
+  "execution_model_resolved": "",
+  "repair_model_resolved": "",
+  "general_fallback_model": "",
+  "execution_fallback_model": "",
+  "provider_backend": "openai_compatible",
+  "live_generation_used": false,
+  "provider_ok": true,
+  "provider_error_message": "",
+  "provider_latency_ms": 0.0,
+  "provider_model": "",
+  "proposal_parsed": false,
+  "execution_raw_proposal": "",
+  "provider_response_snapshot": {},
+  "benchmark_results": [],
+  "trace_path": "C:\\Users\\denis\\OneDrive\\Escritorio\\GhostLLM\\.ghost\\traces\\task_20260325_233022_2824.json",
+  "trace_summary_short": "total=15538ms | model=15049ms | tool=90ms | approval_wait=0ms | verif=0ms | overhead\u2248399ms | bottleneck=execution model latency dominated (9538ms) | loop_turns=1 tool_rounds=1",
+  "trace_detail_md": "**Trace file:** `C:\\Users\\denis\\OneDrive\\Escritorio\\GhostLLM\\.ghost\\traces\\task_20260325_233022_2824.json`\n**cwd:** `C:\\Users\\denis\\OneDrive\\Escritorio\\GhostLLM` | **repo_root:** `C:\\Users\\denis\\OneDrive\\Escritorio\\GhostLLM`\n**Total (wall):** 15538 ms\n**Model:** 15049 ms | **Tool:** 90 ms | **Approval wait:** 0 ms | **Verification:** 0 ms | **Overhead (est.):** 399 ms\n**Bottleneck:** execution model latency dominated (9538ms)\n**Slowest model call:** `general:kimi`\n**Chat loop:** model_turns=1 | tool_rounds=1\n*components are non-overlapping sums; remainder is orchestration/overhead*",
+  "batch_executor_used": false,
+  "batch_plans": [],
+  "batch_results": [],
+  "approval_compression_used": false,
+  "compressed_approval_count": 0,
+  "batched_read_count": 0,
+  "batched_verification_count": 0,
+  "config_source": "environment variables only (GHOST_AUTOLOAD_ENV off)",
+  "autoload_env_used": false,
+  "env_file_loaded": "",
+  "active_feature_flags": {
+    "GHOST_USE_TASKSPEC": "0",
+    "GHOST_USE_DECISION_PLANNER": "0",
+    "GHOST_USE_RETRIEVAL": "0",
+    "GHOST_RETRIEVAL_INFLUENCES_RUNTIME": "0",
+    "GHOST_USE_EXECUTION_AGENT": "0",
+    "GHOST_EXECUTION_AGENT_LIVE": "0",
+    "GHOST_PARALLEL_PIPELINE": "0",
+    "GHOST_USE_BATCH_EXECUTOR": "0",
+    "GHOST_USE_APPROVAL_COMPRESSION": "0",
+    "GHOST_USE_NVIDIA_NIM": "0",
+    "GHOST_AUTOLOAD_ENV": "0",
+    "GHOST_CLI_TRACE_SUMMARY": "0"
+  },
+  "startup_warnings": [],
+  "effective_repo_root": "C:\\Users\\denis\\OneDrive\\Escritorio\\GhostLLM",
+  "cli_command_mode": "dev",
+  "llm_gateway_url": "http://127.0.0.1:8000",
+  "llm_gateway_preflight_ok": true,
+  "llm_gateway_preflight_path": "http://127.0.0.1:8000/health",
+  "operational_metrics": {
+    "total_loop_iterations": 0,
+    "total_model_turns": 1,
+    "total_act_phases": 0,
+    "total_verify_phases": 0,
+    "total_repair_phases": 0,
+    "repair_attempts": 0,
+    "repair_success_count": 0,
+    "verification_pass_count": 0,
+    "verification_fail_count": 0,
+    "verification_reuse_count": 0,
+    "total_tool_calls": 1,
+    "total_write_tool_calls": 0,
+    "total_read_tool_calls": 0,
+    "prompt_chars_sent": 39442,
+    "repair_prompt_chars_sent": 0,
+    "tool_output_archived_count": 0,
+    "final_aborted_reason": "",
+    "model_turns_by_phase": {
+      "EXPLORE": 1
+    }
+  },
+  "runtime_health": {
+    "schema_version": 1,
+    "health_status": "healthy",
+    "verify_status": "skipped",
+    "repair_status": "not_needed",
+    "exploration_status": "normal",
+    "terminal_status": "done",
+    "main_risk_flags": []
+  }
+}

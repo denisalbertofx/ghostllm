@@ -1,0 +1,34 @@
+{
+  "task_id": "task_20260323_015751_d9029ea0",
+  "title": "Arreglar tipos en main.py",
+  "mode": "Chat",
+  "status": "done",
+  "task_type": "type_fix",
+  "owner": "denis",
+  "scope": [],
+  "artifacts": [
+    "task_20260323_015751"
+  ],
+  "risks": [],
+  "status_history": [
+    {
+      "status": "created",
+      "timestamp": "2026-03-23T01:57:51.532293"
+    },
+    {
+      "status": "planned",
+      "timestamp": "2026-03-23T01:57:51.533015"
+    },
+    {
+      "status": "executing",
+      "timestamp": "2026-03-23T01:57:51.539489"
+    },
+    {
+      "status": "done",
+      "timestamp": "2026-03-23T01:57:53.734197"
+    }
+  ],
+  "created_at": "2026-03-23T01:57:51.532304",
+  "updated_at": "2026-03-23T01:57:53.734192",
+  "metadata": {}
+}

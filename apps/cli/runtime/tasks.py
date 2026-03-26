@@ -19,6 +19,11 @@ class Task:
     created_at: str = field(default_factory=lambda: datetime.now().isoformat())
     updated_at: str = field(default_factory=lambda: datetime.now().isoformat())
     metadata: Dict[str, Any] = field(default_factory=dict)
+    # Extended fields (used by newer assistant.py)
+    task_type: str = "ask"
+    inferred_type: str = ""
+    type_source: str = "inferred"
+    batch_id: Optional[str] = None
 
     def to_dict(self):
         return asdict(self)
@@ -29,7 +34,16 @@ class TaskManager:
         os.makedirs(self.tasks_dir, exist_ok=True)
         self.current_task: Optional[Task] = None
 
-    def create_task(self, title: str, mode: str, owner: str = "denis") -> Task:
+    def create_task(
+        self,
+        title: str,
+        mode: str,
+        owner: str = "denis",
+        task_type: str = "ask",
+        inferred_type: str = "",
+        type_source: str = "inferred",
+        batch_id: Optional[str] = None,
+    ) -> Task:
         task_id = f"task_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{str(uuid.uuid4())[:8]}"
         task = Task(
             task_id=task_id,
@@ -37,6 +51,10 @@ class TaskManager:
             mode=mode,
             status="created",
             owner=owner,
+            task_type=task_type,
+            inferred_type=inferred_type,
+            type_source=type_source,
+            batch_id=batch_id,
             status_history=[{"status": "created", "timestamp": datetime.now().isoformat()}]
         )
         self.current_task = task

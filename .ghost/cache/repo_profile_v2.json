@@ -1,0 +1,118 @@
+{
+  "cache_key": "e7af21e686ab7ce826fa739bbd886430a574e9484bb825cf9f9e6a30276fc175",
+  "profile": {
+    "version": "2.1.0",
+    "root": "C:\\Users\\denis\\OneDrive\\Escritorio\\GhostLLM",
+    "generated_at": "2026-03-26T02:36:32.649298Z",
+    "cache": {
+      "used": false,
+      "cache_key": "e7af21e686ab7ce826fa739bbd886430a574e9484bb825cf9f9e6a30276fc175",
+      "source": "fresh"
+    },
+    "stack": {
+      "runtime": "polyglot",
+      "language": [
+        "typescript",
+        "python"
+      ],
+      "framework": [
+        "nextjs",
+        "fastapi"
+      ],
+      "orm": [
+        "sqlmodel"
+      ],
+      "database": [
+        "sqlite"
+      ],
+      "package_manager": [
+        "npm",
+        "uv"
+      ],
+      "test_runner": [
+        "pytest"
+      ]
+    },
+    "layers_detected": [
+      "api",
+      "config",
+      "data",
+      "docs",
+      "tests",
+      "ui"
+    ],
+    "key_files": [
+      "AGENTS.md",
+      "apps/cli/main.py",
+      "apps/server/database.py",
+      "apps/server/main.py",
+      "apps/web/package.json",
+      "apps/web/tsconfig.json",
+      "pyproject.toml"
+    ],
+    "important_folders": [
+      "apps",
+      "apps/web",
+      "docs",
+      "packages",
+      "pyproject.toml",
+      "tests"
+    ],
+    "entrypoints": {
+      "api_roots": [
+        "apps/web/src/app/api",
+        "apps/server",
+        "apps/server/api"
+      ],
+      "ui_roots": [
+        "apps/web/src/app"
+      ],
+      "db_schema_roots": []
+    },
+    "api_routes": [],
+    "db_schema_files": [],
+    "validation_files": [],
+    "verification_commands": {
+      "typecheck": "npx tsc --noEmit",
+      "build": "npm run build",
+      "lint": "npm run lint",
+      "tests": null,
+      "source": [
+        "package_json",
+        "defaults"
+      ]
+    },
+    "constraints": {
+      "ignored_dirs": [
+        ".ghost",
+        ".git",
+        ".mypy_cache",
+        ".next",
+        ".pnpm-store",
+        ".turbo",
+        ".venv",
+        "__pycache__",
+        "build",
+        "coverage",
+        "dist",
+        "node_modules",
+        "out",
+        "venv"
+      ],
+      "max_files_scanned": 5000,
+      "max_bytes_per_file": 262144
+    },
+    "confidence": 0.85,
+    "evidence_lines": [
+      "Default typecheck for TypeScript: npx tsc --noEmit",
+      "Derived build command from package.json scripts.build: npm run build",
+      "Derived lint command from package.json scripts.lint: npm run lint",
+      "Detected FastAPI dependency",
+      "Detected Next.js in apps/web via next.config.*, app router",
+      "Detected SQLModel dependency",
+      "Detected SQLite-related dependency",
+      "Python project (pyproject.toml or requirements.txt)",
+      "Read AGENTS.md for verification hints"
+    ]
+  }
+}

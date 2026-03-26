@@ -1,0 +1,43 @@
+{
+  "task_id": "task_20260325_190247_d8f08cc0",
+  "title": "Test audit comment",
+  "mode": "Chat",
+  "status": "ABORTED",
+  "owner": "denis",
+  "scope": [],
+  "artifacts": [
+    "task_20260325_190247_40ea"
+  ],
+  "risks": [],
+  "status_history": [
+    {
+      "status": "created",
+      "timestamp": "2026-03-25T19:02:47.265039"
+    },
+    {
+      "status": "INTAKE",
+      "timestamp": "2026-03-25T19:02:47.265612",
+      "event": "phase",
+      "detail": "intake start"
+    },
+    {
+      "status": "EXPLORE",
+      "timestamp": "2026-03-25T19:02:47.269743",
+      "event": "phase",
+      "detail": "post-intake"
+    },
+    {
+      "status": "ABORTED",
+      "timestamp": "2026-03-25T19:02:49.761556",
+      "event": "phase",
+      "detail": "session complete"
+    }
+  ],
+  "created_at": "2026-03-25T19:02:47.265046",
+  "updated_at": "2026-03-25T19:02:49.761554",
+  "metadata": {},
+  "task_type": "docs_change",
+  "inferred_type": "docs_change",
+  "type_source": "inferred",
+  "batch_id": null
+}

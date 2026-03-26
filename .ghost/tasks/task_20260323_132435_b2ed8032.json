@@ -1,0 +1,31 @@
+{
+  "task_id": "task_20260323_132435_b2ed8032",
+  "title": "ejecuta npm run build",
+  "mode": "Chat",
+  "status": "executing",
+  "task_type": "dependency_change",
+  "inferred_type": "dependency_change",
+  "type_source": "inferred",
+  "batch_id": null,
+  "owner": "denis",
+  "scope": [],
+  "artifacts": [],
+  "risks": [],
+  "status_history": [
+    {
+      "status": "created",
+      "timestamp": "2026-03-23T13:24:35.990897"
+    },
+    {
+      "status": "planned",
+      "timestamp": "2026-03-23T13:24:35.991440"
+    },
+    {
+      "status": "executing",
+      "timestamp": "2026-03-23T13:24:35.997341"
+    }
+  ],
+  "created_at": "2026-03-23T13:24:35.990905",
+  "updated_at": "2026-03-23T13:24:35.997334",
+  "metadata": {}
+}

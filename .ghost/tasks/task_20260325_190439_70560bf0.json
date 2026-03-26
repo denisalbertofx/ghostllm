@@ -1,0 +1,43 @@
+{
+  "task_id": "task_20260325_190439_70560bf0",
+  "title": "A\u00f1ade un comentario a README.md",
+  "mode": "Chat",
+  "status": "ABORTED",
+  "owner": "denis",
+  "scope": [],
+  "artifacts": [
+    "task_20260325_190439_3a7a"
+  ],
+  "risks": [],
+  "status_history": [
+    {
+      "status": "created",
+      "timestamp": "2026-03-25T19:04:39.272393"
+    },
+    {
+      "status": "INTAKE",
+      "timestamp": "2026-03-25T19:04:39.273366",
+      "event": "phase",
+      "detail": "intake start"
+    },
+    {
+      "status": "EXPLORE",
+      "timestamp": "2026-03-25T19:04:39.278666",
+      "event": "phase",
+      "detail": "post-intake"
+    },
+    {
+      "status": "ABORTED",
+      "timestamp": "2026-03-25T19:04:42.655147",
+      "event": "phase",
+      "detail": "session complete"
+    }
+  ],
+  "created_at": "2026-03-25T19:04:39.272402",
+  "updated_at": "2026-03-25T19:04:42.655145",
+  "metadata": {},
+  "task_type": "docs_change",
+  "inferred_type": "docs_change",
+  "type_source": "inferred",
+  "batch_id": null
+}

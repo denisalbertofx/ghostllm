@@ -1,0 +1,55 @@
+{
+  "task_id": "task_20260325_150124_bf441902",
+  "title": "(1) Crea docs/_ghost_ms1.txt con la linea step1. (2) A\u00f1ade la linea step2 al mismo archivo sin pedir confirmacion.",
+  "mode": "Chat",
+  "status": "DONE",
+  "task_type": "build_fix",
+  "inferred_type": "build_fix",
+  "type_source": "inferred",
+  "batch_id": null,
+  "owner": "denis",
+  "scope": [],
+  "artifacts": [
+    "task_20260325_150124_4c92"
+  ],
+  "risks": [],
+  "status_history": [
+    {
+      "status": "IDLE",
+      "timestamp": "2026-03-25T15:01:24.266686"
+    },
+    {
+      "status": "INTAKE",
+      "timestamp": "2026-03-25T15:01:24.267463",
+      "event": "phase",
+      "detail": "intake start"
+    },
+    {
+      "status": "EXPLORE",
+      "timestamp": "2026-03-25T15:01:24.271743",
+      "event": "phase",
+      "detail": "post-intake"
+    },
+    {
+      "status": "ACT",
+      "timestamp": "2026-03-25T15:01:52.881389",
+      "event": "phase",
+      "detail": "explore_promote:explore_text_only_streak"
+    },
+    {
+      "status": "CLOSING",
+      "timestamp": "2026-03-25T15:02:03.816298",
+      "event": "phase",
+      "detail": "no write scope"
+    },
+    {
+      "status": "DONE",
+      "timestamp": "2026-03-25T15:02:03.816894",
+      "event": "phase",
+      "detail": "session complete"
+    }
+  ],
+  "created_at": "2026-03-25T15:01:24.266696",
+  "updated_at": "2026-03-25T15:02:03.816894",
+  "metadata": {}
+}

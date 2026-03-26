@@ -1,0 +1,37 @@
+{
+  "task_id": "task_20260323_023023_e7b98c1a",
+  "title": "Trace Task 2",
+  "mode": "Chat",
+  "status": "done",
+  "task_type": "direct_edit",
+  "inferred_type": "direct_edit",
+  "type_source": "inferred",
+  "batch_id": "batch_20260323_023023_0ee5cf82",
+  "owner": "denis",
+  "scope": [],
+  "artifacts": [
+    "task_20260323_023023_f44b"
+  ],
+  "risks": [],
+  "status_history": [
+    {
+      "status": "created",
+      "timestamp": "2026-03-23T02:30:23.706284"
+    },
+    {
+      "status": "planned",
+      "timestamp": "2026-03-23T02:30:23.707398"
+    },
+    {
+      "status": "executing",
+      "timestamp": "2026-03-23T02:30:23.716986"
+    },
+    {
+      "status": "done",
+      "timestamp": "2026-03-23T02:30:23.857929"
+    }
+  ],
+  "created_at": "2026-03-23T02:30:23.706304",
+  "updated_at": "2026-03-23T02:30:23.857921",
+  "metadata": {}
+}

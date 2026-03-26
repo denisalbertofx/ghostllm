@@ -1,0 +1,37 @@
+{
+  "task_id": "task_20260323_131947_dc9d0d18",
+  "title": "Lee el archivo apps/cli/main.py",
+  "mode": "Chat",
+  "status": "done",
+  "task_type": "direct_edit",
+  "inferred_type": "direct_edit",
+  "type_source": "inferred",
+  "batch_id": null,
+  "owner": "denis",
+  "scope": [],
+  "artifacts": [
+    "task_20260323_131947_980b"
+  ],
+  "risks": [],
+  "status_history": [
+    {
+      "status": "created",
+      "timestamp": "2026-03-23T13:19:47.582626"
+    },
+    {
+      "status": "planned",
+      "timestamp": "2026-03-23T13:19:47.583581"
+    },
+    {
+      "status": "executing",
+      "timestamp": "2026-03-23T13:19:47.591259"
+    },
+    {
+      "status": "done",
+      "timestamp": "2026-03-23T13:22:03.584194"
+    }
+  ],
+  "created_at": "2026-03-23T13:19:47.582639",
+  "updated_at": "2026-03-23T13:22:03.584177",
+  "metadata": {}
+}

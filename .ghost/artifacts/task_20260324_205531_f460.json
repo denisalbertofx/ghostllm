@@ -1,0 +1,331 @@
+{
+  "session_id": "task_20260324_205531_f460",
+  "task_id": "task_20260324_205531_d8e6a54e",
+  "timestamp": "2026-03-24T20:55:31.470734",
+  "task": "list the files in the configs directory and tell me what each one does",
+  "task_type": "config_change",
+  "type_source": "inferred",
+  "batch_id": null,
+  "step_id": null,
+  "plan": "list the files in the configs directory and tell me what each one does",
+  "root_cause": "No execution or answer produced. The model may not have returned tool calls. Try rephrasing.",
+  "diff_summary": [],
+  "verification": {
+    "status": "skipped",
+    "checks": []
+  },
+  "verification_justification": "",
+  "rollback_status": "none",
+  "next_action": "Retry with a clearer prompt, or use /do with explicit file paths.",
+  "events": [
+    {
+      "event": "RepoProfileInfluence",
+      "timestamp": 1774400131.4794114,
+      "details": "Verification commands derived from package_json, unknown (used at verify time)."
+    },
+    {
+      "event": "TaskStart",
+      "timestamp": 1774400131.4799635,
+      "details": "Mode: Chat | Task: list the files in the configs directory and tell me what each one does"
+    }
+  ],
+  "execution_state": "TERMINATED",
+  "task_outcome": "no_op",
+  "outcome_confidence": 1.0,
+  "evidence_score": 0,
+  "evidence_lines": [
+    "No tool calls executed"
+  ],
+  "task_intent": "modification",
+  "task_scope": "infra",
+  "change_expectation": "must_write",
+  "intent_confidence": 0.75,
+  "intent_reasoning_lines": [
+    "Intent 'modification': no specific keyword matched, using default",
+    "Scope 'infra': keyword matched"
+  ],
+  "repair_attempt_count": 0,
+  "repair_summary": "",
+  "budget_exhausted_reason": "",
+  "last_failed_check": "",
+  "last_repair_applied": "",
+  "reverification_pending": false,
+  "taskspec": {
+    "intent": "modification",
+    "scope": [
+      "infra"
+    ],
+    "forbidden_layers": [],
+    "change_expectation": "must_write",
+    "target_files": null,
+    "acceptance_criteria": [
+      "list the files in the configs directory and tell me what each one does"
+    ],
+    "verification_policy": {
+      "required": true,
+      "typecheck": false,
+      "build": false,
+      "lint": false,
+      "tests": false
+    },
+    "repair_policy": {
+      "max_attempts": 1,
+      "rerun_failed_first": true
+    },
+    "budget_policy": {
+      "max_shell_calls": 2,
+      "max_tool_calls": 12
+    },
+    "confidence": 0.75,
+    "reasoning_lines": [
+      "Intent 'modification': no specific keyword matched, using default",
+      "Scope 'infra': keyword matched"
+    ]
+  },
+  "taskspec_validation_status": "valid",
+  "taskspec_repaired": false,
+  "taskspec_validation_errors": [],
+  "repo_profile": {
+    "root": "C:\\Users\\denis\\OneDrive\\Escritorio\\GhostLLM",
+    "stack": "python",
+    "layers_detected": [
+      "api",
+      "docs",
+      "tests"
+    ],
+    "has_package_json": false,
+    "important_folders": [
+      "apps",
+      "docs",
+      "packages",
+      "pyproject.toml",
+      "tests"
+    ],
+    "version": "2.0.0",
+    "confidence": 0.35,
+    "stack_detail": {
+      "runtime": "python",
+      "language": [
+        "python"
+      ],
+      "framework": [
+        "none"
+      ],
+      "orm": [
+        "none"
+      ],
+      "database": [
+        "unknown"
+      ],
+      "package_manager": [
+        "unknown"
+      ],
+      "test_runner": [
+        "unknown"
+      ]
+    },
+    "entrypoints": {
+      "api_roots": [],
+      "ui_roots": [],
+      "db_schema_roots": []
+    },
+    "key_files": [],
+    "api_routes": [],
+    "db_schema_files": [],
+    "validation_files": [],
+    "verification_commands": {
+      "typecheck": null,
+      "build": null,
+      "lint": null,
+      "tests": null,
+      "source": [
+        "package_json",
+        "unknown"
+      ]
+    },
+    "evidence_lines": [
+      "Python project (pyproject.toml or requirements.txt)"
+    ],
+    "cache": {
+      "used": false,
+      "cache_key": "ea89f8358c42f525ac60061b9adf438edd509fb48096d3ace5287834f74731d2",
+      "source": "fresh"
+    },
+    "profile_v2": {
+      "version": "2.0.0",
+      "root": "C:\\Users\\denis\\OneDrive\\Escritorio\\GhostLLM",
+      "generated_at": "2026-03-25T00:55:31.474892Z",
+      "cache": {
+        "used": false,
+        "cache_key": "ea89f8358c42f525ac60061b9adf438edd509fb48096d3ace5287834f74731d2",
+        "source": "fresh"
+      },
+      "stack": {
+        "runtime": "python",
+        "language": [
+          "python"
+        ],
+        "framework": [
+          "none"
+        ],
+        "orm": [
+          "none"
+        ],
+        "database": [
+          "unknown"
+        ],
+        "package_manager": [
+          "unknown"
+        ],
+        "test_runner": [
+          "unknown"
+        ]
+      },
+      "layers_detected": [
+        "api",
+        "docs",
+        "tests"
+      ],
+      "key_files": [],
+      "important_folders": [
+        "apps",
+        "docs",
+        "packages",
+        "pyproject.toml",
+        "tests"
+      ],
+      "entrypoints": {
+        "api_roots": [],
+        "ui_roots": [],
+        "db_schema_roots": []
+      },
+      "api_routes": [],
+      "db_schema_files": [],
+      "validation_files": [],
+      "verification_commands": {
+        "typecheck": null,
+        "build": null,
+        "lint": null,
+        "tests": null,
+        "source": [
+          "package_json",
+          "unknown"
+        ]
+      },
+      "constraints": {
+        "ignored_dirs": [
+          ".git",
+          ".mypy_cache",
+          ".next",
+          ".pnpm-store",
+          ".turbo",
+          ".venv",
+          "__pycache__",
+          "build",
+          "coverage",
+          "dist",
+          "node_modules",
+          "out",
+          "venv"
+        ],
+        "max_files_scanned": 5000,
+        "max_bytes_per_file": 262144
+      },
+      "confidence": 0.35,
+      "evidence_lines": [
+        "Python project (pyproject.toml or requirements.txt)"
+      ]
+    }
+  },
+  "runtime_contract_source": "taskspec",
+  "exploration_plan": {
+    "ranked_files": [],
+    "ranked_dirs": [],
+    "ui_exploration_blocked": false,
+    "evidence_lines": [
+      "Verification commands derived from package_json, unknown (used at verify time)."
+    ]
+  },
+  "repo_profile_influence": [
+    "Verification commands derived from package_json, unknown (used at verify time)."
+  ],
+  "decision_plan": {},
+  "planner_version": "",
+  "planner_advisory_mode": true,
+  "planner_risk_level": "",
+  "planner_estimated_complexity": "",
+  "planner_provenance": {},
+  "planner_used": false,
+  "retrieval_enabled": false,
+  "retrieval_query": {},
+  "retrieval_result": {},
+  "retrieval_top_files": [],
+  "retrieval_top_symbols": [],
+  "retrieval_index_stats": {},
+  "retrieval_cache_info": {},
+  "retrieval_used_embeddings": false,
+  "retrieval_provenance": {},
+  "retrieval_actionable": false,
+  "retrieval_confidence": 0.0,
+  "retrieval_mode": "",
+  "retrieval_runtime_influenced": false,
+  "likely_edit_targets": [],
+  "likely_edit_target_reasons": [],
+  "merged_candidate_order": [],
+  "retrieval_highlight_chunks": [],
+  "execution_agent_used": false,
+  "execution_mode": "",
+  "selected_execution_model": "",
+  "selected_targets": [],
+  "execution_context_summary": {},
+  "proposed_edits": [],
+  "execution_confidence": 0.0,
+  "execution_reasoning_lines": [],
+  "execution_agent_provenance": {},
+  "execution_agent_prompt": "",
+  "execution_agent_writes_enabled": false,
+  "planner_model": "",
+  "execution_model_resolved": "",
+  "repair_model_resolved": "",
+  "general_fallback_model": "",
+  "execution_fallback_model": "",
+  "provider_backend": "",
+  "live_generation_used": false,
+  "provider_ok": true,
+  "provider_error_message": "",
+  "provider_latency_ms": 0.0,
+  "provider_model": "",
+  "proposal_parsed": false,
+  "execution_raw_proposal": "",
+  "provider_response_snapshot": {},
+  "benchmark_results": [],
+  "trace_path": "C:\\Users\\denis\\OneDrive\\Escritorio\\GhostLLM\\.ghost\\traces\\task_20260324_205531_f460.json",
+  "trace_summary_short": "total=17703ms | model=15276ms | tool=0ms | approval_wait=0ms | verif=0ms | overhead\u22482427ms | bottleneck=execution model latency dominated (14819ms)",
+  "trace_detail_md": "**Trace file:** `C:\\Users\\denis\\OneDrive\\Escritorio\\GhostLLM\\.ghost\\traces\\task_20260324_205531_f460.json`\n**cwd:** `C:\\Users\\denis\\OneDrive\\Escritorio\\GhostLLM` | **repo_root:** `C:\\Users\\denis\\OneDrive\\Escritorio\\GhostLLM`\n**Total (wall):** 17703 ms\n**Model:** 15276 ms | **Tool:** 0 ms | **Approval wait:** 0 ms | **Verification:** 0 ms | **Overhead (est.):** 2427 ms\n**Bottleneck:** execution model latency dominated (14819ms)\n**Slowest model call:** `general:coder`\n*components are non-overlapping sums; remainder is orchestration/overhead*",
+  "batch_executor_used": false,
+  "batch_plans": [],
+  "batch_results": [],
+  "approval_compression_used": false,
+  "compressed_approval_count": 0,
+  "batched_read_count": 0,
+  "batched_verification_count": 0,
+  "config_source": "environment variables only (GHOST_AUTOLOAD_ENV off)",
+  "autoload_env_used": false,
+  "env_file_loaded": "",
+  "active_feature_flags": {
+    "GHOST_USE_TASKSPEC": "0",
+    "GHOST_USE_DECISION_PLANNER": "0",
+    "GHOST_USE_RETRIEVAL": "0",
+    "GHOST_RETRIEVAL_INFLUENCES_RUNTIME": "0",
+    "GHOST_USE_EXECUTION_AGENT": "0",
+    "GHOST_EXECUTION_AGENT_LIVE": "0",
+    "GHOST_USE_BATCH_EXECUTOR": "0",
+    "GHOST_USE_APPROVAL_COMPRESSION": "0",
+    "GHOST_USE_NVIDIA_NIM": "0",
+    "GHOST_AUTOLOAD_ENV": "0",
+    "GHOST_CLI_TRACE_SUMMARY": "0"
+  },
+  "startup_warnings": [],
+  "effective_repo_root": "C:\\Users\\denis\\OneDrive\\Escritorio\\GhostLLM",
+  "cli_command_mode": "do"
+}

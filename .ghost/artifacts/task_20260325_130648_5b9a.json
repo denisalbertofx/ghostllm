@@ -1,0 +1,1560 @@
+{
+  "session_id": "task_20260325_130648_5b9a",
+  "task_id": "task_20260325_130648_d383e0a4",
+  "timestamp": "2026-03-25T13:06:48.356738",
+  "task": "Lista los .py directamente dentro de apps/cli/runtime/adapters (solo primer nivel, sin subcarpetas). Devuelve solo la lista de nombres de archivo, una por l\u00ednea.",
+  "task_type": "direct_edit",
+  "type_source": "inferred",
+  "batch_id": null,
+  "step_id": null,
+  "plan": "Lista los .py directamente dentro de apps/cli/runtime/adapters (solo primer nivel, sin subcarpetas). Devuelve solo la lista de nombres de archivo, una por l\u00ednea.",
+  "root_cause": "Already implemented: implementation pattern found in inspected files. No code changes were needed. Manual inspection only; no structured verification checks were executed.",
+  "diff_summary": [],
+  "verification": {
+    "status": "skipped",
+    "checks": []
+  },
+  "verification_diff_fingerprint": "",
+  "verification_justification": "",
+  "rollback_status": "none",
+  "next_action": "Review task outcome. Use 'continua' if changes are needed.",
+  "events": [
+    {
+      "event": "RepoProfileInfluence",
+      "timestamp": 1774458408.3615928,
+      "details": "Verification commands derived from package_json, unknown (used at verify time)."
+    },
+    {
+      "event": "TaskStart",
+      "timestamp": 1774458408.5408826,
+      "details": "Mode: Chat | Task: Lista los .py directamente dentro de apps/cli/runtime/adapters (solo primer nivel, sin subcarpetas). Devuelve solo la lista de nombres de archivo, una por l\u00ednea."
+    },
+    {
+      "event": "PreToolUse",
+      "timestamp": 1774458409.7870266,
+      "details": "Initializing tool: ls"
+    },
+    {
+      "event": "PostToolUse",
+      "timestamp": 1774458409.7872207,
+      "details": "Completed: ls (success)"
+    }
+  ],
+  "phase": "ABORTED",
+  "phase_history": [
+    {
+      "phase": "INTAKE",
+      "timestamp": "2026-03-25T13:06:48.356797",
+      "detail": "intake start",
+      "from": "INTAKE",
+      "iteration": null
+    },
+    {
+      "phase": "EXPLORE",
+      "timestamp": "2026-03-25T13:06:48.540896",
+      "detail": "post-intake",
+      "from": "INTAKE",
+      "iteration": null
+    },
+    {
+      "phase": "CLOSING",
+      "timestamp": "2026-03-25T13:07:11.173548",
+      "detail": "max_iterations",
+      "from": "EXPLORE",
+      "iteration": 15
+    },
+    {
+      "phase": "ABORTED",
+      "timestamp": "2026-03-25T13:07:11.174094",
+      "detail": "session complete",
+      "from": "CLOSING",
+      "iteration": 15
+    }
+  ],
+  "phase_transitions": [
+    {
+      "from": "INTAKE",
+      "to": "INTAKE",
+      "reason": "intake start",
+      "ts": "2026-03-25T13:06:48.356797",
+      "iteration": null
+    },
+    {
+      "from": "INTAKE",
+      "to": "EXPLORE",
+      "reason": "post-intake",
+      "ts": "2026-03-25T13:06:48.540896",
+      "iteration": null
+    },
+    {
+      "from": "EXPLORE",
+      "to": "CLOSING",
+      "reason": "max_iterations",
+      "ts": "2026-03-25T13:07:11.173548",
+      "iteration": 15
+    },
+    {
+      "from": "CLOSING",
+      "to": "ABORTED",
+      "reason": "session complete",
+      "ts": "2026-03-25T13:07:11.174094",
+      "iteration": 15
+    }
+  ],
+  "promotion_decisions": [],
+  "verification_reuse_decisions": [],
+  "terminal_resolution_record": {
+    "ts": "2026-03-25T17:07:11.174080+00:00",
+    "terminal_phase": "ABORTED",
+    "outcome": "already_implemented",
+    "outcome_confidence": 0.65,
+    "evidence_score": 0,
+    "loop_abort_reason": "max_iterations",
+    "root_cause_excerpt": "Already implemented: implementation pattern found in inspected files. No code changes were needed. Manual inspection only; no structured verification checks were executed.",
+    "next_action_excerpt": "Review task outcome. Use 'continua' if changes are needed.",
+    "evidence_lines": [
+      "Exploration: ls(1), summarize_repo(0)",
+      "Verification: no checks executed (incomplete or skipped)"
+    ],
+    "resolution_sources": {
+      "budget_exhausted": false,
+      "budget_status": "ok",
+      "provider_status": "ok",
+      "policy_status": "ok",
+      "session_failed": false,
+      "loop_abort_reason_raw": "max_iterations"
+    }
+  },
+  "repair_forensic_summary": {},
+  "task_outcome": "already_implemented",
+  "outcome_confidence": 0.65,
+  "evidence_score": 0,
+  "evidence_lines": [
+    "Exploration: ls(1), summarize_repo(0)",
+    "Verification: no checks executed (incomplete or skipped)"
+  ],
+  "task_intent": "modification",
+  "task_scope": "api",
+  "change_expectation": "must_write",
+  "intent_confidence": 0.6,
+  "intent_reasoning_lines": [
+    "Intent 'modification': no specific keyword matched, using default",
+    "Scope 'unknown': no scope keywords found",
+    "auto-repair: api scope -> typecheck=true"
+  ],
+  "repair_attempt_count": 0,
+  "repair_summary": "",
+  "budget_exhausted_reason": "",
+  "last_failed_check": "",
+  "last_repair_applied": "",
+  "repair_specialist_prompt_chars": 0,
+  "repair_specialist_usage_tokens": 0,
+  "repair_specialist_last_raw": "",
+  "repair_specialist_outcome": "",
+  "repair_specialist_outcome_detail": {},
+  "repair_outcome_log": [],
+  "tool_output_archive_meta": [],
+  "reverification_pending": false,
+  "task_contract": {
+    "version": 1,
+    "intent": {
+      "mode": "Chat",
+      "task": "Lista los .py directamente dentro de apps/cli/runtime/adapters (solo primer nivel, sin subcarpetas). Devuelve solo la lista de nombres de archivo, una por l\u00ednea.",
+      "task_type": "ask",
+      "scaffold_type": "none",
+      "is_slash_command": false,
+      "is_exact_command": false,
+      "requires_tools": true,
+      "requires_shell": true,
+      "requires_file_scope": true,
+      "original_text": "Lista los .py directamente dentro de apps/cli/runtime/adapters (solo primer nivel, sin subcarpetas). Devuelve solo la lista de nombres de archivo, una por l\u00ednea.",
+      "target_folder": null,
+      "metadata": {}
+    },
+    "allowed_tools": [
+      "delete_file",
+      "edit_file",
+      "ls",
+      "read_file",
+      "run_shell",
+      "summarize_repo",
+      "write_file"
+    ],
+    "allowed_paths": [],
+    "budget": {
+      "max_shell_calls": 2,
+      "max_tool_calls": 12
+    },
+    "skip_verify": false,
+    "verification_policy": {
+      "required": true,
+      "typecheck": true,
+      "build": false,
+      "lint": false,
+      "tests": false
+    },
+    "repair_policy": {
+      "max_attempts": 1,
+      "rerun_failed_first": true
+    },
+    "blast_radius": "system",
+    "risk_level": "medium",
+    "spec": {
+      "intent": "modification",
+      "scope": [
+        "api",
+        "docs",
+        "tests"
+      ],
+      "forbidden_layers": [],
+      "change_expectation": "must_write",
+      "target_files": null,
+      "acceptance_criteria": [
+        "Lista los .py directamente dentro de apps/cli/runtime/adapters (solo primer nivel, sin subcarpetas). Devuelve solo la lista de nombres de archivo, una por l\u00ednea."
+      ],
+      "verification_policy": {
+        "required": true,
+        "typecheck": true,
+        "build": false,
+        "lint": false,
+        "tests": false
+      },
+      "repair_policy": {
+        "max_attempts": 1,
+        "rerun_failed_first": true
+      },
+      "budget_policy": {
+        "max_shell_calls": 2,
+        "max_tool_calls": 12
+      },
+      "confidence": 0.6,
+      "reasoning_lines": [
+        "Intent 'modification': no specific keyword matched, using default",
+        "Scope 'unknown': no scope keywords found",
+        "auto-repair: api scope -> typecheck=true"
+      ]
+    },
+    "exploration_plan": {
+      "ranked_files": [],
+      "ranked_dirs": [],
+      "ui_exploration_blocked": false,
+      "evidence_lines": [
+        "Verification commands derived from package_json, unknown (used at verify time)."
+      ]
+    },
+    "runtime_contract_source": "taskspec",
+    "runtime_annotations": {
+      "decision_plan": {
+        "exploration_plan": {
+          "version": "1.0.0",
+          "goal": "modification",
+          "ranked_candidates": [
+            {
+              "path": "package.json",
+              "kind": "file",
+              "reason": "Fallback generic project marker (no rich RepoProfile key_files)",
+              "score": 0.35,
+              "source": "heuristic"
+            },
+            {
+              "path": "pyproject.toml",
+              "kind": "file",
+              "reason": "Fallback generic project marker (no rich RepoProfile key_files)",
+              "score": 0.35,
+              "source": "heuristic"
+            },
+            {
+              "path": "tsconfig.json",
+              "kind": "file",
+              "reason": "Fallback generic project marker (no rich RepoProfile key_files)",
+              "score": 0.35,
+              "source": "heuristic"
+            }
+          ],
+          "avoid": {
+            "forbidden_layers": [],
+            "forbidden_roots": [],
+            "forbidden_paths": []
+          },
+          "limits": {
+            "max_reads": 20,
+            "max_bytes_per_file": 262144,
+            "max_shell_calls": 2,
+            "reserve_for_repair": 0
+          }
+        },
+        "execution_plan": {
+          "version": "1.0.0",
+          "execution_strategy": "staged_edit",
+          "expected_files_changed": [
+            "package.json",
+            "pyproject.toml",
+            "tsconfig.json"
+          ],
+          "guardrails": {
+            "forbid_layers": [],
+            "touch_only": [
+              "api",
+              "tests"
+            ],
+            "max_diff_lines": 200
+          },
+          "blast_radius": "system",
+          "risk": {
+            "level": "medium",
+            "reasons": [
+              "config/build manifest: package.json",
+              "config/build manifest: pyproject.toml",
+              "multiple expected files (+1)"
+            ],
+            "score": 5
+          },
+          "estimated_complexity": "medium"
+        },
+        "verification_plan": {
+          "version": "1.0.0",
+          "required": true,
+          "strategy": "cheap_first",
+          "steps": [
+            {
+              "check": "typecheck",
+              "command": "npx tsc --noEmit",
+              "source": "defaults",
+              "cost": "standard",
+              "gate": true,
+              "reason": "TS/API/data scope: typecheck first (cheap-first)"
+            },
+            {
+              "check": "build",
+              "command": "npm run build",
+              "source": "defaults",
+              "cost": "expensive",
+              "gate": true,
+              "reason": "Build required by policy/risk; default command"
+            }
+          ],
+          "policy": {
+            "rerun_failed_first": true,
+            "no_custom_pipes": true,
+            "must_be_truthful": true
+          }
+        },
+        "repair_plan": {
+          "version": "1.0.0",
+          "max_attempts": 1,
+          "attempts_used": 0,
+          "repair_on": [
+            "typecheck",
+            "build",
+            "tests"
+          ],
+          "stop_on": [
+            "budget_exhausted",
+            "policy_block",
+            "permission_denied"
+          ],
+          "rerun_failed_first": true,
+          "last_failed_check": null,
+          "next_actions": []
+        },
+        "provenance": {
+          "planner_version": "1.0.0",
+          "advisory_mode": true,
+          "rules_applied": [
+            "exploration_rank_v1",
+            "execution_strategy_v1",
+            "verification_cheap_first_v1",
+            "repair_policy_v1"
+          ],
+          "generated_at": "2026-03-25T17:06:48.362771+00:00",
+          "notes": "Sprint 1 deterministic planner; advisory only."
+        }
+      }
+    },
+    "verification_runs": [],
+    "repair_runs": []
+  },
+  "contract_spec": {
+    "intent": "modification",
+    "scope": [
+      "api",
+      "docs",
+      "tests"
+    ],
+    "forbidden_layers": [],
+    "change_expectation": "must_write",
+    "target_files": null,
+    "acceptance_criteria": [
+      "Lista los .py directamente dentro de apps/cli/runtime/adapters (solo primer nivel, sin subcarpetas). Devuelve solo la lista de nombres de archivo, una por l\u00ednea."
+    ],
+    "verification_policy": {
+      "required": true,
+      "typecheck": true,
+      "build": false,
+      "lint": false,
+      "tests": false
+    },
+    "repair_policy": {
+      "max_attempts": 1,
+      "rerun_failed_first": true
+    },
+    "budget_policy": {
+      "max_shell_calls": 2,
+      "max_tool_calls": 12
+    },
+    "confidence": 0.6,
+    "reasoning_lines": [
+      "Intent 'modification': no specific keyword matched, using default",
+      "Scope 'unknown': no scope keywords found",
+      "auto-repair: api scope -> typecheck=true"
+    ]
+  },
+  "taskspec": {
+    "intent": "modification",
+    "scope": [
+      "api",
+      "docs",
+      "tests"
+    ],
+    "forbidden_layers": [],
+    "change_expectation": "must_write",
+    "target_files": null,
+    "acceptance_criteria": [
+      "Lista los .py directamente dentro de apps/cli/runtime/adapters (solo primer nivel, sin subcarpetas). Devuelve solo la lista de nombres de archivo, una por l\u00ednea."
+    ],
+    "verification_policy": {
+      "required": true,
+      "typecheck": true,
+      "build": false,
+      "lint": false,
+      "tests": false
+    },
+    "repair_policy": {
+      "max_attempts": 1,
+      "rerun_failed_first": true
+    },
+    "budget_policy": {
+      "max_shell_calls": 2,
+      "max_tool_calls": 12
+    },
+    "confidence": 0.6,
+    "reasoning_lines": [
+      "Intent 'modification': no specific keyword matched, using default",
+      "Scope 'unknown': no scope keywords found",
+      "auto-repair: api scope -> typecheck=true"
+    ]
+  },
+  "contract_spec_validation_status": "repaired",
+  "contract_spec_repaired": true,
+  "contract_spec_validation_errors": [],
+  "taskspec_validation_status": "repaired",
+  "taskspec_repaired": true,
+  "taskspec_validation_errors": [],
+  "repo_profile": {
+    "root": "C:\\Users\\denis\\OneDrive\\Escritorio\\GhostLLM",
+    "stack": "python",
+    "layers_detected": [
+      "api",
+      "docs",
+      "tests"
+    ],
+    "has_package_json": false,
+    "important_folders": [
+      "apps",
+      "docs",
+      "packages",
+      "pyproject.toml",
+      "tests"
+    ],
+    "version": "2.0.0",
+    "confidence": 0.35,
+    "stack_detail": {
+      "runtime": "python",
+      "language": [
+        "python"
+      ],
+      "framework": [
+        "none"
+      ],
+      "orm": [
+        "none"
+      ],
+      "database": [
+        "unknown"
+      ],
+      "package_manager": [
+        "unknown"
+      ],
+      "test_runner": [
+        "pytest"
+      ]
+    },
+    "entrypoints": {
+      "api_roots": [],
+      "ui_roots": [],
+      "db_schema_roots": []
+    },
+    "key_files": [],
+    "api_routes": [],
+    "db_schema_files": [],
+    "validation_files": [],
+    "verification_commands": {
+      "typecheck": null,
+      "build": null,
+      "lint": null,
+      "tests": null,
+      "source": [
+        "package_json",
+        "unknown"
+      ]
+    },
+    "evidence_lines": [
+      "Python project (pyproject.toml or requirements.txt)"
+    ],
+    "cache": {
+      "used": false,
+      "cache_key": "16ebf4aec1c2709b560db6cee1daaa65488949d2de7436614e64c80507987f4b",
+      "source": "fresh"
+    },
+    "profile_v2": {
+      "version": "2.0.0",
+      "root": "C:\\Users\\denis\\OneDrive\\Escritorio\\GhostLLM",
+      "generated_at": "2026-03-25T17:06:48.360365Z",
+      "cache": {
+        "used": false,
+        "cache_key": "16ebf4aec1c2709b560db6cee1daaa65488949d2de7436614e64c80507987f4b",
+        "source": "fresh"
+      },
+      "stack": {
+        "runtime": "python",
+        "language": [
+          "python"
+        ],
+        "framework": [
+          "none"
+        ],
+        "orm": [
+          "none"
+        ],
+        "database": [
+          "unknown"
+        ],
+        "package_manager": [
+          "unknown"
+        ],
+        "test_runner": [
+          "pytest"
+        ]
+      },
+      "layers_detected": [
+        "api",
+        "docs",
+        "tests"
+      ],
+      "key_files": [],
+      "important_folders": [
+        "apps",
+        "docs",
+        "packages",
+        "pyproject.toml",
+        "tests"
+      ],
+      "entrypoints": {
+        "api_roots": [],
+        "ui_roots": [],
+        "db_schema_roots": []
+      },
+      "api_routes": [],
+      "db_schema_files": [],
+      "validation_files": [],
+      "verification_commands": {
+        "typecheck": null,
+        "build": null,
+        "lint": null,
+        "tests": null,
+        "source": [
+          "package_json",
+          "unknown"
+        ]
+      },
+      "constraints": {
+        "ignored_dirs": [
+          ".ghost",
+          ".git",
+          ".mypy_cache",
+          ".next",
+          ".pnpm-store",
+          ".turbo",
+          ".venv",
+          "__pycache__",
+          "build",
+          "coverage",
+          "dist",
+          "node_modules",
+          "out",
+          "venv"
+        ],
+        "max_files_scanned": 5000,
+        "max_bytes_per_file": 262144
+      },
+      "confidence": 0.35,
+      "evidence_lines": [
+        "Python project (pyproject.toml or requirements.txt)"
+      ]
+    }
+  },
+  "runtime_contract_source": "taskspec",
+  "exploration_plan": {
+    "ranked_files": [],
+    "ranked_dirs": [],
+    "ui_exploration_blocked": false,
+    "evidence_lines": [
+      "Verification commands derived from package_json, unknown (used at verify time)."
+    ]
+  },
+  "repo_profile_influence": [
+    "Verification commands derived from package_json, unknown (used at verify time)."
+  ],
+  "decision_plan": {
+    "exploration_plan": {
+      "version": "1.0.0",
+      "goal": "modification",
+      "ranked_candidates": [
+        {
+          "path": "package.json",
+          "kind": "file",
+          "reason": "Fallback generic project marker (no rich RepoProfile key_files)",
+          "score": 0.35,
+          "source": "heuristic"
+        },
+        {
+          "path": "pyproject.toml",
+          "kind": "file",
+          "reason": "Fallback generic project marker (no rich RepoProfile key_files)",
+          "score": 0.35,
+          "source": "heuristic"
+        },
+        {
+          "path": "tsconfig.json",
+          "kind": "file",
+          "reason": "Fallback generic project marker (no rich RepoProfile key_files)",
+          "score": 0.35,
+          "source": "heuristic"
+        }
+      ],
+      "avoid": {
+        "forbidden_layers": [],
+        "forbidden_roots": [],
+        "forbidden_paths": []
+      },
+      "limits": {
+        "max_reads": 20,
+        "max_bytes_per_file": 262144,
+        "max_shell_calls": 2,
+        "reserve_for_repair": 0
+      }
+    },
+    "execution_plan": {
+      "version": "1.0.0",
+      "execution_strategy": "staged_edit",
+      "expected_files_changed": [
+        "package.json",
+        "pyproject.toml",
+        "tsconfig.json"
+      ],
+      "guardrails": {
+        "forbid_layers": [],
+        "touch_only": [
+          "api",
+          "tests"
+        ],
+        "max_diff_lines": 200
+      },
+      "blast_radius": "system",
+      "risk": {
+        "level": "medium",
+        "reasons": [
+          "config/build manifest: package.json",
+          "config/build manifest: pyproject.toml",
+          "multiple expected files (+1)"
+        ],
+        "score": 5
+      },
+      "estimated_complexity": "medium"
+    },
+    "verification_plan": {
+      "version": "1.0.0",
+      "required": true,
+      "strategy": "cheap_first",
+      "steps": [
+        {
+          "check": "typecheck",
+          "command": "npx tsc --noEmit",
+          "source": "defaults",
+          "cost": "standard",
+          "gate": true,
+          "reason": "TS/API/data scope: typecheck first (cheap-first)"
+        },
+        {
+          "check": "build",
+          "command": "npm run build",
+          "source": "defaults",
+          "cost": "expensive",
+          "gate": true,
+          "reason": "Build required by policy/risk; default command"
+        }
+      ],
+      "policy": {
+        "rerun_failed_first": true,
+        "no_custom_pipes": true,
+        "must_be_truthful": true
+      }
+    },
+    "repair_plan": {
+      "version": "1.0.0",
+      "max_attempts": 1,
+      "attempts_used": 0,
+      "repair_on": [
+        "typecheck",
+        "build",
+        "tests"
+      ],
+      "stop_on": [
+        "budget_exhausted",
+        "policy_block",
+        "permission_denied"
+      ],
+      "rerun_failed_first": true,
+      "last_failed_check": null,
+      "next_actions": []
+    },
+    "provenance": {
+      "planner_version": "1.0.0",
+      "advisory_mode": true,
+      "rules_applied": [
+        "exploration_rank_v1",
+        "execution_strategy_v1",
+        "verification_cheap_first_v1",
+        "repair_policy_v1"
+      ],
+      "generated_at": "2026-03-25T17:06:48.362771+00:00",
+      "notes": "Sprint 1 deterministic planner; advisory only."
+    }
+  },
+  "planner_version": "1.0.0",
+  "planner_advisory_mode": true,
+  "planner_risk_level": "medium",
+  "planner_estimated_complexity": "medium",
+  "planner_provenance": {
+    "planner_version": "1.0.0",
+    "advisory_mode": true,
+    "rules_applied": [
+      "exploration_rank_v1",
+      "execution_strategy_v1",
+      "verification_cheap_first_v1",
+      "repair_policy_v1"
+    ],
+    "generated_at": "2026-03-25T17:06:48.362771+00:00",
+    "notes": "Sprint 1 deterministic planner; advisory only."
+  },
+  "planner_used": true,
+  "retrieval_enabled": true,
+  "retrieval_query": {
+    "text": "Lista los .py directamente dentro de apps/cli/runtime/adapters (solo primer nivel, sin subcarpetas). Devuelve solo la lista de nombres de archivo, una por l\u00ednea. Lista los .py directamente dentro de apps/cli/runtime/adapters (solo primer nivel, sin subcarpetas). Devuelve solo la lista de nombres de archivo, una por l\u00ednea.",
+    "allowed_roots": [],
+    "forbidden_roots": [],
+    "target_files": [],
+    "preferred_files": [
+      "package.json",
+      "pyproject.toml",
+      "tsconfig.json"
+    ],
+    "preferred_symbols": [],
+    "max_hits": 14,
+    "languages": [],
+    "layer_boost_api": true,
+    "layer_boost_data": false
+  },
+  "retrieval_result": {
+    "hits": [
+      {
+        "file_path": "apps/cli/runtime/verification_coordinator.py",
+        "chunk_id": "41687b2480698b7e4105d750",
+        "score": 72.0,
+        "reasons": [
+          "symbol:run",
+          "lexical"
+        ],
+        "start_line": 194,
+        "end_line": 229,
+        "preview": "\n    def run(\n        self,\n        *,",
+        "symbol_names": [
+          "run"
+        ]
+      },
+      {
+        "file_path": "apps/cli/main.py",
+        "chunk_id": "ce92809ea500882cf548fe89",
+        "score": 71.0,
+        "reasons": [
+          "symbol:dev",
+          "lexical"
+        ],
+        "start_line": 376,
+        "end_line": 411,
+        "preview": "def dev(\n    model: Optional[str] = typer.Option(\n        None,\n        \"--model\",",
+        "symbol_names": [
+          "dev"
+        ]
+      },
+      {
+        "file_path": "apps/server/api/translation.py",
+        "chunk_id": "c36599986cb08d7cc6f8e35e",
+        "score": 65.0,
+        "reasons": [
+          "api_layer",
+          "lexical"
+        ],
+        "start_line": 1,
+        "end_line": 72,
+        "preview": "import logging\nfrom typing import Dict, Any, List, Optional, AsyncGenerator\n\nfrom ghostllm_core.config import resolve_upstream_model_id",
+        "symbol_names": []
+      },
+      {
+        "file_path": "apps/server/api/adapters/anthropic.py",
+        "chunk_id": "c714b19c60593037b4c6394d",
+        "score": 65.0,
+        "reasons": [
+          "api_layer",
+          "lexical"
+        ],
+        "start_line": 1,
+        "end_line": 53,
+        "preview": "import re\nimport logging\nfrom typing import Dict, Any, List, Optional\n",
+        "symbol_names": []
+      },
+      {
+        "file_path": "apps/server/api/adapters/stream.py",
+        "chunk_id": "3e9047e9c18d20124dec1b9d",
+        "score": 65.0,
+        "reasons": [
+          "api_layer",
+          "lexical"
+        ],
+        "start_line": 1,
+        "end_line": 72,
+        "preview": "import json\nimport uuid\nimport logging\nfrom typing import AsyncGenerator, Dict, Any, List, Optional",
+        "symbol_names": []
+      },
+      {
+        "file_path": "apps/server/api/adapters/tools.py",
+        "chunk_id": "ef672ab4544154a842da526a",
+        "score": 65.0,
+        "reasons": [
+          "api_layer",
+          "lexical"
+        ],
+        "start_line": 1,
+        "end_line": 72,
+        "preview": "import json\nimport logging\nfrom typing import Dict, Any, List, Optional\n",
+        "symbol_names": []
+      },
+      {
+        "file_path": "apps/web/tsconfig.json",
+        "chunk_id": "14184ff1a1cd3edec9709aee",
+        "score": 63.0,
+        "reasons": [
+          "planner_preferred",
+          "lexical"
+        ],
+        "start_line": 1,
+        "end_line": 26,
+        "preview": "{\n  \"compilerOptions\": {\n    \"lib\": [\"dom\", \"dom.iterable\", \"esnext\"],\n    \"allowJs\": true,",
+        "symbol_names": []
+      },
+      {
+        "file_path": "tests/test_runtime_architecture_invariants.py",
+        "chunk_id": "e3bcc70c26681c780984c96d",
+        "score": 62.0,
+        "reasons": [
+          "symbol:S",
+          "lexical"
+        ],
+        "start_line": 173,
+        "end_line": 223,
+        "preview": "\n        class S:\n            verification_diff_fingerprint = fp\n            verification = {\"status\": \"success\", \"checks\": [], \"steps_executed_count\": 2}",
+        "symbol_names": [
+          "S"
+        ]
+      },
+      {
+        "file_path": "tests/test_runtime_architecture_invariants.py",
+        "chunk_id": "4bd4faf4ec2087cb43ea0791",
+        "score": 62.0,
+        "reasons": [
+          "symbol:S",
+          "lexical"
+        ],
+        "start_line": 194,
+        "end_line": 242,
+        "preview": "\n        class S:\n            verification_diff_fingerprint = fp_store\n            verification = {\"status\": \"success\", \"checks\": [], \"steps_executed_count\": 1}",
+        "symbol_names": [
+          "S"
+        ]
+      },
+      {
+        "file_path": "apps/server/api/translation.py",
+        "chunk_id": "b01675b7aa151729883dd615",
+        "score": 61.0,
+        "reasons": [
+          "api_layer",
+          "lexical"
+        ],
+        "start_line": 12,
+        "end_line": 47,
+        "preview": "\ndef translate_anthropic_to_openai(data: Dict[str, Any], model_mapping: Dict[str, str]) -> Dict[str, Any]:\n    \"\"\"\n    High-level orchestrator for Anthropic-to-OpenAI translation.",
+        "symbol_names": [
+          "translate_anthropic_to_openai"
+        ]
+      },
+      {
+        "file_path": "apps/server/api/adapters/anthropic.py",
+        "chunk_id": "0e1f8124c3b99bdcc0ec000c",
+        "score": 61.0,
+        "reasons": [
+          "api_layer",
+          "lexical"
+        ],
+        "start_line": 6,
+        "end_line": 53,
+        "preview": "\nclass AnthropicAdapter:\n    \"\"\"\n    Parses Anthropic /v1/messages requests into high-level bridge objects.",
+        "symbol_names": [
+          "AnthropicAdapter"
+        ]
+      },
+      {
+        "file_path": "apps/server/api/adapters/anthropic.py",
+        "chunk_id": "107d24abdf4d9c8419424f66",
+        "score": 61.0,
+        "reasons": [
+          "api_layer",
+          "lexical"
+        ],
+        "start_line": 13,
+        "end_line": 48,
+        "preview": "    def parse_request(data: Dict[str, Any]) -> Dict[str, Any]:\n        \"\"\"Extracts structured data from an Anthropic request.\"\"\"\n        return {\n            \"model\": data.get(\"model\"),",
+        "symbol_names": [
+          "parse_request"
+        ]
+      },
+      {
+        "file_path": "apps/server/api/adapters/anthropic.py",
+        "chunk_id": "41c2481816e9532cd308dfcf",
+        "score": 61.0,
+        "reasons": [
+          "api_layer",
+          "lexical"
+        ],
+        "start_line": 28,
+        "end_line": 53,
+        "preview": "    def _extract_system(system: Any) -> str:\n        \"\"\"Normalizes Anthropic system prompt (string or list).\"\"\"\n        if not system:\n            return \"\"",
+        "symbol_names": [
+          "_extract_system"
+        ]
+      },
+      {
+        "file_path": "apps/server/api/adapters/openai.py",
+        "chunk_id": "bf7a3b4487eaba6bfc10eeee",
+        "score": 61.0,
+        "reasons": [
+          "api_layer",
+          "lexical"
+        ],
+        "start_line": 1,
+        "end_line": 72,
+        "preview": "import logging\nfrom typing import Dict, Any, List, Optional\nfrom .tools import ToolUseMapper\n",
+        "symbol_names": []
+      }
+    ],
+    "top_files": [
+      [
+        "apps/cli/runtime/verification_coordinator.py",
+        72.0
+      ],
+      [
+        "apps/cli/main.py",
+        71.0
+      ],
+      [
+        "apps/server/api/translation.py",
+        65.0
+      ],
+      [
+        "apps/server/api/adapters/anthropic.py",
+        65.0
+      ],
+      [
+        "apps/server/api/adapters/stream.py",
+        65.0
+      ],
+      [
+        "apps/server/api/adapters/tools.py",
+        65.0
+      ],
+      [
+        "apps/web/tsconfig.json",
+        63.0
+      ],
+      [
+        "tests/test_runtime_architecture_invariants.py",
+        62.0
+      ]
+    ],
+    "top_symbols": [
+      [
+        "test_multiline_fidelity",
+        "verify_fidelity.py"
+      ],
+      [
+        "_tool_defs_for_session_phase",
+        "apps/cli/assistant.py"
+      ],
+      [
+        "_append_batch_plan_artifact",
+        "apps/cli/assistant.py"
+      ],
+      [
+        "_record_main_model_trace",
+        "apps/cli/assistant.py"
+      ],
+      [
+        "run",
+        "apps/cli/runtime/verification_coordinator.py"
+      ],
+      [
+        "_last_tool_round_had_edit_old_str_miss",
+        "apps/cli/assistant.py"
+      ],
+      [
+        "_resolve_verify_skip_flags",
+        "apps/cli/assistant.py"
+      ],
+      [
+        "_dispatch_model_tool_round",
+        "apps/cli/assistant.py"
+      ],
+      [
+        "_strip_tool_calls_for_display",
+        "apps/cli/assistant.py"
+      ],
+      [
+        "_infer_already_implemented_evidence",
+        "apps/cli/assistant.py"
+      ],
+      [
+        "_render_provider_recovery",
+        "apps/cli/assistant.py"
+      ],
+      [
+        "_register_default_hooks",
+        "apps/cli/assistant.py"
+      ]
+    ],
+    "provenance": {
+      "method": "hybrid_lexical_path_symbol_priors",
+      "chunks_scored": 1954,
+      "hits_returned": 14,
+      "retrieval_mode": "advisory",
+      "retrieval_actionable": true,
+      "retrieval_confidence": 0.874,
+      "retrieval_runtime_influenced": false
+    },
+    "embeddings_used": false,
+    "query_ms": 66.40940000215778,
+    "chunks_scored": 1954
+  },
+  "retrieval_top_files": [
+    {
+      "path": "apps/cli/runtime/verification_coordinator.py",
+      "score": 72.0
+    },
+    {
+      "path": "apps/cli/main.py",
+      "score": 71.0
+    },
+    {
+      "path": "apps/server/api/translation.py",
+      "score": 65.0
+    },
+    {
+      "path": "apps/server/api/adapters/anthropic.py",
+      "score": 65.0
+    },
+    {
+      "path": "apps/server/api/adapters/stream.py",
+      "score": 65.0
+    },
+    {
+      "path": "apps/server/api/adapters/tools.py",
+      "score": 65.0
+    },
+    {
+      "path": "apps/web/tsconfig.json",
+      "score": 63.0
+    },
+    {
+      "path": "tests/test_runtime_architecture_invariants.py",
+      "score": 62.0
+    }
+  ],
+  "retrieval_top_symbols": [
+    {
+      "symbol": "test_multiline_fidelity",
+      "file": "verify_fidelity.py"
+    },
+    {
+      "symbol": "_tool_defs_for_session_phase",
+      "file": "apps/cli/assistant.py"
+    },
+    {
+      "symbol": "_append_batch_plan_artifact",
+      "file": "apps/cli/assistant.py"
+    },
+    {
+      "symbol": "_record_main_model_trace",
+      "file": "apps/cli/assistant.py"
+    },
+    {
+      "symbol": "run",
+      "file": "apps/cli/runtime/verification_coordinator.py"
+    },
+    {
+      "symbol": "_last_tool_round_had_edit_old_str_miss",
+      "file": "apps/cli/assistant.py"
+    },
+    {
+      "symbol": "_resolve_verify_skip_flags",
+      "file": "apps/cli/assistant.py"
+    },
+    {
+      "symbol": "_dispatch_model_tool_round",
+      "file": "apps/cli/assistant.py"
+    },
+    {
+      "symbol": "_strip_tool_calls_for_display",
+      "file": "apps/cli/assistant.py"
+    },
+    {
+      "symbol": "_infer_already_implemented_evidence",
+      "file": "apps/cli/assistant.py"
+    },
+    {
+      "symbol": "_render_provider_recovery",
+      "file": "apps/cli/assistant.py"
+    },
+    {
+      "symbol": "_register_default_hooks",
+      "file": "apps/cli/assistant.py"
+    }
+  ],
+  "retrieval_index_stats": {
+    "file_count": 166,
+    "chunk_count": 1954,
+    "symbol_count": 1517,
+    "edge_count": 880,
+    "skipped_count": 0
+  },
+  "retrieval_cache_info": {
+    "cache_path": "C:\\Users\\denis\\OneDrive\\Escritorio\\GhostLLM\\.ghost\\cache\\repo_retrieval_index.json",
+    "rebuilt": false,
+    "incremental": true,
+    "files_updated": 10,
+    "cache_version": "1.0.0"
+  },
+  "retrieval_used_embeddings": false,
+  "retrieval_provenance": {
+    "method": "hybrid_lexical_path_symbol_priors",
+    "chunks_scored": 1954,
+    "hits_returned": 14,
+    "retrieval_mode": "advisory",
+    "retrieval_actionable": true,
+    "retrieval_confidence": 0.874,
+    "retrieval_runtime_influenced": false
+  },
+  "retrieval_actionable": true,
+  "retrieval_confidence": 0.874,
+  "retrieval_mode": "advisory",
+  "retrieval_runtime_influenced": false,
+  "likely_edit_targets": [
+    "apps/cli/runtime/verification_coordinator.py",
+    "apps/cli/main.py",
+    "apps/server/api/translation.py",
+    "apps/server/api/adapters/anthropic.py",
+    "apps/server/api/adapters/stream.py",
+    "apps/server/api/adapters/tools.py",
+    "apps/web/tsconfig.json",
+    "tests/test_runtime_architecture_invariants.py"
+  ],
+  "likely_edit_target_reasons": [
+    "top retrieval file (score=72.0)",
+    "top retrieval file (score=71.0)",
+    "top retrieval file (score=65.0)",
+    "top retrieval file (score=65.0)",
+    "top retrieval file (score=65.0)",
+    "top retrieval file (score=65.0)",
+    "top retrieval file (score=63.0)",
+    "top retrieval file (score=62.0)"
+  ],
+  "merged_candidate_order": [
+    {
+      "path": "apps/cli/runtime/verification_coordinator.py",
+      "source": "retrieval",
+      "reason": "retrieval ranked file (score=72.0)"
+    },
+    {
+      "path": "apps/cli/main.py",
+      "source": "retrieval",
+      "reason": "retrieval ranked file (score=71.0)"
+    },
+    {
+      "path": "apps/server/api/translation.py",
+      "source": "retrieval",
+      "reason": "retrieval ranked file (score=65.0)"
+    },
+    {
+      "path": "apps/server/api/adapters/anthropic.py",
+      "source": "retrieval",
+      "reason": "retrieval ranked file (score=65.0)"
+    },
+    {
+      "path": "apps/server/api/adapters/stream.py",
+      "source": "retrieval",
+      "reason": "retrieval ranked file (score=65.0)"
+    },
+    {
+      "path": "apps/server/api/adapters/tools.py",
+      "source": "retrieval",
+      "reason": "retrieval ranked file (score=65.0)"
+    },
+    {
+      "path": "apps/web/tsconfig.json",
+      "source": "retrieval",
+      "reason": "retrieval ranked file (score=63.0)"
+    },
+    {
+      "path": "tests/test_runtime_architecture_invariants.py",
+      "source": "retrieval",
+      "reason": "retrieval ranked file (score=62.0)"
+    },
+    {
+      "path": "package.json",
+      "source": "planner",
+      "reason": "Decision planner exploration / execution candidate"
+    },
+    {
+      "path": "pyproject.toml",
+      "source": "planner",
+      "reason": "Decision planner exploration / execution candidate"
+    },
+    {
+      "path": "tsconfig.json",
+      "source": "planner",
+      "reason": "Decision planner exploration / execution candidate"
+    }
+  ],
+  "retrieval_highlight_chunks": [
+    {
+      "file_path": "apps/cli/runtime/verification_coordinator.py",
+      "start_line": 194,
+      "end_line": 229,
+      "reason": "symbol:run, lexical"
+    },
+    {
+      "file_path": "apps/cli/main.py",
+      "start_line": 376,
+      "end_line": 411,
+      "reason": "symbol:dev, lexical"
+    },
+    {
+      "file_path": "apps/server/api/translation.py",
+      "start_line": 1,
+      "end_line": 72,
+      "reason": "api_layer, lexical"
+    },
+    {
+      "file_path": "apps/server/api/adapters/anthropic.py",
+      "start_line": 1,
+      "end_line": 53,
+      "reason": "api_layer, lexical"
+    },
+    {
+      "file_path": "apps/server/api/adapters/stream.py",
+      "start_line": 1,
+      "end_line": 72,
+      "reason": "api_layer, lexical"
+    },
+    {
+      "file_path": "apps/server/api/adapters/tools.py",
+      "start_line": 1,
+      "end_line": 72,
+      "reason": "api_layer, lexical"
+    },
+    {
+      "file_path": "apps/web/tsconfig.json",
+      "start_line": 1,
+      "end_line": 26,
+      "reason": "planner_preferred, lexical"
+    },
+    {
+      "file_path": "tests/test_runtime_architecture_invariants.py",
+      "start_line": 173,
+      "end_line": 223,
+      "reason": "symbol:S, lexical"
+    }
+  ],
+  "execution_agent_used": true,
+  "execution_mode": "staged_edit",
+  "selected_execution_model": "openai/gpt-oss-120b",
+  "selected_targets": [
+    "apps/cli/runtime/verification_coordinator.py",
+    "apps/cli/main.py",
+    "apps/server/api/translation.py",
+    "apps/server/api/adapters/anthropic.py",
+    "apps/server/api/adapters/stream.py",
+    "apps/server/api/adapters/tools.py",
+    "apps/web/tsconfig.json",
+    "tests/test_runtime_architecture_invariants.py",
+    "package.json",
+    "pyproject.toml",
+    "tsconfig.json"
+  ],
+  "execution_context_summary": {
+    "targets_count": 11,
+    "chunks_count": 18,
+    "total_chars_approx": 2192,
+    "truncated": false,
+    "planner_paths_sample": [
+      "package.json",
+      "pyproject.toml",
+      "tsconfig.json"
+    ]
+  },
+  "proposed_edits": [
+    {
+      "file_path": "apps/cli/runtime/verification_coordinator.py",
+      "priority": 90,
+      "summary": "Target from retrieval (confidence 0.85)",
+      "suggested_actions": [
+        {
+          "path": "apps/cli/runtime/verification_coordinator.py",
+          "action": "edit",
+          "rationale": "top retrieval file (score=72.0)"
+        }
+      ],
+      "diff_or_patch": null,
+      "action_type": "edit",
+      "nim_confidence": null,
+      "parsed_from_model": false
+    },
+    {
+      "file_path": "apps/cli/main.py",
+      "priority": 80,
+      "summary": "Target from retrieval (confidence 0.85)",
+      "suggested_actions": [
+        {
+          "path": "apps/cli/main.py",
+          "action": "edit",
+          "rationale": "top retrieval file (score=71.0)"
+        }
+      ],
+      "diff_or_patch": null,
+      "action_type": "edit",
+      "nim_confidence": null,
+      "parsed_from_model": false
+    },
+    {
+      "file_path": "apps/server/api/translation.py",
+      "priority": 70,
+      "summary": "Target from retrieval (confidence 0.85)",
+      "suggested_actions": [
+        {
+          "path": "apps/server/api/translation.py",
+          "action": "edit",
+          "rationale": "top retrieval file (score=65.0)"
+        }
+      ],
+      "diff_or_patch": null,
+      "action_type": "edit",
+      "nim_confidence": null,
+      "parsed_from_model": false
+    },
+    {
+      "file_path": "apps/server/api/adapters/anthropic.py",
+      "priority": 60,
+      "summary": "Target from retrieval (confidence 0.85)",
+      "suggested_actions": [
+        {
+          "path": "apps/server/api/adapters/anthropic.py",
+          "action": "edit",
+          "rationale": "top retrieval file (score=65.0)"
+        }
+      ],
+      "diff_or_patch": null,
+      "action_type": "edit",
+      "nim_confidence": null,
+      "parsed_from_model": false
+    },
+    {
+      "file_path": "apps/server/api/adapters/stream.py",
+      "priority": 50,
+      "summary": "Target from retrieval (confidence 0.85)",
+      "suggested_actions": [
+        {
+          "path": "apps/server/api/adapters/stream.py",
+          "action": "edit",
+          "rationale": "top retrieval file (score=65.0)"
+        }
+      ],
+      "diff_or_patch": null,
+      "action_type": "edit",
+      "nim_confidence": null,
+      "parsed_from_model": false
+    },
+    {
+      "file_path": "apps/server/api/adapters/tools.py",
+      "priority": 40,
+      "summary": "Target from retrieval (confidence 0.85)",
+      "suggested_actions": [
+        {
+          "path": "apps/server/api/adapters/tools.py",
+          "action": "edit",
+          "rationale": "top retrieval file (score=65.0)"
+        }
+      ],
+      "diff_or_patch": null,
+      "action_type": "edit",
+      "nim_confidence": null,
+      "parsed_from_model": false
+    },
+    {
+      "file_path": "apps/web/tsconfig.json",
+      "priority": 30,
+      "summary": "Target from retrieval (confidence 0.85)",
+      "suggested_actions": [
+        {
+          "path": "apps/web/tsconfig.json",
+          "action": "edit",
+          "rationale": "top retrieval file (score=63.0)"
+        }
+      ],
+      "diff_or_patch": null,
+      "action_type": "edit",
+      "nim_confidence": null,
+      "parsed_from_model": false
+    },
+    {
+      "file_path": "tests/test_runtime_architecture_invariants.py",
+      "priority": 20,
+      "summary": "Target from retrieval (confidence 0.85)",
+      "suggested_actions": [
+        {
+          "path": "tests/test_runtime_architecture_invariants.py",
+          "action": "edit",
+          "rationale": "top retrieval file (score=62.0)"
+        }
+      ],
+      "diff_or_patch": null,
+      "action_type": "edit",
+      "nim_confidence": null,
+      "parsed_from_model": false
+    }
+  ],
+  "execution_confidence": 0.5,
+  "execution_reasoning_lines": [
+    "execution_mode=staged_edit",
+    "targets_considered=11",
+    "model=openai/gpt-oss-120b"
+  ],
+  "execution_agent_provenance": {
+    "version": "1.0.0",
+    "advisory_only": true,
+    "writes_enabled_env": false,
+    "nim_flag": false,
+    "context_cap": 12000
+  },
+  "execution_agent_prompt": "[EXECUTION AGENT \u2014 advisory context for code writing]\nIntent: modification | Scope: api, docs, tests\nChange expectation: must_write\nForbidden layers: (none)\n\nSelected edit targets (prioritized):\n  - apps/cli/runtime/verification_coordinator.py :: role=service :: retrieval :: conf=0.85\n  - apps/cli/main.py :: role=service :: retrieval :: conf=0.85\n  - apps/server/api/translation.py :: role=api_route :: retrieval :: conf=0.85\n  - apps/server/api/adapters/anthropic.py :: role=api_route :: retrieval :: conf=0.85\n  - apps/server/api/adapters/stream.py :: role=api_route :: retrieval :: conf=0.85\n  - apps/server/api/adapters/tools.py :: role=api_route :: retrieval :: conf=0.85\n  - apps/web/tsconfig.json :: role=config :: retrieval :: conf=0.85\n  - tests/test_runtime_architecture_invariants.py :: role=service :: retrieval :: conf=0.85\n  - package.json :: role=config :: planner :: conf=0.60\n  - pyproject.toml :: role=service :: planner :: conf=0.60\n  - tsconfig.json :: role=config :: planner :: conf=0.60\n\nRelevant chunks (line ranges; apply minimal patches only):\n  - [service] apps/cli/runtime/verification_coordinator.py:194-229\n    \n    def run(\n        self,\n        *,\n  - [service] apps/cli/main.py:376-411\n    def dev(\n    model: Optional[str] = typer.Option(\n        None,\n        \"--model\",\n  - [api_route] apps/server/api/translation.py:1-72\n    import logging\nfrom typing import Dict, Any, List, Optional, AsyncGenerator\n\nfrom ghostllm_core.config import resolve_upstream_model_id\n  - [api_route] apps/server/api/adapters/anthropic.py:1-53\n    import re\nimport logging\nfrom typing import Dict, Any, List, Optional\n\n  - [api_route] apps/server/api/adapters/stream.py:1-72\n    import json\nimport uuid\nimport logging\nfrom typing import AsyncGenerator, Dict, Any, List, Optional\n  - [api_route] apps/server/api/adapters/tools.py:1-72\n    import json\nimport logging\nfrom typing import Dict, Any, List, Optional\n\n  - [config] apps/web/tsconfig.json:1-26\n    {\n  \"compilerOptions\": {\n    \"lib\": [\"dom\", \"dom.iterable\", \"esnext\"],\n    \"allowJs\": true,\n  - [service] tests/test_runtime_architecture_invariants.py:173-223\n    \n        class S:\n            verification_diff_fingerprint = fp\n            verification = {\"status\": \"success\", \"checks\": [], \"steps_executed_count\": 2}\n  - [service] tests/test_runtime_architecture_invariants.py:194-242\n    \n        class S:\n            verification_diff_fingerprint = fp_store\n            verification = {\"status\": \"success\", \"checks\": [], \"steps_executed_count\": 1}\n  - [api_route] apps/server/api/translation.py:12-47\n    \ndef translate_anthropic_to_openai(data: Dict[str, Any], model_mapping: Dict[str, str]) -> Dict[str, Any]:\n    \"\"\"\n    High-level orchestrator for Anthropic-to-OpenAI translation.\n\nVerification expectations:\n  required=True typecheck=True lint=False build=False tests=False\n  guardrails: forbid_layers=[] max_diff_lines=200\n\nInstructions: Produce minimal, targeted edits; respect forbidden layers; prefer edit_file-style patches over full rewrites; do not invent files.\n",
+  "execution_agent_writes_enabled": false,
+  "planner_model": "openai/gpt-oss-120b",
+  "execution_model_resolved": "openai/gpt-oss-120b",
+  "repair_model_resolved": "openai/gpt-oss-120b",
+  "general_fallback_model": "meta/llama-3.1-8b-instruct",
+  "execution_fallback_model": "openai/gpt-oss-120b",
+  "provider_backend": "null",
+  "live_generation_used": false,
+  "provider_ok": true,
+  "provider_error_message": "",
+  "provider_latency_ms": 0.0,
+  "provider_model": "openai/gpt-oss-120b",
+  "proposal_parsed": false,
+  "execution_raw_proposal": "",
+  "provider_response_snapshot": {},
+  "benchmark_results": [],
+  "trace_path": "C:\\Users\\denis\\OneDrive\\Escritorio\\GhostLLM\\.ghost\\traces\\task_20260325_130648_5b9a.json",
+  "trace_summary_short": "total=22818ms | model=20057ms | tool=176ms | approval_wait=0ms | verif=0ms | overhead\u22482585ms | bottleneck=execution model latency dominated (8132ms) | loop_turns=15 tool_rounds=1",
+  "trace_detail_md": "**Trace file:** `C:\\Users\\denis\\OneDrive\\Escritorio\\GhostLLM\\.ghost\\traces\\task_20260325_130648_5b9a.json`\n**cwd:** `C:\\Users\\denis\\OneDrive\\Escritorio\\GhostLLM` | **repo_root:** `C:\\Users\\denis\\OneDrive\\Escritorio\\GhostLLM`\n**Total (wall):** 22818 ms\n**Model:** 20057 ms | **Tool:** 176 ms | **Approval wait:** 0 ms | **Verification:** 0 ms | **Overhead (est.):** 2585 ms\n**Bottleneck:** execution model latency dominated (8132ms)\n**Slowest model call:** `general:openai/gpt-oss-120b`\n**Chat loop:** model_turns=15 | tool_rounds=1\n*components are non-overlapping sums; remainder is orchestration/overhead*",
+  "batch_executor_used": false,
+  "batch_plans": [],
+  "batch_results": [],
+  "approval_compression_used": false,
+  "compressed_approval_count": 0,
+  "batched_read_count": 0,
+  "batched_verification_count": 0,
+  "config_source": "environment variables only (GHOST_AUTOLOAD_ENV off)",
+  "autoload_env_used": false,
+  "env_file_loaded": "",
+  "active_feature_flags": {
+    "GHOST_USE_TASKSPEC": "1",
+    "GHOST_USE_DECISION_PLANNER": "1",
+    "GHOST_USE_RETRIEVAL": "1",
+    "GHOST_RETRIEVAL_INFLUENCES_RUNTIME": "0",
+    "GHOST_USE_EXECUTION_AGENT": "1",
+    "GHOST_EXECUTION_AGENT_LIVE": "0",
+    "GHOST_PARALLEL_PIPELINE": "partial",
+    "GHOST_USE_BATCH_EXECUTOR": "0",
+    "GHOST_USE_APPROVAL_COMPRESSION": "1",
+    "GHOST_USE_NVIDIA_NIM": "0",
+    "GHOST_AUTOLOAD_ENV": "0",
+    "GHOST_CLI_TRACE_SUMMARY": "0"
+  },
+  "startup_warnings": [],
+  "effective_repo_root": "C:\\Users\\denis\\OneDrive\\Escritorio\\GhostLLM",
+  "cli_command_mode": "plan",
+  "operational_metrics": {
+    "total_loop_iterations": 15,
+    "total_model_turns": 15,
+    "total_act_phases": 0,
+    "total_verify_phases": 0,
+    "total_repair_phases": 0,
+    "repair_attempts": 0,
+    "repair_success_count": 0,
+    "verification_pass_count": 0,
+    "verification_fail_count": 0,
+    "verification_reuse_count": 0,
+    "total_tool_calls": 1,
+    "total_write_tool_calls": 0,
+    "total_read_tool_calls": 1,
+    "prompt_chars_sent": 204863,
+    "repair_prompt_chars_sent": 0,
+    "tool_output_archived_count": 0,
+    "final_aborted_reason": "max_iterations"
+  },
+  "runtime_health": {
+    "schema_version": 1,
+    "health_status": "failed",
+    "verify_status": "skipped",
+    "repair_status": "not_needed",
+    "exploration_status": "normal",
+    "terminal_status": "aborted",
+    "main_risk_flags": []
+  }
+}
