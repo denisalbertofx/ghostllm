@@ -8,6 +8,7 @@ from apps.cli.runtime.artifacts import ArtifactSession
 from apps.cli.runtime.harness_bundle import build_change_proposal_packet
 from apps.cli.runtime.workflow_continuity import (
     ROLE_AUTHOR_DEFAULT,
+    _safe_slug,
     build_continuity_system_block,
     build_delegation_envelope,
     is_continuation_user_message,
@@ -51,6 +52,14 @@ def test_plan_filename_never_uses_literal_none_slug(tmp_path: Path) -> None:
     )
     norm = rel.replace("\\", "/")
     assert "None__" not in norm
+
+
+def test_safe_slug_appends_stable_hash() -> None:
+    a = _safe_slug("Task Alpha")
+    b = _safe_slug("Task Beta")
+    assert a != b
+    assert a == _safe_slug("Task Alpha")
+    assert len(a.split("_")[-1]) == 8
 
 
 def test_save_plan_and_handoff_roundtrip_and_index(tmp_path: Path) -> None:
@@ -395,4 +404,3 @@ def test_latest_handoff_task_id_resolves_plan_like_post_session_flow(tmp_path: P
     assert ho.get("task_id") == "tid_x"
     ctx = load_continuity_for_task(cwd, str(ho.get("task_id") or ""))
     assert "Persisted" in ctx.plan_body
-

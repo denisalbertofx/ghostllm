@@ -858,7 +858,8 @@ def run_execution_agent(inp: ExecutionAgentInput) -> ExecutionAgentOutput:
         selected = []
     focused_lock_paths = _focused_target_lock_paths(inp.taskspec)
     if focused_lock_paths and mode != "no_op":
-        selected = list(focused_lock_paths)
+        focused_lock_set = set(focused_lock_paths)
+        selected = [p for p in paths if p in focused_lock_set]
 
     model_sel = select_execution_model(
         inp.taskspec,

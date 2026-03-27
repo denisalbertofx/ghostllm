@@ -16,10 +16,19 @@ ghost_memory.db
 ghost_daemon.log
 nvidia_debug.log
 server_stdout.log
-*.db
-*.log
 *.pid
+*.sqlite
+*.sqlite3
+*.db-journal
+*.db-wal
+*.db-shm
+*.trace.json
+*.out.log
+*_debug.log
+*_stdout.log
+*_daemon.log
 
 configs/default.local.yaml
 apps/web/dev-*.log
 apps/web/next-dev-*.log
+!.env.example

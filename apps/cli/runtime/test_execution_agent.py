@@ -209,6 +209,21 @@ class TestExecutionAgent(unittest.TestCase):
         self.assertEqual(out.selected_targets, ["apps/cli/main.py"])
         self.assertTrue(any("focused_target_lock=apps/cli/main.py" in x for x in out.reasoning_lines))
 
+    def test_focused_target_lock_does_not_reintroduce_filtered_targets(self) -> None:
+        inp = ExecutionAgentInput(
+            taskspec={
+                "change_expectation": "must_write",
+                "intent": "implementation",
+                "scope": ["ui"],
+                "forbidden_layers": ["ui"],
+                "target_files": ["src/app/page.tsx"],
+            },
+            repo_profile_v2={"entrypoints": {"ui_roots": ["src/app"]}},
+            decision_plan={"execution_plan": {"risk": {"level": "low"}}},
+        )
+        out = run_execution_agent(inp)
+        self.assertEqual(out.selected_targets, [])
+
     def test_model_default_devstral(self) -> None:
         with mock.patch.dict(os.environ, {ENV_EXECUTION_MODEL: ""}):
             sel = select_execution_model({}, {}, {}, target_file_count=1)

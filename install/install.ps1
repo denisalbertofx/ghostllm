@@ -16,17 +16,44 @@ Require-Command git
 Require-Command python
 Require-Command uv
 
+function Test-SafeInstallDir([string]$PathValue) {
+    if (-not $PathValue) { return $false }
+    $trimmed = $PathValue.Trim()
+    if ($trimmed -in @('', '.', '~', '/', '\')) { return $false }
+    $full = [System.IO.Path]::GetFullPath($PathValue)
+    $root = [System.IO.Path]::GetPathRoot($full)
+    $homeFull = [System.IO.Path]::GetFullPath($HOME)
+    if ($full -eq $root -or $full -eq $homeFull) { return $false }
+    return $full.StartsWith($homeFull, [System.StringComparison]::OrdinalIgnoreCase)
+}
+
+$InstallDir = [System.IO.Path]::GetFullPath($InstallDir)
+if (-not (Test-SafeInstallDir $InstallDir)) {
+    throw "Refusing unsafe install dir: $InstallDir"
+}
+
 $binDir = Join-Path $HOME ".local\\bin"
 New-Item -ItemType Directory -Force -Path $binDir | Out-Null
 
-if (Test-Path (Join-Path $InstallDir ".git")) {
+if ((Test-Path $InstallDir) -and (Test-Path (Join-Path $InstallDir ".git"))) {
+    $currentRemote = (git -C $InstallDir remote get-url origin 2>$null)
+    if ($LASTEXITCODE -ne 0 -or $currentRemote.Trim() -ne $RepoUrl) {
+        throw "Refusing to update unrelated git checkout in $InstallDir"
+    }
     Write-Host "Updating GhostLLM in $InstallDir"
     git -C $InstallDir fetch --all --tags
     git -C $InstallDir checkout $Branch
     git -C $InstallDir pull --ff-only
 } else {
     if (Test-Path $InstallDir) {
-        Remove-Item $InstallDir -Recurse -Force
+        $item = Get-Item -LiteralPath $InstallDir
+        if (-not $item.PSIsContainer) {
+            throw "Install path exists and is not a directory: $InstallDir"
+        }
+        if ((Get-ChildItem -LiteralPath $InstallDir -Force | Select-Object -First 1) -ne $null) {
+            throw "Install path exists and is not an approved GhostLLM checkout: $InstallDir"
+        }
+        Remove-Item $InstallDir -Force
     }
     Write-Host "Cloning GhostLLM into $InstallDir"
     git clone --branch $Branch $RepoUrl $InstallDir

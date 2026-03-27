@@ -25,7 +25,9 @@ from apps.cli.runtime.harness_bundle import runtime_mode_label
 
 def _norm_workset_path(path: Any) -> str:
     raw = str(path or "").strip().replace("\\", "/")
-    return raw.lstrip("./")
+    if raw.startswith("./"):
+        return raw[2:]
+    return raw
 
 
 def _read_grounding_export_summary(sess: Any) -> Dict[str, Any]:

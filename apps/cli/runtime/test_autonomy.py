@@ -1,5 +1,7 @@
 """Autonomy runtime helpers."""
+import os
 import unittest
+from unittest import mock
 
 from apps.cli.runtime.autonomy import BudgetManager, StagnationDetector, stagnation_tool_detail
 
@@ -104,6 +106,11 @@ class TestBudgetManager(unittest.TestCase):
 
 
 class TestBudgetManagerAdaptive(unittest.TestCase):
+    def test_env_budget_max_caps_growth(self) -> None:
+        with mock.patch.dict(os.environ, {"GHOST_BUDGET_ADAPTIVE_MULT": "4", "GHOST_AUTONOMY_BUDGET_MAX": "150"}):
+            mgr = BudgetManager(100)
+        self.assertEqual(mgr._adaptive_cap, 150)
+
     def test_reset_session_budget_state_restores_initial_total(self) -> None:
         mgr = BudgetManager(80)
         mgr.consume("run_shell")

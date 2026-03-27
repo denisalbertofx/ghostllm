@@ -43,6 +43,11 @@ class TestTierLanguageGuard(unittest.TestCase):
         raw = "Bug confirmado tras tests ejecutados."
         self.assertEqual(apply_tier_language_guard_es(raw, "confirmed"), raw)
 
+    def test_unknown_tier_is_treated_as_non_confirmed(self) -> None:
+        raw = "Impacto crítico: bloqueará todo el servicio."
+        out = apply_tier_language_guard_es(raw, "future_new_tier")
+        self.assertIn("hip", out.lower())
+
 
 class TestClosureArtifactSummary(unittest.TestCase):
     def test_alias_en_maps_primary_verify(self) -> None:

@@ -5,12 +5,15 @@ Persistencia bajo .ghost/ (sin server/database). Preparado para multiagente / PR
 """
 from __future__ import annotations
 
+import hashlib
 import json
+import os
 import re
 import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
+from tempfile import NamedTemporaryFile
 from typing import Any, Dict, List, Optional, Tuple
 
 _PLANS_DIR = "plans"
@@ -41,6 +44,10 @@ def _repo_root(cwd: str) -> Path:
 
 def _continuity_index_path(cwd: str) -> Path:
     return _repo_root(cwd) / ".ghost" / _INDEX_NAME
+
+
+def _continuity_index_lock_path(cwd: str) -> Path:
+    return _repo_root(cwd) / ".ghost" / f"{_INDEX_NAME}.lock"
 
 
 def _session_file_tag(session_id: str) -> str:
@@ -90,9 +97,12 @@ def _plan_handoff_slug(*, task_id: str, session_id: str) -> str:
 
 
 def _safe_slug(s: str, max_len: int = 48) -> str:
-    raw = re.sub(r"[^\w\-]+", "_", (s or "").strip().lower(), flags=re.UNICODE)
-    raw = raw.strip("_")[:max_len] or "task"
-    return raw
+    normalized = (s or "").strip().lower()
+    raw = re.sub(r"[^\w\-]+", "_", normalized, flags=re.UNICODE)
+    base = raw.strip("_") or "task"
+    digest = hashlib.sha1(normalized.encode("utf-8")).hexdigest()[:8]
+    head_limit = max(1, max_len - (len(digest) + 1))
+    return f"{base[:head_limit]}_{digest}"
 
 
 _CONTINUATION_RE = re.compile(
@@ -264,6 +274,66 @@ def _read_json_file(path: Path) -> Any:
         return None
 
 
+class _ContinuityIndexLock:
+    def __init__(self, cwd: str, *, timeout_s: float = 5.0, poll_s: float = 0.05) -> None:
+        self._path = _continuity_index_lock_path(cwd)
+        self._timeout_s = timeout_s
+        self._poll_s = poll_s
+        self._fd: Optional[int] = None
+
+    def __enter__(self) -> "_ContinuityIndexLock":
+        self._path.parent.mkdir(parents=True, exist_ok=True)
+        deadline = time.time() + self._timeout_s
+        while True:
+            try:
+                self._fd = os.open(str(self._path), os.O_CREAT | os.O_EXCL | os.O_RDWR)
+                os.write(self._fd, str(os.getpid()).encode("ascii", errors="ignore"))
+                return self
+            except FileExistsError:
+                if time.time() >= deadline:
+                    raise TimeoutError(f"Timed out acquiring continuity index lock: {self._path}")
+                time.sleep(self._poll_s)
+
+    def __exit__(self, exc_type, exc, tb) -> None:
+        if self._fd is not None:
+            try:
+                os.close(self._fd)
+            finally:
+                self._fd = None
+        try:
+            self._path.unlink(missing_ok=True)
+        except OSError:
+            pass
+
+
+def _write_json_atomic(path: Path, data: Dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    payload = json.dumps(data, indent=2, ensure_ascii=False)
+    temp_path: Optional[Path] = None
+    try:
+        with NamedTemporaryFile("w", encoding="utf-8", dir=str(path.parent), delete=False) as tmp:
+            tmp.write(payload)
+            tmp.flush()
+            os.fsync(tmp.fileno())
+            temp_path = Path(tmp.name)
+        os.replace(temp_path, path)
+        try:
+            dir_fd = os.open(str(path.parent), os.O_RDONLY)
+        except OSError:
+            dir_fd = None
+        if dir_fd is not None:
+            try:
+                os.fsync(dir_fd)
+            finally:
+                os.close(dir_fd)
+    finally:
+        if temp_path is not None and temp_path.exists():
+            try:
+                temp_path.unlink()
+            except OSError:
+                pass
+
+
 def read_continuity_index(cwd: str) -> Dict[str, Any]:
     p = _continuity_index_path(cwd)
     if not p.is_file():
@@ -285,7 +355,8 @@ def write_continuity_index(cwd: str, data: Dict[str, Any]) -> None:
     data["updated_at"] = datetime.now(timezone.utc).isoformat()
     if "by_task_id" not in data or not isinstance(data["by_task_id"], dict):
         data["by_task_id"] = {}
-    p.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
+    with _ContinuityIndexLock(cwd):
+        _write_json_atomic(p, data)
 
 
 def _index_touch_task(
@@ -297,32 +368,35 @@ def _index_touch_task(
     latest_plan_relpath: str,
     active_envelope_relpath: str = "",
 ) -> None:
-    idx = read_continuity_index(cwd)
-    by_t: Dict[str, Any] = idx.setdefault("by_task_id", {})
-    if not isinstance(by_t, dict):
-        by_t = {}
-        idx["by_task_id"] = by_t
-    now = datetime.now(timezone.utc).isoformat()
-    now_u = time.time()
-    prev = by_t.get(task_id) if isinstance(by_t.get(task_id), dict) else {}
-    prev_lp = str((prev or {}).get("latest_plan_relpath") or "").strip()
-    final_plan = (latest_plan_relpath or "").strip() or prev_lp
-    row = {
-        "task_id": task_id,
-        "last_session_id": session_id,
-        "active_handoff_relpath": active_handoff_relpath,
-        "latest_plan_relpath": final_plan,
-        "updated_at": now,
-        "updated_at_unix": now_u,
-        **{k: v for k, v in (prev or {}).items() if k in ("notes",)},
-    }
-    env_p = (active_envelope_relpath or "").strip()
-    if env_p:
-        row["active_envelope_relpath"] = env_p.replace("\\", "/")
-    elif isinstance(prev, dict) and prev.get("active_envelope_relpath"):
-        row["active_envelope_relpath"] = str(prev.get("active_envelope_relpath") or "")
-    by_t[task_id] = row
-    write_continuity_index(cwd, idx)
+    with _ContinuityIndexLock(cwd):
+        idx = read_continuity_index(cwd)
+        by_t: Dict[str, Any] = idx.setdefault("by_task_id", {})
+        if not isinstance(by_t, dict):
+            by_t = {}
+            idx["by_task_id"] = by_t
+        now = datetime.now(timezone.utc).isoformat()
+        now_u = time.time()
+        prev = by_t.get(task_id) if isinstance(by_t.get(task_id), dict) else {}
+        prev_lp = str((prev or {}).get("latest_plan_relpath") or "").strip()
+        final_plan = (latest_plan_relpath or "").strip() or prev_lp
+        row = {
+            "task_id": task_id,
+            "last_session_id": session_id,
+            "active_handoff_relpath": active_handoff_relpath,
+            "latest_plan_relpath": final_plan,
+            "updated_at": now,
+            "updated_at_unix": now_u,
+            **{k: v for k, v in (prev or {}).items() if k in ("notes",)},
+        }
+        env_p = (active_envelope_relpath or "").strip()
+        if env_p:
+            row["active_envelope_relpath"] = env_p.replace("\\", "/")
+        elif isinstance(prev, dict) and prev.get("active_envelope_relpath"):
+            row["active_envelope_relpath"] = str(prev.get("active_envelope_relpath") or "")
+        by_t[task_id] = row
+        idx["format_version"] = int(idx.get("format_version") or 1)
+        idx["updated_at"] = now
+        _write_json_atomic(_continuity_index_path(cwd), idx)
 
 
 def build_handoff_payload(

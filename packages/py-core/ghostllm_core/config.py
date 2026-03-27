@@ -124,16 +124,21 @@ def _apply_env_overrides(data: Dict) -> Dict:
     upstream = dict(data.get("upstream") or {})
     monitoring = dict(data.get("monitoring") or {})
 
-    server["host"] = os.getenv("GHOST_SERVER_HOST", server.get("host", "127.0.0.1"))
+    env_server_host = os.getenv("GHOST_SERVER_HOST")
+    if env_server_host is not None and env_server_host.strip():
+        server["host"] = env_server_host.strip()
+    else:
+        server["host"] = server.get("host", "127.0.0.1")
     if os.getenv("GHOST_SERVER_PORT", "").strip():
         server["port"] = int(os.environ["GHOST_SERVER_PORT"])
     if os.getenv("GHOST_SERVER_API_KEY", "").strip():
         server["api_key"] = os.environ["GHOST_SERVER_API_KEY"]
 
-    upstream["base_url"] = os.getenv(
-        "GHOST_UPSTREAM_BASE_URL",
-        upstream.get("base_url", "https://integrate.api.nvidia.com/v1"),
-    )
+    env_upstream_base = os.getenv("GHOST_UPSTREAM_BASE_URL")
+    if env_upstream_base is not None and env_upstream_base.strip():
+        upstream["base_url"] = env_upstream_base.strip()
+    else:
+        upstream["base_url"] = upstream.get("base_url", "https://integrate.api.nvidia.com/v1")
     upstream_key = (
         os.getenv("GHOST_NVIDIA_API_KEY", "").strip()
         or os.getenv("NVIDIA_API_KEY", "").strip()
@@ -141,8 +146,16 @@ def _apply_env_overrides(data: Dict) -> Dict:
     )
     upstream["nvidia_api_key"] = upstream_key
 
-    monitoring["log_level"] = os.getenv("GHOST_LOG_LEVEL", monitoring.get("log_level", "INFO"))
-    monitoring["log_format"] = os.getenv("GHOST_LOG_FORMAT", monitoring.get("log_format", "json"))
+    env_log_level = os.getenv("GHOST_LOG_LEVEL")
+    if env_log_level is not None and env_log_level.strip():
+        monitoring["log_level"] = env_log_level.strip()
+    else:
+        monitoring["log_level"] = monitoring.get("log_level", "INFO")
+    env_log_format = os.getenv("GHOST_LOG_FORMAT")
+    if env_log_format is not None and env_log_format.strip():
+        monitoring["log_format"] = env_log_format.strip()
+    else:
+        monitoring["log_format"] = monitoring.get("log_format", "json")
     if os.getenv("GHOST_PROMETHEUS_PORT", "").strip():
         monitoring["prometheus_port"] = int(os.environ["GHOST_PROMETHEUS_PORT"])
 

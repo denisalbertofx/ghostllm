@@ -398,21 +398,22 @@ async def ui_root():
     return Response(status_code=307, headers={"Location": "/ui/index.html"})
 
 # Mount the build output
-ui_dir = "apps/web/out"
-next_static_dir = os.path.join(ui_dir, "_next")
-favicon_path = os.path.join(ui_dir, "favicon.ico")
+project_root = Path(__file__).resolve().parents[2]
+ui_dir = project_root / "apps" / "web" / "out"
+next_static_dir = ui_dir / "_next"
+favicon_path = ui_dir / "favicon.ico"
 
-if os.path.exists(next_static_dir):
-    app.mount("/_next", StaticFiles(directory=next_static_dir), name="next-static")
+if next_static_dir.exists():
+    app.mount("/_next", StaticFiles(directory=str(next_static_dir)), name="next-static")
 
 @app.get("/favicon.ico")
 async def favicon():
-    if os.path.exists(favicon_path):
-        return FileResponse(favicon_path)
+    if favicon_path.exists():
+        return FileResponse(str(favicon_path))
     raise HTTPException(status_code=404, detail="favicon not found")
 
-if os.path.exists(ui_dir):
-    app.mount("/ui", StaticFiles(directory=ui_dir, html=True), name="ui")
+if ui_dir.exists():
+    app.mount("/ui", StaticFiles(directory=str(ui_dir), html=True), name="ui")
 
 if __name__ == "__main__":
     import uvicorn

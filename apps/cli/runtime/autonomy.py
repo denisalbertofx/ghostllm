@@ -151,7 +151,7 @@ class BudgetManager:
                 cap_from_env = int(env_cap)
             except ValueError:
                 cap_from_env = cap_from_mult
-            return max(initial, cap_from_mult, cap_from_env)
+            return min(max(initial, cap_from_mult), max(initial, cap_from_env))
         return max(initial, cap_from_mult)
 
     def reset_session_budget_state(self) -> None:

@@ -45,8 +45,6 @@ def apply_tier_language_guard_es(text: str, tier: Optional[str]) -> str:
     t = (tier or "").strip().lower()
     if t == "confirmed":
         return text
-    if t not in ("suspected", "unverified"):
-        return text
     low = text.lower()
     if any(p in low for p in _TIER_STRONG_CLAIM_ES):
         return (
