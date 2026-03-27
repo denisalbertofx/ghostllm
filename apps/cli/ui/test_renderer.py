@@ -59,6 +59,13 @@ class TestPhaseRailAndChips(unittest.TestCase):
         self.assertEqual(rows[0][0], "/plan")
         self.assertEqual(rows[1][0], "/do")
 
+    def test_slash_menu_recent_commands_are_promoted(self):
+        state = slash_menu_state("/", recent_commands=["/fix", "/do"])
+        cmds = [it.command for it in state.items[:2]]
+        cats = [it.category for it in state.items[:2]]
+        self.assertEqual(cmds, ["/fix", "/do"])
+        self.assertEqual(cats, ["reciente", "reciente"])
+
     def test_phase_rail_marks_verify_bucket(self):
         r = format_phase_rail("VERIFY")
         self.assertIn(ui_contract.PHASE_RAIL_LABEL_VERIFICAR, r)
@@ -203,6 +210,22 @@ class TestArtifactSummaryFindingsTier(unittest.TestCase):
         self.assertIn("runtime:", out.lower())
         self.assertIn("empieza con:", out.lower())
         self.assertIn("↑↓ mueve", out)
+
+    def test_renderer_history_navigation_helper(self):
+        self.renderer._record_input_history("/plan bugs")
+        self.renderer._record_input_history("/do fix startup")
+        idx, text = self.renderer._move_history(None, -1)
+        self.assertEqual(text, "/do fix startup")
+        idx, text = self.renderer._move_history(idx, -1)
+        self.assertEqual(text, "/plan bugs")
+        idx, text = self.renderer._move_history(idx, 1)
+        self.assertEqual(text, "/do fix startup")
+
+    def test_renderer_recent_slash_dedupes_and_keeps_latest_first(self):
+        self.renderer._record_recent_slash("/plan")
+        self.renderer._record_recent_slash("/do")
+        self.renderer._record_recent_slash("/plan")
+        self.assertEqual(list(self.renderer._slash_recent), ["/plan", "/do"])
 
     def test_implementation_closure_ready_for_review_banner(self):
         art = {

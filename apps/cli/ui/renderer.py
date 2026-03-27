@@ -495,6 +495,8 @@ class GhostRenderer:
         self._live_rail_profile: str = _ui_contract.LIVE_RAIL_PROFILE_IMPLEMENT
         self._live_detail: Optional[str] = None
         self._last_status_render_sig: Optional[str] = None
+        self._input_history: deque[str] = deque(maxlen=32)
+        self._slash_recent: deque[str] = deque(maxlen=6)
 
     def _tty_layout(self) -> GhostVisualLayout:
         w = self.console.width
@@ -830,12 +832,17 @@ class GhostRenderer:
         buffer = ""
         cursor = 0
         selected = 0
+        history_index: Optional[int] = None
         menu_lines = 0
         out = getattr(self.console, "file", sys.stdout)
 
         def render() -> None:
             nonlocal menu_lines, selected
-            state = slash_menu_state(buffer, selected=selected)
+            state = slash_menu_state(
+                buffer,
+                selected=selected,
+                recent_commands=list(self._slash_recent),
+            )
             selected = state.selected
             lines = self._format_slash_menu_lines(state, width=max(ly.width, 40), ascii_ui=ascii_ui)
             menu_lines = len(lines)
@@ -855,18 +862,25 @@ class GhostRenderer:
         while True:
             ch = msvcrt.getwch()
             if ch in ("\r", "\n"):
-                state = slash_menu_state(buffer, selected=selected)
+                state = slash_menu_state(
+                    buffer,
+                    selected=selected,
+                    recent_commands=list(self._slash_recent),
+                )
                 if state.active and state.items:
                     chosen = state.items[selected]
                     stripped = buffer.lstrip()
                     if stripped.startswith("/") and " " not in stripped:
                         buffer = slash_menu_apply_selection(buffer, chosen)
+                        self._record_recent_slash(chosen.command)
                         cursor = len(buffer)
+                        history_index = None
                         render()
                         continue
                 out.write("\r\x1b[2K\x1b[J")
                 out.write(prompt_prefix + buffer + "\n")
                 out.flush()
+                self._record_input_history(buffer)
                 return buffer
             if ch == "\x03":
                 raise KeyboardInterrupt
@@ -874,15 +888,26 @@ class GhostRenderer:
                 if cursor > 0:
                     buffer = buffer[: cursor - 1] + buffer[cursor:]
                     cursor -= 1
+                history_index = None
                 render()
                 continue
             if ch in ("\x00", "\xe0"):
                 key = msvcrt.getwch()
-                state = slash_menu_state(buffer, selected=selected)
+                state = slash_menu_state(
+                    buffer,
+                    selected=selected,
+                    recent_commands=list(self._slash_recent),
+                )
                 if key == "H" and state.items:
                     selected = (selected - 1) % len(state.items)
+                elif key == "H":
+                    history_index, buffer = self._move_history(history_index, -1)
+                    cursor = len(buffer)
                 elif key == "P" and state.items:
                     selected = (selected + 1) % len(state.items)
+                elif key == "P":
+                    history_index, buffer = self._move_history(history_index, 1)
+                    cursor = len(buffer)
                 elif key == "K" and cursor > 0:
                     cursor -= 1
                 elif key == "M" and cursor < len(buffer):
@@ -893,6 +918,8 @@ class GhostRenderer:
                     cursor = len(buffer)
                 elif key == "S" and cursor < len(buffer):
                     buffer = buffer[:cursor] + buffer[cursor + 1 :]
+                if key not in ("H", "P"):
+                    history_index = None
                 render()
                 continue
             if ch == "\x1b":
@@ -900,19 +927,27 @@ class GhostRenderer:
                 if buffer.startswith("/"):
                     buffer = ""
                     cursor = 0
+                history_index = None
                 render()
                 continue
             if ch == "\t":
-                state = slash_menu_state(buffer, selected=selected)
+                state = slash_menu_state(
+                    buffer,
+                    selected=selected,
+                    recent_commands=list(self._slash_recent),
+                )
                 if state.active and state.items:
                     buffer = slash_menu_apply_selection(buffer, state.items[selected])
+                    self._record_recent_slash(state.items[selected].command)
                     cursor = len(buffer)
+                history_index = None
                 render()
                 continue
             if ch and ch >= " ":
                 buffer = buffer[:cursor] + ch + buffer[cursor:]
                 cursor += 1
                 selected = 0
+                history_index = None
                 render()
 
     def _format_slash_menu_lines(
@@ -923,7 +958,7 @@ class GhostRenderer:
         ascii_ui: bool,
     ) -> List[str]:
         if not state.active:
-            return []
+            return [truncate_visible(f"  {self._input_context_hint('', ascii_ui=ascii_ui)}", max(width - 2, 24))]
         hint = "Type / to browse commands" if ascii_ui else "Escribe / para ver acciones"
         if not state.items:
             return [truncate_visible(f"  {hint}", max(width - 2, 20))]
@@ -938,6 +973,8 @@ class GhostRenderer:
             prefix = f"{mark} " if idx == state.selected else "  "
             group = slash_menu_group_label(item)
             cmd = item.command.ljust(12)
+            if idx > 0 and state.items[idx - 1].category != item.category:
+                lines.append(truncate_visible(f"  {group.lower()}:", max(width - 2, 24)))
             line = f"{prefix}{cmd} [{group}] {item.label} · {item.hint}"
             lines.append(truncate_visible(line, max(width - 2, 24)))
         examples = slash_menu_examples(state.items, limit=2)
@@ -945,6 +982,42 @@ class GhostRenderer:
             lines.append(truncate_visible(f"    ejemplo: {ex}", max(width - 2, 24)))
         lines.append(truncate_visible(f"  {footer}", max(width - 2, 24)))
         return lines
+
+    def _record_input_history(self, text: str) -> None:
+        value = str(text or "").strip()
+        if not value:
+            return
+        if self._input_history and self._input_history[-1] == value:
+            return
+        self._input_history.append(value)
+
+    def _record_recent_slash(self, command: str) -> None:
+        value = str(command or "").strip()
+        if not value.startswith("/"):
+            return
+        while value in self._slash_recent:
+            self._slash_recent.remove(value)
+        self._slash_recent.appendleft(value)
+
+    def _move_history(self, history_index: Optional[int], delta: int) -> Tuple[Optional[int], str]:
+        if not self._input_history:
+            return None, ""
+        entries = list(self._input_history)
+        if history_index is None:
+            next_index = len(entries) - 1 if delta < 0 else None
+        else:
+            next_index = history_index + delta
+            if next_index >= len(entries):
+                return None, ""
+        if next_index is None:
+            return None, ""
+        next_index = max(0, min(next_index, len(entries) - 1))
+        return next_index, entries[next_index]
+
+    def _input_context_hint(self, buffer: str, *, ascii_ui: bool) -> str:
+        if (buffer or "").startswith("/"):
+            return "Tab or Enter complete current action" if ascii_ui else "Tab o Enter completa la accion actual"
+        return "Use / for actions or write a task directly" if ascii_ui else "Usa / para acciones o escribe una tarea directa"
 
     def render_verification_results(
         self,

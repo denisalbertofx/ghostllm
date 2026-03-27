@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import List, Sequence, Tuple
+from dataclasses import dataclass, replace
+from typing import Iterable, List, Sequence, Tuple
 
 
 @dataclass(frozen=True)
@@ -144,7 +144,12 @@ def slash_menu_start_suggestions() -> List[Tuple[str, str]]:
     ]
 
 
-def slash_menu_state(text: str, *, selected: int = 0) -> SlashMenuState:
+def slash_menu_state(
+    text: str,
+    *,
+    selected: int = 0,
+    recent_commands: Iterable[str] = (),
+) -> SlashMenuState:
     raw = str(text or "")
     stripped = raw.lstrip()
     if not stripped.startswith("/"):
@@ -155,7 +160,7 @@ def slash_menu_state(text: str, *, selected: int = 0) -> SlashMenuState:
     if " " in stripped and stripped.endswith(" "):
         return SlashMenuState(False, query, [], 0)
 
-    items = _filter_slash_items(query)
+    items = slash_menu_query_items(query, recent_commands=recent_commands)
     if not items:
         return SlashMenuState(True, query, [], 0)
     selected = max(0, min(int(selected), len(items) - 1))
@@ -171,10 +176,23 @@ def slash_menu_group_label(item: SlashMenuItem) -> str:
     return item.category.upper()
 
 
-def _filter_slash_items(query: str) -> List[SlashMenuItem]:
+def slash_menu_query_items(query: str, *, recent_commands: Iterable[str] = ()) -> List[SlashMenuItem]:
+    recent_map = {it.command: it for it in SLASH_MENU_ITEMS}
+    recent_items: List[SlashMenuItem] = []
+    for cmd in recent_commands:
+        key = str(cmd or "").strip()
+        if key in recent_map and key not in {it.command for it in recent_items}:
+            recent_items.append(replace(recent_map[key], category="reciente"))
+    return _filter_slash_items(query, recent_items=recent_items)
+
+
+def _filter_slash_items(query: str, *, recent_items: Sequence[SlashMenuItem]) -> List[SlashMenuItem]:
     q = (query or "").strip().lower()
     if not q:
-        return SLASH_MENU_ITEMS[:10]
+        head = list(recent_items[:3])
+        seen = {it.command for it in head}
+        tail = [it for it in SLASH_MENU_ITEMS if it.command not in seen][:7]
+        return head + tail
 
     def rank(item: SlashMenuItem) -> tuple[int, int, int, str]:
         cmd = item.command.lower()
@@ -195,7 +213,14 @@ def _filter_slash_items(query: str) -> List[SlashMenuItem]:
 
     ranked = [it for it in SLASH_MENU_ITEMS if rank(it)[0] < 9]
     ranked.sort(key=rank)
-    return ranked[:10]
+    ordered: List[SlashMenuItem] = []
+    seen = set()
+    for item in list(recent_items) + ranked:
+        if item.command in seen:
+            continue
+        seen.add(item.command)
+        ordered.append(item)
+    return ordered[:10]
 
 
 def slash_menu_examples(items: Sequence[SlashMenuItem], limit: int = 2) -> List[str]:
