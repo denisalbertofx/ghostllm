@@ -18,6 +18,11 @@ from __future__ import annotations
 # ── Marca (copy corto, estable) ─────────────────────────────────────────────
 BRAND_WORDMARK = "Ghost"
 BRAND_RUNNER_SUBTITLE = "coding agent · terminal-first"
+STARTUP_LABEL_WORKSPACE = "workspace"
+STARTUP_LABEL_RUNTIME = "runtime"
+STARTUP_LABEL_EMPIEZA = "empieza con"
+STARTUP_HINT_SLASH = "escribe `/` para abrir acciones"
+STARTUP_HINT_CONTROLS = "↑↓ mueve · Enter o Tab completa · Esc cierra"
 
 # ── Phase rail (format_phase_rail / live status) ────────────────────────────
 PHASE_RAIL_LABEL_EXPLORAR = "Explorar"

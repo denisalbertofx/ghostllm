@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import List
+from typing import List, Sequence, Tuple
 
 
 @dataclass(frozen=True)
@@ -9,6 +9,8 @@ class SlashMenuItem:
     command: str
     label: str
     hint: str
+    category: str
+    example: str = ""
     accepts_args: bool = True
 
 
@@ -21,25 +23,125 @@ class SlashMenuState:
 
 
 SLASH_MENU_ITEMS: List[SlashMenuItem] = [
-    SlashMenuItem("/plan", "Plan sin cambios", "Explora, revisa y propone siguiente paso"),
-    SlashMenuItem("/do", "Ejecuta una tarea", "Actúa sobre el repo con herramientas"),
-    SlashMenuItem("/edit", "Editar archivo", "Abre un flujo directo de patch"),
-    SlashMenuItem("/fix", "Buscar y arreglar", "Encuentra issues y corrígelos"),
-    SlashMenuItem("/doctor", "Diagnóstico", "Chequeo rápido del sistema", accepts_args=False),
-    SlashMenuItem("/status", "Estado", "Ver daemon y gateway", accepts_args=False),
-    SlashMenuItem("/logs", "Logs", "Últimas líneas del daemon"),
-    SlashMenuItem("/tasks", "Tareas", "Lista de tareas activas", accepts_args=False),
-    SlashMenuItem("/board", "Board", "Vista rápida de workers", accepts_args=False),
-    SlashMenuItem("/swarm", "Swarm", "Inicializa o inspecciona workers", accepts_args=False),
-    SlashMenuItem("/review", "Review bundle", "Abre un paquete de revisión"),
-    SlashMenuItem("/approve", "Aprobar", "Aprueba una review con task id"),
-    SlashMenuItem("/reject", "Rechazar", "Rechaza una review con task id"),
-    SlashMenuItem("/batch start", "Batch", "Lanza varias tareas en lote"),
+    SlashMenuItem(
+        "/plan",
+        "Plan sin cambios",
+        "Explora, revisa y propone siguiente paso",
+        "explorar",
+        "/plan encuentra los bugs mas importantes",
+    ),
+    SlashMenuItem(
+        "/do",
+        "Ejecuta una tarea",
+        "Actua sobre el repo con herramientas",
+        "actuar",
+        "/do corrige el bug del arranque",
+    ),
+    SlashMenuItem(
+        "/edit",
+        "Editar archivo",
+        "Abre un flujo directo de patch",
+        "actuar",
+        "/edit apps/cli/main.py",
+    ),
+    SlashMenuItem(
+        "/fix",
+        "Buscar y arreglar",
+        "Encuentra issues y corrige",
+        "actuar",
+        "/fix",
+        accepts_args=False,
+    ),
+    SlashMenuItem(
+        "/doctor",
+        "Diagnostico",
+        "Chequeo rapido del sistema",
+        "runtime",
+        "/doctor",
+        accepts_args=False,
+    ),
+    SlashMenuItem(
+        "/status",
+        "Estado",
+        "Ver daemon y gateway",
+        "runtime",
+        "/status",
+        accepts_args=False,
+    ),
+    SlashMenuItem(
+        "/logs",
+        "Logs",
+        "Ultimas lineas del daemon",
+        "runtime",
+        "/logs",
+        accepts_args=False,
+    ),
+    SlashMenuItem(
+        "/tasks",
+        "Tareas",
+        "Lista de tareas activas",
+        "coordinar",
+        "/tasks",
+        accepts_args=False,
+    ),
+    SlashMenuItem(
+        "/board",
+        "Board",
+        "Vista rapida de workers",
+        "coordinar",
+        "/board",
+        accepts_args=False,
+    ),
+    SlashMenuItem(
+        "/swarm",
+        "Swarm",
+        "Inicializa o inspecciona workers",
+        "coordinar",
+        "/swarm",
+        accepts_args=False,
+    ),
+    SlashMenuItem(
+        "/review",
+        "Review bundle",
+        "Abre un paquete de revision",
+        "review",
+        "/review task_123",
+    ),
+    SlashMenuItem(
+        "/approve",
+        "Aprobar",
+        "Aprueba una review con task id",
+        "review",
+        "/approve task_123",
+    ),
+    SlashMenuItem(
+        "/reject",
+        "Rechazar",
+        "Rechaza una review con task id",
+        "review",
+        "/reject task_123",
+    ),
+    SlashMenuItem(
+        "/batch start",
+        "Batch",
+        "Lanza varias tareas en lote",
+        "coordinar",
+        "/batch start",
+        accepts_args=False,
+    ),
 ]
 
 
 def slash_menu_quick_actions() -> List[str]:
     return ["/plan", "/do", "/fix", "/doctor"]
+
+
+def slash_menu_start_suggestions() -> List[Tuple[str, str]]:
+    return [
+        ("/plan", "encuentra los bugs mas importantes"),
+        ("/do", "corrige el bug del arranque"),
+        ("/fix", ""),
+    ]
 
 
 def slash_menu_state(text: str, *, selected: int = 0) -> SlashMenuState:
@@ -65,25 +167,42 @@ def slash_menu_apply_selection(current_text: str, item: SlashMenuItem) -> str:
     return item.command + (" " if item.accepts_args else "")
 
 
+def slash_menu_group_label(item: SlashMenuItem) -> str:
+    return item.category.upper()
+
+
 def _filter_slash_items(query: str) -> List[SlashMenuItem]:
     q = (query or "").strip().lower()
     if not q:
-        return SLASH_MENU_ITEMS[:8]
+        return SLASH_MENU_ITEMS[:10]
 
-    def rank(item: SlashMenuItem) -> tuple[int, int, str]:
+    def rank(item: SlashMenuItem) -> tuple[int, int, int, str]:
         cmd = item.command.lower()
         label = item.label.lower()
         hint = item.hint.lower()
+        category = item.category.lower()
         if cmd == f"/{q}":
-            return (0, len(cmd), cmd)
+            return (0, len(cmd), 0, cmd)
         if cmd.startswith(f"/{q}"):
-            return (1, len(cmd), cmd)
+            return (1, len(cmd), 0, cmd)
         if q in label:
-            return (2, len(label), cmd)
+            return (2, len(label), 1, cmd)
+        if q in category:
+            return (3, len(category), 2, cmd)
         if q in hint:
-            return (3, len(hint), cmd)
-        return (9, 999, cmd)
+            return (4, len(hint), 3, cmd)
+        return (9, 999, 9, cmd)
 
     ranked = [it for it in SLASH_MENU_ITEMS if rank(it)[0] < 9]
     ranked.sort(key=rank)
-    return ranked[:8]
+    return ranked[:10]
+
+
+def slash_menu_examples(items: Sequence[SlashMenuItem], limit: int = 2) -> List[str]:
+    out: List[str] = []
+    for item in items:
+        if item.example:
+            out.append(item.example)
+        if len(out) >= limit:
+            break
+    return out

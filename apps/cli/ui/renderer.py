@@ -31,7 +31,10 @@ from apps.cli.ui.theme import ghost_box_rounded
 from apps.cli.ui.slash_menu import (
     SlashMenuState,
     slash_menu_apply_selection,
+    slash_menu_examples,
+    slash_menu_group_label,
     slash_menu_quick_actions,
+    slash_menu_start_suggestions,
     slash_menu_state,
 )
 from apps.cli.ui.visual_layout import (
@@ -921,17 +924,25 @@ class GhostRenderer:
     ) -> List[str]:
         if not state.active:
             return []
-        hint = "Type / to browse commands" if ascii_ui else "Type / para ver comandos"
+        hint = "Type / to browse commands" if ascii_ui else "Escribe / para ver acciones"
         if not state.items:
             return [truncate_visible(f"  {hint}", max(width - 2, 20))]
         lines: List[str] = []
-        footer = "↑↓ mover · Enter elegir" if not ascii_ui else "up/down move · Enter choose"
+        footer = (
+            "up/down move · Enter or Tab choose · Esc close"
+            if ascii_ui
+            else "↑↓ mover · Enter o Tab completa · Esc cierra"
+        )
         for idx, item in enumerate(state.items[:6]):
             mark = ">" if ascii_ui else "›"
             prefix = f"{mark} " if idx == state.selected else "  "
+            group = slash_menu_group_label(item)
             cmd = item.command.ljust(12)
-            line = f"{prefix}{cmd} {item.label} · {item.hint}"
+            line = f"{prefix}{cmd} [{group}] {item.label} · {item.hint}"
             lines.append(truncate_visible(line, max(width - 2, 24)))
+        examples = slash_menu_examples(state.items, limit=2)
+        for ex in examples:
+            lines.append(truncate_visible(f"    ejemplo: {ex}", max(width - 2, 24)))
         lines.append(truncate_visible(f"  {footer}", max(width - 2, 24)))
         return lines
 
@@ -1711,6 +1722,19 @@ class GhostRenderer:
                 if _feature_flag_visible(v):
                     flags.append(k)
         flags_line = "  ".join(flags) if flags else "—"
+        cwd = os.getcwd()
+        workspace = truncate_visible(cwd, max(ly.width - 18, 28))
+        runtime_bits: List[str] = [
+            truncate_visible(model or "sin modelo", 24),
+            truncate_visible(command_mode or "dev", 12),
+        ]
+        if provider_backend_label:
+            runtime_bits.append(truncate_visible(provider_backend_label, 24))
+        if llm_gateway_reachable is True:
+            runtime_bits.append("gateway ready")
+        elif llm_gateway_reachable is False:
+            runtime_bits.append("gateway down")
+        runtime_line = "  ·  ".join(runtime_bits)
         if verbose:
             self.console.print(
                 f"\n[ghost.brand]{escape(_ui_contract.BRAND_WORDMARK)}[/ghost.brand] "
@@ -1729,6 +1753,12 @@ class GhostRenderer:
                 layout=ly,
             )
             self.console.print(f"\n{line1}\n{line2}\n")
+        self.console.print(
+            f"[dim]{escape(_ui_contract.STARTUP_LABEL_WORKSPACE)}:[/dim] [white]{escape(workspace)}[/white]"
+        )
+        self.console.print(
+            f"[dim]{escape(_ui_contract.STARTUP_LABEL_RUNTIME)}:[/dim] [white]{escape(runtime_line)}[/white]"
+        )
         if llm_gateway_url:
             if llm_gateway_reachable is True:
                 gw_line = (
@@ -1751,8 +1781,23 @@ class GhostRenderer:
             )
         quick = "  ".join(slash_menu_quick_actions())
         self.console.print(
-            f"[dim]atajos:[/dim] [white]{escape(quick)}[/white] [dim]· escribe `/` para navegar comandos[/dim]"
+            f"[dim]atajos:[/dim] [white]{escape(quick)}[/white] [dim]· {escape(_ui_contract.STARTUP_HINT_SLASH)}[/dim]"
         )
+        start_rows = slash_menu_start_suggestions()
+        if ly.ultra_narrow:
+            first_cmd, first_tail = start_rows[0]
+            first_line = first_cmd if not first_tail else f"{first_cmd} {first_tail}"
+            self.console.print(
+                f"[dim]{escape(_ui_contract.STARTUP_LABEL_EMPIEZA)}:[/dim] [white]{escape(truncate_visible(first_line, max(ly.width - 16, 20)))}[/white]"
+            )
+        else:
+            self.console.print(f"[dim]{escape(_ui_contract.STARTUP_LABEL_EMPIEZA)}:[/dim]")
+            for cmd, tail in start_rows:
+                row = cmd if not tail else f"{cmd} {tail}"
+                self.console.print(
+                    f"  [ghost.brand]›[/ghost.brand] [white]{escape(truncate_visible(row, max(ly.width - 6, 24)))}[/white]"
+                )
+        self.console.print(f"[dim]{escape(_ui_contract.STARTUP_HINT_CONTROLS)}[/dim]")
         if verbose and role_models and isinstance(role_models, dict) and role_models:
             rm = ", ".join(f"{k}={v}" for k, v in list(role_models.items())[:6])
             self.console.print(f"[dim]role_models:[/dim] [dim]{escape(rm)}[/dim]")

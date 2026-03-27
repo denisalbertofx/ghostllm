@@ -14,7 +14,10 @@ from apps.cli.ui.renderer import (
 )
 from apps.cli.ui.slash_menu import (
     slash_menu_apply_selection,
+    slash_menu_examples,
+    slash_menu_group_label,
     slash_menu_quick_actions,
+    slash_menu_start_suggestions,
     slash_menu_state,
 )
 from apps.cli.ui.theme import make_ghost_console
@@ -43,6 +46,18 @@ class TestPhaseRailAndChips(unittest.TestCase):
 
     def test_slash_menu_quick_actions_contract(self):
         self.assertEqual(slash_menu_quick_actions(), ["/plan", "/do", "/fix", "/doctor"])
+
+    def test_slash_menu_group_and_examples_contract(self):
+        state = slash_menu_state("/")
+        self.assertEqual(slash_menu_group_label(state.items[0]), "EXPLORAR")
+        examples = slash_menu_examples(state.items, limit=2)
+        self.assertTrue(examples)
+        self.assertIn("/plan", examples[0])
+
+    def test_slash_menu_start_suggestions_contract(self):
+        rows = slash_menu_start_suggestions()
+        self.assertEqual(rows[0][0], "/plan")
+        self.assertEqual(rows[1][0], "/do")
 
     def test_phase_rail_marks_verify_bucket(self):
         r = format_phase_rail("VERIFY")
@@ -184,6 +199,10 @@ class TestArtifactSummaryFindingsTier(unittest.TestCase):
         self.assertIn("atajos:", out.lower())
         self.assertIn("/plan", out)
         self.assertIn("escribe `/`", out)
+        self.assertIn("workspace:", out.lower())
+        self.assertIn("runtime:", out.lower())
+        self.assertIn("empieza con:", out.lower())
+        self.assertIn("↑↓ mueve", out)
 
     def test_implementation_closure_ready_for_review_banner(self):
         art = {
