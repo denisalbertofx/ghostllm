@@ -338,6 +338,31 @@ Voy a analizar el código buscando bugs críticos. Empezaré buscando patrones p
         self.assertNotIn("Voy a analizar el código", out)
         self.assertIn("Hay contexto para orientar el siguiente paso", out)
 
+    def test_readonly_plan_response_prefers_structured_sections(self):
+        self.renderer.render_readonly_plan_response(
+            """
+Conclusion: JWT migration is feasible without breaking current auth flows.
+Findings:
+1. Current middleware is still session-based.
+2. Token validation is concentrated in AuthService.ts.
+Steps:
+1. Add JWTService.ts
+2. Update auth middleware
+Evidence:
+apps/server/auth/middleware.py
+apps/server/auth/security.py
+Next: /do migrate auth to jwt
+""",
+            tier="suspected",
+            evidence_count=2,
+            next_command="/do migrate auth to jwt",
+        )
+        out = self.output.getvalue()
+        self.assertIn("findings", out)
+        self.assertIn("Current middleware is still session-based", out)
+        self.assertIn("JWTService.ts", out)
+        self.assertIn("middleware.py", out)
+
     def test_compact_tool_segment_aggregates_read_batches(self):
         with patch.dict(os.environ, {"GHOST_TOOL_UI": "compact"}, clear=False):
             self.renderer.begin_tool_segment()

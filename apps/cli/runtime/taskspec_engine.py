@@ -27,7 +27,10 @@ from apps.cli.runtime.intent_classifier import (
     prompt_locks_taskspec_as_inspection_readonly,
     user_explicitly_requests_verify_shell,
 )
-from apps.cli.runtime.planning_task import detect_strategy_plan_request
+from apps.cli.runtime.planning_task import (
+    detect_broad_readonly_plan_request,
+    detect_strategy_plan_request,
+)
 from apps.cli.runtime.repo_profile import RepoProfile
 from apps.cli.runtime.repo_overview_task import detect_repo_overview_question
 
@@ -443,6 +446,7 @@ def _draft_from_classifier(
     pre = classify_task_intent(user_prompt)
     repo_overview = detect_repo_overview_question(user_prompt)
     strategy_plan = detect_strategy_plan_request(user_prompt)
+    broad_plan = detect_broad_readonly_plan_request(user_prompt)
     scope_list = _scope_string_to_list(pre.scope, repo, pre.intent)
     ce = _enforce_intent_change_expectation(pre.intent, pre.change_expectation)
     targets = extract_target_files_from_prompt(user_prompt)
@@ -475,10 +479,10 @@ def _draft_from_classifier(
         draft.setdefault("reasoning_lines", []).append(
             "Repo overview question detected -> bounded read-only budget"
         )
-    elif strategy_plan:
+    elif strategy_plan or broad_plan:
         draft["budget_policy"] = {"max_shell_calls": 0, "max_tool_calls": 16}
         draft.setdefault("reasoning_lines", []).append(
-            "Strategic planning request detected -> broader read-only planning budget"
+            "Broader read-only planning request detected -> wider planning tool budget"
         )
     if pre.intent in (INTENT_REVIEW, INTENT_ANALYSIS) and user_explicitly_requests_verify_shell(user_prompt):
         bp = dict(draft.get("budget_policy") or {})

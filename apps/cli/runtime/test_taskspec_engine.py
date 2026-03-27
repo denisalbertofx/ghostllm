@@ -131,6 +131,23 @@ class TestTaskSpecEngine(unittest.TestCase):
         self.assertEqual(ts.budget_policy.get("max_shell_calls"), 0)
         self.assertEqual(ts.budget_policy.get("max_tool_calls"), 16)
 
+    def test_broad_plan_audit_prompt_gets_planning_budget(self):
+        repo = RepoProfile(
+            stack="polyglot",
+            layers_detected=["api", "ui", "docs", "tests"],
+            has_package_json=True,
+            important_folders=["apps", "docs", "packages"],
+        )
+        r = build_taskspec(
+            "/plan encuentra los bugs mas importantes",
+            repo,
+        )
+        ts = r.taskspec
+        self.assertEqual(ts.intent, "analysis")
+        self.assertEqual(ts.change_expectation, "should_not_write")
+        self.assertEqual(ts.budget_policy.get("max_shell_calls"), 0)
+        self.assertEqual(ts.budget_policy.get("max_tool_calls"), 16)
+
     def test_cli_command_bugfix_infers_main_target(self):
         repo = RepoProfile(
             stack="polyglot",

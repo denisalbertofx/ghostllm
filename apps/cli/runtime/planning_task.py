@@ -27,6 +27,15 @@ _REQUEST_CUE = re.compile(
     r"\b(crea(?:me)?|dame|haz(?:me)?|arma|prop[oó]n|draft|design|planifica|quiero)\b",
     re.I,
 )
+_AUDIT_CUE = re.compile(
+    r"\b(audit|audita|analiza|analyze|investiga|inspect|inspecciona|revisa|scan|escanea|"
+    r"bugs?|issues?|problemas?|riesgos?|hallazgos?)\b",
+    re.I,
+)
+_FILE_CUE = re.compile(
+    r"\b[\w./\\-]+\.(?:py|ts|tsx|js|jsx|json|md|yaml|yml|toml|go|java|rb|rs|cs|cpp|c|h)\b",
+    re.I,
+)
 
 
 def _normalize_task_text(task_text: str) -> str:
@@ -65,6 +74,30 @@ def detect_strategy_plan_request(task_text: str) -> bool:
     return False
 
 
+def detect_broad_readonly_plan_request(task_text: str) -> bool:
+    """
+    Treat broad `/plan` audits as planning work even when the user did not literally
+    say "create a plan". Narrow file questions stay out of this path.
+    """
+    if not task_text or not isinstance(task_text, str):
+        return False
+    raw = task_text.strip()
+    if not raw or len(raw) > 3000:
+        return False
+    if detect_strategy_plan_request(raw):
+        return True
+
+    normalized = _normalize_task_text(raw)
+    if not normalized:
+        return False
+
+    if not _SLASH_PLAN.match(raw):
+        return False
+    if _FILE_CUE.search(normalized):
+        return False
+    return bool(_AUDIT_CUE.search(normalized))
+
+
 def strategy_plan_system_prompt_section() -> str:
     """Extra planning discipline injected into the system prompt for broad `/plan` tasks."""
     return (
@@ -74,4 +107,24 @@ def strategy_plan_system_prompt_section() -> str:
         "- Prefer a few high-signal reads over broad repo crawling.\n"
         "- Output structure should be: current state, main bottlenecks, target architecture, phased plan, next iteration.\n"
         "- Keep the plan concrete and sequenced; avoid generic clean-architecture filler.\n"
+    )
+
+
+def broad_plan_system_prompt_section() -> str:
+    """Structured read-only planning/audit protocol for broad `/plan` requests."""
+    return (
+        "\n# Plan mode task\n"
+        "- You are in read-only plan mode for a broad repository analysis or audit.\n"
+        "- Do not treat this like a tiny bounded question.\n"
+        "- Prefer a repo map or search first, then a few high-signal reads, then synthesize.\n"
+        "- Avoid repeated shallow scans; keep gathering until you can support the top findings with evidence.\n"
+        "- When you finish, output these exact sections in plain text:\n"
+        "  Conclusion:\n"
+        "  Findings:\n"
+        "  Steps:\n"
+        "  Evidence:\n"
+        "  Next:\n"
+        "- In Findings, rank the biggest risks or bugs first and keep each item concrete.\n"
+        "- In Steps, list the recommended follow-up actions in sequence.\n"
+        "- In Evidence, cite the files or checks that support the conclusion.\n"
     )

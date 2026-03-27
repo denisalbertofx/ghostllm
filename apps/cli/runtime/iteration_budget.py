@@ -16,6 +16,7 @@ from apps.cli.runtime.answer_now_policy import (
     is_high_ambiguity_or_broad_task,
 )
 from apps.cli.runtime.intent_classifier import detect_code_inspection_readonly_prompt
+from apps.cli.runtime.planning_task import detect_broad_readonly_plan_request
 from apps.cli.runtime.task_contract import Intent, infer_work_task_type
 
 
@@ -107,6 +108,16 @@ def global_iteration_cap() -> int:
     return _parse_positive_int("GHOST_MAX_ITERATIONS", 15)
 
 
+def plan_iteration_hard_cap(global_cap: Optional[int] = None) -> int:
+    """
+    Hard ceiling for broad `/plan` sessions. Allows adaptive growth without making the normal
+    global cap unbounded for every task class.
+    """
+    base = int(global_cap) if global_cap is not None else global_iteration_cap()
+    env_default = max(base, 24)
+    return max(base, _parse_positive_int("GHOST_PLAN_ITER_HARD_CAP", env_default))
+
+
 @dataclass(frozen=True)
 class IterationBudgetPlan:
     """Snapshot applied once after INTAKE."""
@@ -125,6 +136,7 @@ _RECOMMENDED_RANGES: Dict[str, tuple[int, int]] = {
     "small_read_only": (5, 11),
     "factual_code_question": (5, 12),
     "code_inspection_focused": (3, 7),
+    "plan_readonly_broad": (8, 20),
     "simple_write": (5, 11),
     "write_verify": (8, 18),
     "complex_multi_file": (10, 99),
@@ -150,6 +162,9 @@ def classify_iteration_budget_category(
 
     if fast_simple_write_budget_enabled() and _heuristic_simple_write_task(task_text, intent):
         return "simple_write", "GHOST_FAST_SIMPLE_WRITE_BUDGET heuristic"
+
+    if (intent.mode or "").strip().lower() == "plan" and detect_broad_readonly_plan_request(task_text):
+        return "plan_readonly_broad", "slash_plan_broad_readonly"
 
     if is_high_ambiguity_or_broad_task(task_text):
         return "complex_multi_file", "high_ambiguity_or_broad_heuristic"
@@ -209,6 +224,7 @@ def _raw_cap_for_category(category: str, global_cap: int) -> int:
         "small_read_only": 10,
         "factual_code_question": 11,
         "code_inspection_focused": 7,
+        "plan_readonly_broad": 14,
         "simple_write": 10,
         "write_verify": 14,
     }
@@ -217,6 +233,7 @@ def _raw_cap_for_category(category: str, global_cap: int) -> int:
         "small_read_only": "GHOST_ITER_BUDGET_SMALL_READONLY_MAX",
         "factual_code_question": "GHOST_ITER_BUDGET_FACTUAL_MAX",
         "code_inspection_focused": "GHOST_ITER_BUDGET_CODE_INSPECTION_MAX",
+        "plan_readonly_broad": "GHOST_ITER_BUDGET_PLAN_BROAD_MAX",
         "simple_write": "GHOST_ITER_BUDGET_SIMPLE_WRITE_MAX",
         "write_verify": "GHOST_ITER_BUDGET_WRITE_VERIFY_MAX",
     }

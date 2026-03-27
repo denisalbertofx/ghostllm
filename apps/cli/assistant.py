@@ -160,6 +160,8 @@ from apps.cli.runtime.micro_task_mode import (
     resolve_task_mode,
 )
 from apps.cli.runtime.planning_task import (
+    broad_plan_system_prompt_section,
+    detect_broad_readonly_plan_request,
     detect_strategy_plan_request,
     strategy_plan_system_prompt_section,
 )
@@ -175,6 +177,7 @@ from apps.cli.runtime.iteration_budget import (
     adapt_synthesis_reserve_iterations,
     apply_iteration_budget_to_session,
     global_iteration_cap,
+    plan_iteration_hard_cap,
 )
 from apps.cli.runtime.narrow_factual_chat import (
     factual_explore_iterations_remaining,
@@ -191,6 +194,7 @@ from apps.cli.runtime.session_phase import (
 )
 from apps.cli.runtime.outcome_engine import (
     OUTCOME_ALREADY_IMPLEMENTED,
+    OUTCOME_READ_ONLY,
     _has_final_nl_response,
     determine_task_outcome,
     verification_integrity_stale,
@@ -597,6 +601,8 @@ Discovery actions this session: {discovery_count}
         self._final_synthesis_done: bool = False
         self._pending_readonly_plan_render: Optional[Dict[str, Any]] = None
         self._shown_large_prompt_non_stream_hint: bool = False
+        self._plan_budget_extension_anchor_reads: int = 0
+        self._plan_budget_extension_anchor_discovery: int = 0
         # Exploration Engine v2
         self._explore_v2_mismatch_checked: bool = False
         self._explore_v2_listing_path_checked: bool = False
@@ -1749,6 +1755,8 @@ Discovery actions this session: {discovery_count}
         self._conclusion_nudge_injected = False
         self._pending_readonly_plan_render = None
         self._shown_large_prompt_non_stream_hint = False
+        self._plan_budget_extension_anchor_reads = 0
+        self._plan_budget_extension_anchor_discovery = 0
         self._explore_v2_mismatch_checked = False
         self._explore_v2_listing_path_checked = False
         self._explore_v2_churn_nudge_injected = False
@@ -2303,6 +2311,85 @@ Discovery actions this session: {discovery_count}
                         return m
         return (self.mode or "Chat").strip() or "Chat"
 
+    def _is_broad_plan_mode_task(self) -> bool:
+        if (self._effective_prompt_mode() or "").strip().lower() != "plan":
+            return False
+        return detect_broad_readonly_plan_request(self._primary_user_task_text())
+
+    def _current_iteration_cap(self) -> int:
+        base_cap = global_iteration_cap()
+        hard_cap = plan_iteration_hard_cap(base_cap) if self._is_broad_plan_mode_task() else base_cap
+        sess = self.artifact_manager.current_session if self.artifact_manager else None
+        ib = getattr(sess, "iteration_budget", None) if sess else None
+        if isinstance(ib, dict) and ib.get("effective_max") is not None:
+            try:
+                cap = int(ib["effective_max"])
+            except (TypeError, ValueError):
+                cap = hard_cap
+        else:
+            cap = hard_cap
+        cap = max(4, min(cap, hard_cap))
+        self._session_effective_iteration_cap = cap
+        return cap
+
+    def _maybe_extend_broad_plan_iteration_budget(self, iterations: int) -> None:
+        """
+        Broad `/plan` sessions earn a few more turns only when discovery is still producing
+        new evidence. This avoids a fixed tiny cap without making planning unbounded.
+        """
+        if not self._is_broad_plan_mode_task():
+            return
+        if self.session_phase != SessionPhase.EXPLORE:
+            return
+        if self._has_final_nl_response_from_history():
+            return
+        sess = self.artifact_manager.current_session
+        if not sess:
+            return
+        hard_cap = plan_iteration_hard_cap(global_iteration_cap())
+        ib = getattr(sess, "iteration_budget", None)
+        current_cap = self._current_iteration_cap()
+        if current_cap >= hard_cap:
+            return
+        if iterations < current_cap - 1:
+            return
+
+        unique_reads = len(getattr(self, "_explore_seen_read_paths", set()) or set())
+        discovery_count = int(getattr(self, "_discovery_action_count", 0) or 0)
+        delta_reads = unique_reads - int(getattr(self, "_plan_budget_extension_anchor_reads", 0) or 0)
+        delta_discovery = discovery_count - int(getattr(self, "_plan_budget_extension_anchor_discovery", 0) or 0)
+        if delta_reads < 2 and delta_discovery < 3:
+            return
+
+        grant = 4 if (delta_reads >= 3 or delta_discovery >= 4) else 2
+        new_cap = min(hard_cap, current_cap + grant)
+        if new_cap <= current_cap:
+            return
+
+        if not isinstance(ib, dict):
+            ib = {}
+            sess.iteration_budget = ib
+        ib["effective_max"] = new_cap
+        ib.setdefault("category", "plan_readonly_broad")
+        append_budget_extension_record(
+            sess,
+            {
+                "points": new_cap - current_cap,
+                "reason": "plan_readonly_evidence_growth",
+                "detail": f"iter={iterations}; reads+{delta_reads}; discovery+{delta_discovery}",
+                "skipped": "",
+            },
+        )
+        logger.info(
+            "broad /plan iteration budget extended %s -> %s (reads+%s discovery+%s)",
+            current_cap,
+            new_cap,
+            delta_reads,
+            delta_discovery,
+        )
+        self._plan_budget_extension_anchor_reads = unique_reads
+        self._plan_budget_extension_anchor_discovery = discovery_count
+
     def _live_rail_profile(self) -> str:
         """Perfil del rail vivo del spinner: /plan → solo lectura (3 pasos), resto → implementación."""
         from apps.cli.ui import ui_contract as _uic
@@ -2840,14 +2927,7 @@ Discovery actions this session: {discovery_count}
         gcap = global_iteration_cap()
         sess_loop = self.artifact_manager.current_session
         ib = getattr(sess_loop, "iteration_budget", None) if sess_loop else None
-        if isinstance(ib, dict) and ib.get("effective_max") is not None:
-            try:
-                max_iter_loop = max(4, min(int(ib["effective_max"]), gcap))
-            except (TypeError, ValueError):
-                max_iter_loop = gcap
-        else:
-            max_iter_loop = gcap
-        self._session_effective_iteration_cap = max_iter_loop
+        max_iter_loop = self._current_iteration_cap()
         logger.info(
             "ghost iteration cap effective=%s global=%s category=%s",
             max_iter_loop,
@@ -2858,7 +2938,7 @@ Discovery actions this session: {discovery_count}
         while (
             self.session_phase not in LOOP_HALT_PHASES
             and not self.budget_manager.is_exhausted()
-            and iterations < max_iter_loop
+            and iterations < self._current_iteration_cap()
         ):
             iterations += 1
             self._session_loop_iteration = iterations
@@ -2868,6 +2948,7 @@ Discovery actions this session: {discovery_count}
                 br = self._phase_explore(task_obj, iterations)
                 if br == "halt":
                     break
+                self._maybe_extend_broad_plan_iteration_budget(iterations)
                 continue
             if self.session_phase == SessionPhase.ACT:
                 br = self._phase_act(task_obj, iterations)
@@ -2882,8 +2963,9 @@ Discovery actions this session: {discovery_count}
                 continue
             break
 
-        if iterations >= max_iter_loop and self.session_phase not in LOOP_HALT_PHASES:
-            logger.warning("phase loop: max iterations (%s) — closing for finalize", max_iter_loop)
+        final_cap = self._current_iteration_cap()
+        if iterations >= final_cap and self.session_phase not in LOOP_HALT_PHASES:
+            logger.warning("phase loop: max iterations (%s) — closing for finalize", final_cap)
             self._loop_abort_reason = LOOP_ABORT_MAX_ITERATIONS
             self._apply_session_phase(SessionPhase.CLOSING, detail="max_iterations", sync_task=True)
 
@@ -2925,11 +3007,19 @@ Discovery actions this session: {discovery_count}
             "research",
         ):
             return
-        nudge = (
-            "[SYSTEM] Iteration budget (GHOST_MAX_ITERATIONS) was reached. "
-            "Write the best final answer using only tool output already in this conversation. "
-            "Plain text only — do not call tools."
-        )
+        if self._is_broad_plan_mode_task():
+            nudge = (
+                "[SYSTEM] Iteration budget was reached in broad plan mode. "
+                "Write the best final read-only plan using only tool output already in this conversation. "
+                "Plain text only. Use these exact sections: Conclusion:, Findings:, Steps:, Evidence:, Next:. "
+                "Do not call tools."
+            )
+        else:
+            nudge = (
+                "[SYSTEM] Iteration budget (GHOST_MAX_ITERATIONS) was reached. "
+                "Write the best final answer using only tool output already in this conversation. "
+                "Plain text only — do not call tools."
+            )
         self.history.append({"role": "user", "content": nudge})
         self.memory.add_message(self.session_id, "user", nudge)
         self.console.print(
@@ -4588,6 +4678,8 @@ Discovery actions this session: {discovery_count}
 
     def _should_force_conclusion_after_discovery(self) -> bool:
         """True when discovery cap exceeded and no writes - force conclusion next turn."""
+        if self._is_broad_plan_mode_task():
+            return False
         return (
             self._discovery_action_count >= DISCOVERY_CAP
             and self.session_phase == SessionPhase.EXPLORE
@@ -4972,7 +5064,9 @@ Discovery actions this session: {discovery_count}
         if mtk and micro_task_mode_enabled():
             full_system = full_system + micro_task_system_prompt_section(mtk)
         elif detect_strategy_plan_request(self._primary_user_task_text()):
-            full_system = full_system + strategy_plan_system_prompt_section()
+            full_system = full_system + strategy_plan_system_prompt_section() + broad_plan_system_prompt_section()
+        elif detect_broad_readonly_plan_request(self._primary_user_task_text()):
+            full_system = full_system + broad_plan_system_prompt_section()
 
         if session and self._inject_readonly_truthfulness(session):
             full_system = full_system + readonly_analysis_truthfulness_prompt_section()

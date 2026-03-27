@@ -228,6 +228,37 @@ def _plan_mode_summary(lines: List[str]) -> str:
     return ""
 
 
+def _plan_mode_sections(lines: List[str]) -> Dict[str, List[str]]:
+    aliases = {
+        "conclusion": "conclusion",
+        "conclusión": "conclusion",
+        "findings": "findings",
+        "hallazgos": "findings",
+        "steps": "steps",
+        "pasos": "steps",
+        "evidence": "evidence",
+        "evidencia": "evidence",
+        "next": "next",
+        "siguiente": "next",
+    }
+    out: Dict[str, List[str]] = {k: [] for k in ("conclusion", "findings", "steps", "evidence", "next")}
+    current: Optional[str] = None
+    for raw in lines:
+        s = str(raw or "").strip()
+        if not s:
+            continue
+        head, sep, tail = s.partition(":")
+        key = aliases.get(head.strip().lower()) if sep else None
+        if key:
+            current = key
+            if tail.strip():
+                out[key].append(tail.strip())
+            continue
+        if current:
+            out[current].append(s)
+    return out
+
+
 def _change_symbol_markup(kind: str, *, ascii_ui: bool) -> str:
     low = str(kind or "").strip().lower()
     if "new" in low or "create" in low or "write" in low:
@@ -1493,8 +1524,13 @@ class GhostRenderer:
     ) -> None:
         ly = self._tty_layout()
         lines = _plan_mode_lines(text)
-        summary = _plan_mode_summary(lines)
-        steps = _plan_mode_steps(lines, limit=6)
+        sections = _plan_mode_sections(lines)
+        summary = " ".join(sections.get("conclusion") or []).strip() or _plan_mode_summary(lines)
+        findings = list(sections.get("findings") or [])
+        steps = list(sections.get("steps") or [])
+        evidence_lines = list(sections.get("evidence") or [])
+        if not steps:
+            steps = _plan_mode_steps(lines, limit=6)
         if summary and steps and steps[0].strip().lower() == summary.strip().lower():
             steps = steps[1:]
         if not summary:
@@ -1508,13 +1544,21 @@ class GhostRenderer:
         body_lines: List[str] = []
         body_lines.append("[bold white]conclusion[/bold white]")
         body_lines.append(f"{escape(truncate_visible(summary, max(72, ly.width - 16)))}")
+        if findings:
+            body_lines.extend(["", "[bold white]findings[/bold white]"])
+            for idx, finding in enumerate(findings[:5], 1):
+                body_lines.append(f"{idx}. {escape(truncate_visible(finding, max(68, ly.width - 14)))}")
         if steps:
             body_lines.extend(["", "[bold white]steps[/bold white]"])
             for idx, step in enumerate(steps, 1):
                 body_lines.append(f"{idx}. {escape(truncate_visible(step, max(68, ly.width - 14)))}")
         body_lines.extend(["", "[bold white]confidence[/bold white]", self._confidence_dots_markup(tier)])
-        if evidence_count > 0:
-            body_lines.extend(["", "[bold white]evidence[/bold white]", f"[dim]{evidence_count} lecturas relevantes en esta sesion[/dim]"])
+        if evidence_lines or evidence_count > 0:
+            body_lines.extend(["", "[bold white]evidence[/bold white]"])
+            for ev in evidence_lines[:3]:
+                body_lines.append(f"[dim]{escape(truncate_visible(ev, max(68, ly.width - 14)))}[/dim]")
+            if evidence_count > 0:
+                body_lines.append(f"[dim]{evidence_count} lecturas relevantes en esta sesion[/dim]")
         if next_command:
             body_lines.extend(["", "[bold white]execute[/bold white]", f"[ghost.accent]{escape(next_command)}[/ghost.accent]"])
         self.console.print("")
