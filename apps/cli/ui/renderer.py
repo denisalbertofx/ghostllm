@@ -27,7 +27,7 @@ from rich import box
 from rich.table import Table
 
 from apps.cli.ui import ui_contract as _ui_contract
-from apps.cli.ui.theme import ghost_box_rounded, ghost_mark_lines
+from apps.cli.ui.theme import ghost_box_rounded, ghost_wordmark_lines
 from apps.cli.ui.slash_menu import (
     SlashMenuState,
     slash_menu_apply_selection,
@@ -1970,20 +1970,20 @@ class GhostRenderer:
                 )
                 self.console.print(f"\n{line1}\n{line2}\n")
         else:
+            wordmark = Text("\n".join(ghost_wordmark_lines(compact=False)), style="ghost.brand")
             title_line = (
-                f"[ghost.brand]{escape(_ui_contract.BRAND_WORDMARK)}[/ghost.brand] "
                 f"[white]{escape(assistant_mode)}[/white] "
                 f"[ghost.dim]│[/ghost.dim] [white]{escape(model)}[/white] "
                 f"[ghost.dim]│[/ghost.dim] [dim]{escape(command_mode)}[/dim]"
             )
-            sub_line = f"[dim]{escape(_ui_contract.BRAND_RUNNER_SUBTITLE)}[/dim]"
-            right = Table.grid(padding=(0, 0))
-            right.add_row(title_line)
-            right.add_row(sub_line)
-            right.add_row(
+            meta = Table.grid(padding=(0, 0))
+            meta.add_row(title_line)
+            meta.add_row(f"[dim]{escape(_ui_contract.BRAND_RUNNER_SUBTITLE)}[/dim]")
+            meta.add_row("")
+            meta.add_row(
                 f"[dim]{escape(_ui_contract.STARTUP_LABEL_WORKSPACE)}:[/dim] [white]{escape(workspace)}[/white]"
             )
-            right.add_row(
+            meta.add_row(
                 f"[dim]{escape(_ui_contract.STARTUP_LABEL_RUNTIME)}:[/dim] [white]{escape(runtime_line)}[/white]"
             )
             if llm_gateway_url:
@@ -1993,29 +1993,28 @@ class GhostRenderer:
                     gw_status = "[ghost.error]down[/ghost.error]"
                 else:
                     gw_status = "[dim]unknown[/dim]"
-                right.add_row(
+                meta.add_row(
                     f"[dim]gateway:[/dim] [cyan]{escape(llm_gateway_url)}[/cyan] [ghost.dim]·[/ghost.dim] {gw_status}"
                 )
             if provider_backend_label:
-                right.add_row(
+                meta.add_row(
                     f"[dim]provider:[/dim] [white]{escape(provider_backend_label)}[/white]"
                 )
             if verbose:
-                right.add_row(
+                meta.add_row(
                     f"[dim]flags:[/dim] [dim]{escape(truncate_visible(flags_line, max(ly.width - 28, 32)))}[/dim]"
                 )
-            emblem = Text("\n".join(ghost_mark_lines(ascii_only=ly.ascii_ui, compact=False)), style="ghost.brand")
-            header = Table.grid(padding=(0, 2))
-            header.add_column(no_wrap=True)
-            header.add_column()
-            header.add_row(emblem, right)
+            header = Table.grid(padding=(0, 0))
+            header.add_row(wordmark)
+            header.add_row("")
+            header.add_row(meta)
             self.console.print("")
             self.console.print(
                 Panel(
                     header,
                     border_style="ghost.brand",
                     box=ghost_box_rounded(),
-                    padding=ly.panel_padding,
+                    padding=(0, 2),
                     expand=False,
                 )
             )

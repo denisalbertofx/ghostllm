@@ -156,3 +156,15 @@ def ghost_mark_lines(*, ascii_only: bool = False, compact: bool = False) -> List
         "| \\___/ |",
         " 'v-v-v' ",
     ]
+
+
+def ghost_wordmark_lines(*, compact: bool = False) -> List[str]:
+    if compact:
+        return ["GHOST"]
+    return [
+        "   ____ _   _  ___  ____ _____",
+        "  / ___| | | |/ _ \\/ ___|_   _|",
+        " | |  _| |_| | | | \\___ \\ | |",
+        " | |_| |  _  | |_| |___) || |",
+        "  \\____|_| |_|\\___/|____/ |_|",
+    ]
