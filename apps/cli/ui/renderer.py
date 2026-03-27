@@ -1509,7 +1509,7 @@ class GhostRenderer:
         if evidence_count > 0:
             body_lines.extend(["", "[bold white]evidence[/bold white]", f"[dim]{evidence_count} lecturas relevantes en esta sesion[/dim]"])
         if next_command:
-            body_lines.extend(["", "[bold white]next[/bold white]", f"[ghost.accent]{escape(next_command)}[/ghost.accent]"])
+            body_lines.extend(["", "[bold white]execute[/bold white]", f"[ghost.accent]{escape(next_command)}[/ghost.accent]"])
         self.console.print("")
         self.console.print(
             Panel(
@@ -1522,8 +1522,6 @@ class GhostRenderer:
                 padding=ly.panel_padding,
             )
         )
-        if next_command:
-            self.console.print(f"[dim]execute next:[/dim] [white]{escape(next_command)}[/white]")
 
     def render_verification_results(
         self,
@@ -2436,9 +2434,14 @@ class GhostRenderer:
     def _format_tool_activity_rail(self) -> Optional[str]:
         if not self._tool_activity:
             return None
+        return self._format_tool_entries_rail(list(self._tool_activity))
+
+    def _format_tool_entries_rail(self, entries: List[Tuple[str, str, str]]) -> Optional[str]:
+        if not entries:
+            return None
         ly = self._tty_layout()
         parts: List[str] = []
-        tail = list(self._tool_activity)[-ly.tool_activity_max_visible :]
+        tail = list(entries)[-ly.tool_activity_max_visible :]
         for label, detail, st in tail:
             det = escape(truncate_visible(detail, ly.tool_detail_max_chars + 8))
             if ly.ascii_ui:
@@ -2522,7 +2525,15 @@ class GhostRenderer:
             display_rows = list(rows)
         for row in display_rows:
             self._record_tool_activity_from_payload(row)
-        rail = self._format_tool_activity_rail()
+        batch_entries = [
+            (
+                _tool_chip_label(str(r.get("name") or "")),
+                str(r.get("detail") or "").replace("\n", " ").strip(),
+                str(r.get("estado") or ""),
+            )
+            for r in display_rows
+        ]
+        rail = self._format_tool_entries_rail(batch_entries if mode == "compact" else list(self._tool_activity))
         sig = json.dumps(
             [
                 (str(r.get("name")), str(r.get("detail")), str(r.get("estado")))
@@ -2532,6 +2543,9 @@ class GhostRenderer:
         )
         repeat_batch = sig == self._last_tool_flush_signature
         self._last_tool_flush_signature = sig
+        if repeat_batch and mode == "compact":
+            self._tool_segment_buffer = []
+            return
 
         rule = _ghost_rule_markup(_ui_contract.RULE_LABEL_HERRAMIENTAS, layout=ly)
         if not self._tool_section_live:

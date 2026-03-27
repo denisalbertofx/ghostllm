@@ -301,6 +301,8 @@ JWT migration is feasible. No breaking changes expected.
         self.assertIn("JWT migration is feasible", out)
         self.assertIn("Install jsonwebtoken", out)
         self.assertIn("/do migrate auth to jwt", out)
+        self.assertIn("execute", out)
+        self.assertNotIn("execute next:", out)
 
     def test_compact_tool_segment_aggregates_read_batches(self):
         with patch.dict(os.environ, {"GHOST_TOOL_UI": "compact"}, clear=False):
