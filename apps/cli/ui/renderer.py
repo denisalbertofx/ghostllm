@@ -110,10 +110,13 @@ _STATUS_HINT: Dict[str, str] = {
     "closing": "Síntesis sin nuevas herramientas",
 }
 
+_READLIKE_TOOL_NAMES = {"read_file", "ls", "search_code", "summarize_repo"}
+
 
 def _tool_chip_label(name: str) -> str:
     m = {
         "read_file": "read",
+        "read_batch": "reads",
         "edit_file": "patch",
         "write_file": "write",
         "delete_file": "del",
@@ -125,6 +128,116 @@ def _tool_chip_label(name: str) -> str:
     return m.get(str(name or ""), str(name or "?")[:14])
 
 
+def _is_readlike_tool(name: str) -> bool:
+    return str(name or "").strip().lower() in _READLIKE_TOOL_NAMES
+
+
+def _dedupe_tool_rows(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Collapse pending/final duplicates within one tool round by keeping the latest state."""
+    latest: Dict[Tuple[str, str], Dict[str, Any]] = {}
+    order: List[Tuple[str, str]] = []
+    for row in rows or []:
+        if not isinstance(row, dict):
+            continue
+        key = (str(row.get("name") or ""), str(row.get("detail") or ""))
+        if key not in latest:
+            order.append(key)
+        latest[key] = row
+    return [latest[k] for k in order]
+
+
+def _strip_inline_markdown(text: str) -> str:
+    s = str(text or "")
+    s = re.sub(r"`([^`]*)`", r"\1", s)
+    s = re.sub(r"\[([^\]]+)\]\([^)]+\)", r"\1", s)
+    return s.replace("**", "").replace("__", "").strip()
+
+
+def _plan_mode_lines(text: str) -> List[str]:
+    out: List[str] = []
+    for raw in str(text or "").splitlines():
+        s = _strip_inline_markdown(raw).strip()
+        if not s or s.startswith("```") or s == "---":
+            continue
+        if s.startswith("#"):
+            s = s.lstrip("#").strip()
+        low = s.lower()
+        if low.startswith("modo /plan") or low.startswith("/plan mode"):
+            continue
+        out.append(s)
+    return out
+
+
+def _plan_mode_steps(lines: List[str], *, limit: int = 6) -> List[str]:
+    numbered = [re.sub(r"^\d+\.\s*", "", ln).strip() for ln in lines if re.match(r"^\d+\.\s+", ln)]
+    if numbered:
+        return numbered[:limit]
+    bullets = [
+        re.sub(r"^[-*•]\s*", "", ln).strip()
+        for ln in lines
+        if re.match(r"^[-*•]\s+", ln)
+    ]
+    if bullets:
+        return bullets[:limit]
+    fallback: List[str] = []
+    skip_prefixes = (
+        "plan de",
+        "estado ",
+        "problemas ",
+        "hallazgos",
+        "resumen",
+        "siguiente paso",
+        "conclusion",
+        "conclusión",
+    )
+    for ln in lines:
+        low = ln.lower()
+        if low.endswith(":") or any(low.startswith(pref) for pref in skip_prefixes):
+            continue
+        if len(ln) < 18:
+            continue
+        fallback.append(ln)
+        if len(fallback) >= limit:
+            break
+    return fallback
+
+
+def _plan_mode_summary(lines: List[str]) -> str:
+    skip_prefixes = (
+        "plan de",
+        "estado ",
+        "problemas ",
+        "hallazgos",
+        "resumen",
+        "siguiente paso",
+        "plan de corrección",
+    )
+    for ln in lines:
+        low = ln.lower()
+        if low.endswith(":") or any(low.startswith(pref) for pref in skip_prefixes):
+            continue
+        if len(ln) < 28:
+            continue
+        return ln
+    return ""
+
+
+def _change_symbol_markup(kind: str, *, ascii_ui: bool) -> str:
+    low = str(kind or "").strip().lower()
+    if "new" in low or "create" in low or "write" in low:
+        sym = "+"
+        style = "ghost.success"
+    elif "delete" in low or "remove" in low:
+        sym = "-"
+        style = "ghost.error"
+    else:
+        sym = "~"
+        style = "ghost.accent"
+    if ascii_ui:
+        return f"[{style}]{sym}[/{style}]"
+    return f"[{style}]{sym}[/{style}]"
+
+
 def format_tool_live_hint_from_prepared(prepared_calls: List[Dict[str, Any]]) -> str:
     """Una línea corta para el spinner (primera herramienta del lote + sufijo si hay más)."""
     if not prepared_calls:
@@ -132,6 +245,22 @@ def format_tool_live_hint_from_prepared(prepared_calls: List[Dict[str, Any]]) ->
     names = [str(pc.get("name") or "").strip() for pc in prepared_calls if pc.get("name")]
     if not names:
         return _ui_contract.LIVE_STATE_TOOL_GENERIC
+    if len(names) > 1 and all(_is_readlike_tool(name) for name in names):
+        reads = sum(1 for name in names if name == "read_file")
+        searches = sum(1 for name in names if name == "search_code")
+        listings = sum(1 for name in names if name == "ls")
+        repo_maps = sum(1 for name in names if name == "summarize_repo")
+        parts: List[str] = []
+        if reads:
+            parts.append(f"{reads} read")
+        if searches:
+            parts.append(f"{searches} search")
+        if listings:
+            parts.append(f"{listings} ls")
+        if repo_maps:
+            parts.append(f"{repo_maps} map")
+        tail = " · ".join(parts) if parts else f"{len(names)} actions"
+        return f"{_ui_contract.LIVE_ACTION_READING} workspace · {tail}"
     first = names[0]
     args = prepared_calls[0].get("args")
     if not isinstance(args, dict):
@@ -499,6 +628,7 @@ class GhostRenderer:
         self._pt_session: Any = None
         self._composer_multiline: bool = False
         self._tool_section_live: bool = False
+        self._auto_approve_shell: bool = False
 
     def _tty_layout(self) -> GhostVisualLayout:
         w = self.console.width
@@ -606,6 +736,25 @@ class GhostRenderer:
         if _ui_verbose() and state in _STATUS_HINT and ly.show_status_hints_under_spinner:
             out += f"\n[dim]{escape(_STATUS_HINT[state])}[/dim]"
         return out
+
+    def _permission_display(self) -> str:
+        bits = [_ui_contract.PERMISSION_READONLY]
+        if self._live_rail_profile != _ui_contract.LIVE_RAIL_PROFILE_READONLY:
+            bits = [_ui_contract.PERMISSION_WRITE]
+            bits.append(
+                _ui_contract.PERMISSION_SHELL_AUTO
+                if self._auto_approve_shell
+                else _ui_contract.PERMISSION_SHELL_APPROVAL
+            )
+        return " ".join(bits)
+
+    def _ghost_prompt_plain(self) -> str:
+        mark = ">" if self._tty_layout().ascii_ui else "›"
+        return f"{_ui_contract.PROMPT_HANDLE} {mark} "
+
+    def _ghost_prompt_markup(self) -> str:
+        mark = ">" if self._tty_layout().ascii_ui else "›"
+        return f"[ghost.brand]{escape(_ui_contract.PROMPT_HANDLE)}[/ghost.brand] [ghost.dim]{mark}[/ghost.dim] "
 
     def session_status(
         self,
@@ -802,7 +951,6 @@ class GhostRenderer:
 
     def read_input(self) -> str:
         """Prompt del operador — identidad Ghost, sin nombres hardcodeados."""
-        h = escape(_operator_input_handle())
         if self._supports_prompt_toolkit_input():
             try:
                 return self._read_input_prompt_toolkit().strip()
@@ -814,9 +962,7 @@ class GhostRenderer:
             except (KeyboardInterrupt, EOFError):
                 return "exit"
         try:
-            return self.console.input(
-                f"[ghost.brand]›[/ghost.brand] [bold white]{h}[/bold white] [ghost.dim]·[/ghost.dim] "
-            ).strip()
+            return self.console.input(self._ghost_prompt_markup()).strip()
         except (KeyboardInterrupt, EOFError):
             return "exit"
 
@@ -834,9 +980,7 @@ class GhostRenderer:
 
     def _read_input_prompt_toolkit(self) -> str:
         session = self._get_prompt_toolkit_session()
-        handle = _operator_input_handle()
-        marker = ">" if self._tty_layout().ascii_ui else "›"
-        prompt = f"{marker} {handle} · "
+        prompt = self._ghost_prompt_plain()
         result = session.prompt(
             prompt,
             bottom_toolbar=self._prompt_toolkit_bottom_toolbar,
@@ -925,7 +1069,8 @@ class GhostRenderer:
         rec = " ".join(self._recommended_actions()[:2])
         phase = self._last_status_phase.lower()
         multiline = "multiline on" if self._composer_multiline else "multiline off"
-        return f"fase: {phase}  ·  recomienda: {rec}  ·  F2 {multiline}{recent_text}"
+        perms = self._permission_display()
+        return f"{phase}  ·  {perms}  ·  next {rec}  ·  F2 {multiline}{recent_text}"
 
     def _supports_windows_slash_menu(self) -> bool:
         if os.name != "nt":
@@ -938,11 +1083,9 @@ class GhostRenderer:
     def _read_input_windows_slash_menu(self) -> str:
         import msvcrt
 
-        handle = _operator_input_handle()
         ly = self._tty_layout()
         ascii_ui = ly.ascii_ui
-        prompt_mark = ">" if ascii_ui else "›"
-        prompt_prefix = f"{prompt_mark} {handle} · "
+        prompt_prefix = self._ghost_prompt_plain()
         buffer = ""
         cursor = 0
         selected = 0
@@ -1159,6 +1302,67 @@ class GhostRenderer:
             return ["/review", "/do", "/logs"]
         return ["/plan", "/do", "/fix"]
 
+    def _confidence_dots_markup(self, tier: str) -> str:
+        t = str(tier or "").strip().lower()
+        if self._tty_layout().ascii_ui:
+            filled_char, empty_char = "*", "."
+        else:
+            filled_char, empty_char = "●", "○"
+        if t == "confirmed":
+            filled, color, label = 5, "ghost.success", "high"
+        elif t == "suspected":
+            filled, color, label = 4, "ghost.brand", "medium"
+        else:
+            filled, color, label = 2, "ghost.warn", "low"
+        return f"[{color}]{filled_char * filled}[/{color}][dim]{empty_char * (5 - filled)}[/dim] {label}"
+
+    def render_readonly_plan_response(
+        self,
+        text: str,
+        *,
+        tier: str = "",
+        evidence_count: int = 0,
+        next_command: str = "",
+    ) -> None:
+        ly = self._tty_layout()
+        lines = _plan_mode_lines(text)
+        summary = _plan_mode_summary(lines)
+        steps = _plan_mode_steps(lines, limit=6)
+        if not summary:
+            t = str(tier or "").strip().lower()
+            if t == "confirmed":
+                summary = "Exploracion suficiente para ejecutar el siguiente cambio sin ampliar el scope."
+            elif t == "suspected":
+                summary = "Exploracion suficiente para proponer un plan; confirma los hallazgos fuertes con checks antes de editar."
+            else:
+                summary = "Hay contexto para orientar el siguiente paso, pero la evidencia sigue ligera y debe verificarse."
+        body_lines: List[str] = []
+        body_lines.append("[bold white]conclusion[/bold white]")
+        body_lines.append(f"{escape(truncate_visible(summary, max(72, ly.width - 16)))}")
+        if steps:
+            body_lines.extend(["", "[bold white]steps[/bold white]"])
+            for idx, step in enumerate(steps, 1):
+                body_lines.append(f"{idx}. {escape(truncate_visible(step, max(68, ly.width - 14)))}")
+        body_lines.extend(["", "[bold white]confidence[/bold white]", self._confidence_dots_markup(tier)])
+        if evidence_count > 0:
+            body_lines.extend(["", "[bold white]evidence[/bold white]", f"[dim]{evidence_count} lecturas relevantes en esta sesion[/dim]"])
+        if next_command:
+            body_lines.extend(["", "[bold white]next[/bold white]", f"[ghost.accent]{escape(next_command)}[/ghost.accent]"])
+        self.console.print("")
+        self.console.print(
+            Panel(
+                "\n".join(body_lines),
+                title=f"[ghost.brand]{escape(_ui_contract.PANEL_TITLE_PLAN_MODE)}[/ghost.brand]",
+                subtitle=f"[dim]{escape(_ui_contract.PANEL_SUBTITLE_PLAN_MODE)}[/dim]",
+                border_style="ghost.brand",
+                box=ghost_box_rounded(),
+                expand=False,
+                padding=ly.panel_padding,
+            )
+        )
+        if next_command:
+            self.console.print(f"[dim]execute next:[/dim] [white]{escape(next_command)}[/white]")
+
     def render_verification_results(
         self,
         results: Dict[str, Any],
@@ -1336,6 +1540,12 @@ class GhostRenderer:
                 if not verbose
                 else f" [bold green]✓ {escape(asc)}[/bold green]\n"
             )
+            if not verbose:
+                self.console.print("[dim]next /review to inspect diffs · /approve to commit[/dim]")
+        elif global_failed and not verbose:
+            self.console.print("[dim]next /fix to repair the failing checks[/dim]")
+        elif not verbose:
+            self.console.print("[dim]next rerun VERIFY with at least one executed check[/dim]")
 
     def _section_kicker(self, title: str, *, verbose: bool = False) -> None:
         """Título de bloque: verbose = auditoría; operador = una línea con viñeta Ghost."""
@@ -1769,8 +1979,9 @@ class GhostRenderer:
                     if len(fp) > fp_budget:
                         fp = fp[: max(12, fp_budget - 3)] + "…"
                     kind = normalize_change_kind(raw_t)
+                    sym = _change_symbol_markup(kind, ascii_ui=ly.ascii_ui)
                     self.console.print(
-                        f"  [ghost.muted]·[/ghost.muted] [cyan]{escape(fp)}[/cyan]  "
+                        f"  {sym} [cyan]{escape(fp)}[/cyan]  "
                         f"[dim]{escape(kind)}[/dim]"
                     )
                 if len(ds) > ly.diff_files_max:
@@ -1924,11 +2135,13 @@ class GhostRenderer:
         llm_gateway_reachable: Optional[bool] = None,
         llm_gateway_checked: str = "",
         provider_backend_label: str = "",
+        auto_approve: bool = False,
         **kwargs: Any,
     ):
         """Render startup banner showing active mode, model, gateway URL and feature flags."""
         self._tool_section_live = False
         _ = kwargs
+        self._auto_approve_shell = bool(auto_approve)
         verbose = _ui_verbose()
         ly = self._tty_layout()
         flags = []
@@ -1948,16 +2161,17 @@ class GhostRenderer:
         elif llm_gateway_reachable is False:
             runtime_bits.append("gateway down")
         runtime_line = "  ·  ".join(runtime_bits)
+        permission_line = self._permission_display()
         if ly.ultra_narrow:
             if verbose:
                 self.console.print(
                     f"\n[ghost.brand]{escape(_ui_contract.BRAND_WORDMARK)}[/ghost.brand] "
                     f"[dim]{escape(command_mode)}[/dim]  "
                     f"[cyan]{escape(assistant_mode)}[/cyan]  "
+                    f"[dim]permissions[/dim] [white]{escape(permission_line)}[/white]  "
                     f"[dim]modelo[/dim] [white]{escape(model)}[/white]  "
                     f"[dim]flags[/dim] [dim]{escape(truncate_visible(flags_line, max(ly.width - 24, 40)))}[/dim]\n"
                 )
-                self.console.print(f"[dim]{escape(_ui_contract.BRAND_RUNNER_SUBTITLE)}[/dim]\n")
             else:
                 line1, line2 = startup_lines(
                     assistant_mode=assistant_mode,
@@ -1976,14 +2190,15 @@ class GhostRenderer:
             )
             meta = Table.grid(padding=(0, 0))
             meta.add_row(title_line)
-            meta.add_row(f"[dim]{escape(_ui_contract.BRAND_RUNNER_SUBTITLE)}[/dim]")
-            meta.add_row(f"[ghost.dim]{escape(_ui_contract.BRAND_RUNNER_VALUES)}[/ghost.dim]")
             meta.add_row("")
             meta.add_row(
                 f"[dim]{escape(_ui_contract.STARTUP_LABEL_WORKSPACE)}:[/dim] [white]{escape(workspace)}[/white]"
             )
             meta.add_row(
                 f"[dim]{escape(_ui_contract.STARTUP_LABEL_RUNTIME)}:[/dim] [white]{escape(runtime_line)}[/white]"
+            )
+            meta.add_row(
+                f"[dim]{escape(_ui_contract.STARTUP_LABEL_PERMISSIONS)}:[/dim] [white]{escape(permission_line)}[/white]"
             )
             if llm_gateway_url:
                 if llm_gateway_reachable is True:
@@ -2059,7 +2274,7 @@ class GhostRenderer:
                 f"[white]{escape(start_bits[1])}[/white] [ghost.dim]·[/ghost.dim] "
                 f"[white]{escape(start_bits[2])}[/white]"
             )
-        self.console.print("[ghost.dim]↑↓ historial/menu · Tab completa · Esc cierra[/ghost.dim]")
+        self.console.print(f"[ghost.dim]{escape(_ui_contract.STARTUP_HINT_CONTROLS)}[/ghost.dim]")
         if verbose and role_models and isinstance(role_models, dict) and role_models:
             rm = ", ".join(f"{k}={v}" for k, v in list(role_models.items())[:6])
             self.console.print(f"[dim]role_models:[/dim] [dim]{escape(rm)}[/dim]")
@@ -2110,20 +2325,68 @@ class GhostRenderer:
         joiner = " [ghost.muted]|[/ghost.muted] " if ly.ascii_ui else " [ghost.muted]›[/ghost.muted] "
         return joiner.join(parts)
 
+    def _summarize_read_batch(self, rows: List[Dict[str, Any]]) -> Dict[str, Any]:
+        reads = sum(1 for row in rows if str(row.get("name") or "") == "read_file")
+        searches = sum(1 for row in rows if str(row.get("name") or "") == "search_code")
+        listings = sum(1 for row in rows if str(row.get("name") or "") == "ls")
+        repo_maps = sum(1 for row in rows if str(row.get("name") or "") == "summarize_repo")
+        total_ms = 0.0
+        ok = True
+        for row in rows:
+            if str(row.get("estado") or "") == "error":
+                ok = False
+            dur = row.get("duration_ms")
+            try:
+                if dur is not None:
+                    total_ms += float(dur)
+            except (TypeError, ValueError):
+                pass
+        parts: List[str] = []
+        if reads:
+            parts.append(f"{reads} read")
+        if searches:
+            parts.append(f"{searches} search")
+        if listings:
+            parts.append(f"{listings} ls")
+        if repo_maps:
+            parts.append(f"{repo_maps} map")
+        detail = "lote de lectura"
+        if parts:
+            detail += " · " + " · ".join(parts)
+        return {
+            "name": "read_batch",
+            "detail": detail,
+            "estado": "ok" if ok else "error",
+            "line": "",
+            "duration_ms": total_ms if total_ms > 0 else None,
+            "auto_approved": None,
+        }
+
     def flush_tool_segment(self) -> None:
         """Flush buffered tool traces: panel tabla, o filas tipo chip (compact/chips)."""
         self._tool_segment_active = False
         if not self._tool_segment_buffer:
             return
         ly = self._tty_layout()
-        for row in self._tool_segment_buffer:
+        rows = _dedupe_tool_rows(self._tool_segment_buffer)
+        mode = _tool_ui_mode()
+        if mode == "compact":
+            read_rows = [row for row in rows if _is_readlike_tool(row.get("name"))]
+            non_read_rows = [row for row in rows if not _is_readlike_tool(row.get("name"))]
+            display_rows: List[Dict[str, Any]] = list(non_read_rows)
+            if len(read_rows) >= 2:
+                display_rows.insert(0, self._summarize_read_batch(read_rows))
+            elif read_rows:
+                display_rows = list(read_rows) + display_rows
+        else:
+            display_rows = list(rows)
+        for row in display_rows:
             self._record_tool_activity_from_payload(row)
         rail = self._format_tool_activity_rail()
-        mode = _tool_ui_mode()
         sig = json.dumps(
             [
                 (str(r.get("name")), str(r.get("detail")), str(r.get("estado")))
-                for r in self._tool_segment_buffer
+                for r in display_rows
             ],
             ensure_ascii=True,
         )
@@ -2155,7 +2418,7 @@ class GhostRenderer:
             t.add_column("Target", style="white", overflow="fold")
             t.add_column("Estado", style="dim")
             t.add_column("Tiempo", style="dim", justify="right")
-            for row in self._tool_segment_buffer:
+            for row in display_rows:
                 dur = row.get("duration_ms")
                 dur_cell = ""
                 if dur is not None:
@@ -2177,7 +2440,7 @@ class GhostRenderer:
             else:
                 if not repeat_batch:
                     self.console.print(f"[dim]{escape(_ui_contract.BRAND_WORDMARK)} · operaciones[/dim]")
-                for row in self._tool_segment_buffer:
+                for row in display_rows:
                     self.console.print(self._format_tool_chip_row(row, ly))
         self._tool_segment_buffer = []
 

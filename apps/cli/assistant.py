@@ -551,6 +551,7 @@ Discovery actions this session: {discovery_count}
             llm_gateway_reachable=getattr(gw_pf, "ok", None) if gw_pf is not None else None,
             llm_gateway_checked=getattr(gw_pf, "checked_url", "") if gw_pf is not None else "",
             provider_backend_label="openai_compatible",
+            auto_approve=self.auto_approve,
         )
         self.policy_gate = PolicyGate(self.console, self.auto_approve)
         self.verification_manager = VerificationManager(self.cwd)
@@ -5173,7 +5174,26 @@ Discovery actions this session: {discovery_count}
             if defer_analysis_grounding_print:
                 _cl = self._strip_tool_calls_for_display(safe_content)
                 if _cl:
-                    self.console.print(f"{escape(_cl)}")
+                    _tier_display = str(locals().get("_tier_now") or "").strip().lower()
+                    _task_next = str(latest_user_content or "").strip()
+                    if _task_next.startswith("/plan"):
+                        _task_next = _task_next[len("/plan") :].strip()
+                    elif _task_next.startswith("/do"):
+                        _task_next = _task_next[len("/do") :].strip()
+                    _next_cmd = f"/do {_task_next}".strip() if _task_next else "/do"
+                    _tool_history = normalize_tool_history(self.history)
+                    _evidence_count = sum(
+                        1
+                        for ev in (_tool_history or [])
+                        if str(ev.get("tool_name") or "").strip().lower()
+                        in {"read_file", "ls", "search_code", "summarize_repo"}
+                    )
+                    self.renderer.render_readonly_plan_response(
+                        _cl,
+                        tier=_tier_display,
+                        evidence_count=_evidence_count,
+                        next_command=_next_cmd,
+                    )
                 if use_stream:
                     print("\n")
             msg = {"role": "assistant", "content": safe_content, "tool_calls": final_tool_calls if final_tool_calls else None}

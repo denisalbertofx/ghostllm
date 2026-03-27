@@ -208,6 +208,7 @@ class TestArtifactSummaryFindingsTier(unittest.TestCase):
             llm_gateway_url="http://127.0.0.1:8000",
             llm_gateway_reachable=True,
             provider_backend_label="openai_compatible",
+            auto_approve=False,
         )
         out = self.output.getvalue()
         self.assertIn("acciones:", out.lower())
@@ -215,8 +216,8 @@ class TestArtifactSummaryFindingsTier(unittest.TestCase):
         self.assertIn("escribe `/`", out)
         self.assertIn("workspace:", out.lower())
         self.assertIn("runtime:", out.lower())
+        self.assertIn("permissions:", out.lower())
         self.assertIn("siguiente:", out.lower())
-        self.assertIn("continuidad", out.lower())
         self.assertIn("historial/menu", out)
 
     def test_renderer_history_navigation_helper(self):
@@ -247,6 +248,40 @@ class TestArtifactSummaryFindingsTier(unittest.TestCase):
         self.assertIn("explore", bar)
         self.assertIn("/plan", bar)
         self.assertIn("F2", bar)
+        self.assertIn("read", bar)
+
+    def test_readonly_plan_response_uses_plan_mode_panel_and_next(self):
+        self.renderer.render_readonly_plan_response(
+            """
+## Plan de migracion
+
+JWT migration is feasible. No breaking changes expected.
+
+1. Install jsonwebtoken
+2. Create JWTService.ts
+3. Update auth middleware
+""",
+            tier="suspected",
+            evidence_count=8,
+            next_command="/do migrate auth to jwt",
+        )
+        out = self.output.getvalue()
+        self.assertIn(ui_contract.PANEL_TITLE_PLAN_MODE, out)
+        self.assertIn("JWT migration is feasible", out)
+        self.assertIn("Install jsonwebtoken", out)
+        self.assertIn("/do migrate auth to jwt", out)
+
+    def test_compact_tool_segment_aggregates_read_batches(self):
+        with patch.dict(os.environ, {"GHOST_TOOL_UI": "compact"}, clear=False):
+            self.renderer.begin_tool_segment()
+            self.renderer.append_tool_trace("read_file", "apps/server/main.py", True, duration_ms=18)
+            self.renderer.append_tool_trace("read_file", "apps/cli/main.py", True, duration_ms=21)
+            self.renderer.append_tool_trace("search_code", "validateToken", True, duration_ms=11)
+            self.renderer.flush_tool_segment()
+        out = self.output.getvalue()
+        self.assertIn("reads", out)
+        self.assertIn("lote de lectura", out)
+        self.assertNotIn("apps/server/main.py", out)
 
     def test_implementation_closure_ready_for_review_banner(self):
         art = {
