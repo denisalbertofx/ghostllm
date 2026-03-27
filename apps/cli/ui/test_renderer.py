@@ -75,25 +75,26 @@ class TestPhaseRailAndChips(unittest.TestCase):
 
     def test_phase_rail_marks_verify_bucket(self):
         r = format_phase_rail("VERIFY")
-        self.assertIn(ui_contract.PHASE_RAIL_LABEL_VERIFICAR, r)
-        self.assertIn(ui_contract.PHASE_RAIL_LABEL_EXPLORAR, r)
+        self.assertIn(ui_contract.PHASE_RAIL_LABEL_VERIFY, r)
+        self.assertIn(ui_contract.PHASE_RAIL_LABEL_GATHER, r)
         self.assertTrue(ui_contract.live_rail_shows_current_marker(r))
         self.assertTrue(
             ui_contract.live_rail_has_step_labels(
                 r,
-                ui_contract.PHASE_RAIL_LABEL_EXPLORAR,
-                ui_contract.PHASE_RAIL_LABEL_ACTUAR,
-                ui_contract.PHASE_RAIL_LABEL_VERIFICAR,
-                ui_contract.PHASE_RAIL_LABEL_CIERRE,
+                ui_contract.PHASE_RAIL_LABEL_GATHER,
+                ui_contract.PHASE_RAIL_LABEL_PLAN,
+                ui_contract.PHASE_RAIL_LABEL_ACT,
+                ui_contract.PHASE_RAIL_LABEL_VERIFY,
             )
         )
 
     def test_live_rail_plan_profile_three_steps(self):
         r = format_live_phase_rail("EXPLORE", ui_contract.LIVE_RAIL_PROFILE_READONLY)
-        self.assertIn(ui_contract.PHASE_RAIL_LABEL_REVISAR, r)
-        self.assertNotIn(ui_contract.PHASE_RAIL_LABEL_ACTUAR, r)
+        self.assertIn(ui_contract.PHASE_RAIL_LABEL_GATHER, r)
+        self.assertIn(ui_contract.PHASE_RAIL_LABEL_REVIEW, r)
+        self.assertNotIn(ui_contract.PHASE_RAIL_LABEL_ACT, r)
         r_act = format_live_phase_rail("ACT", ui_contract.LIVE_RAIL_PROFILE_READONLY)
-        self.assertIn(ui_contract.PHASE_RAIL_LABEL_REVISAR, r_act)
+        self.assertIn(ui_contract.PHASE_RAIL_LABEL_REVIEW, r_act)
         self.assertTrue(ui_contract.live_rail_shows_current_marker(r_act))
 
     def test_format_tool_live_hint_read_file(self):
@@ -200,16 +201,21 @@ class TestArtifactSummaryFindingsTier(unittest.TestCase):
         self.assertTrue(ui_contract.output_contains_artifact_footer_line(out))
 
     def test_startup_summary_shows_quick_actions_hint(self):
-        self.renderer.render_cli_startup_summary(
-            command_mode="dev",
-            assistant_mode="Chat",
-            model="kimi",
-            prep=None,
-            llm_gateway_url="http://127.0.0.1:8000",
-            llm_gateway_reachable=True,
-            provider_backend_label="openai_compatible",
-            auto_approve=False,
-        )
+        with patch.object(
+            self.renderer,
+            "_workspace_context",
+            return_value=("GhostLLM · branch main · files 847 · last session 2h ago", "C:\\repo"),
+        ):
+            self.renderer.render_cli_startup_summary(
+                command_mode="dev",
+                assistant_mode="Chat",
+                model="kimi",
+                prep=None,
+                llm_gateway_url="http://127.0.0.1:8000",
+                llm_gateway_reachable=True,
+                provider_backend_label="openai_compatible",
+                auto_approve=False,
+            )
         out = self.output.getvalue()
         self.assertIn("acciones:", out.lower())
         self.assertIn("/plan", out)
@@ -219,6 +225,8 @@ class TestArtifactSummaryFindingsTier(unittest.TestCase):
         self.assertIn("permissions:", out.lower())
         self.assertIn("siguiente:", out.lower())
         self.assertIn("historial/menu", out)
+        self.assertIn("branch main", out)
+        self.assertIn("last session 2h ago", out)
 
     def test_renderer_history_navigation_helper(self):
         self.renderer._record_input_history("/plan bugs")
@@ -245,10 +253,15 @@ class TestArtifactSummaryFindingsTier(unittest.TestCase):
         self.renderer._live_rail_profile = ui_contract.LIVE_RAIL_PROFILE_READONLY
         self.renderer._last_status_phase = "EXPLORE"
         bar = self.renderer._prompt_toolkit_bottom_toolbar()
-        self.assertIn("explore", bar)
+        self.assertIn("plan", bar)
         self.assertIn("/plan", bar)
         self.assertIn("F2", bar)
         self.assertIn("read", bar)
+
+    def test_display_phase_for_rail_distinguishes_gather_and_plan(self):
+        self.renderer._live_rail_profile = ui_contract.LIVE_RAIL_PROFILE_IMPLEMENT
+        self.assertEqual(self.renderer._display_phase_for_rail("EXPLORE", "tool_exec"), "GATHER")
+        self.assertEqual(self.renderer._display_phase_for_rail("EXPLORE", "thinking"), "PLAN")
 
     def test_readonly_plan_response_uses_plan_mode_panel_and_next(self):
         self.renderer.render_readonly_plan_response(

@@ -38,6 +38,12 @@ PHASE_RAIL_LABEL_VERIFICAR = "Verificar"
 PHASE_RAIL_LABEL_CIERRE = "Cierre"
 # Rail /plan (solo lectura): sin paso «Actuar» de escritura.
 PHASE_RAIL_LABEL_REVISAR = "Revisar"
+PHASE_RAIL_LABEL_GATHER = "gather"
+PHASE_RAIL_LABEL_PLAN = "plan"
+PHASE_RAIL_LABEL_ACT = "act"
+PHASE_RAIL_LABEL_VERIFY = "verify"
+PHASE_RAIL_LABEL_REVIEW = "review"
+PHASE_RAIL_LABEL_CLOSE = "close"
 
 # Perfiles del rail vivo (assistant → renderer.session_status)
 LIVE_RAIL_PROFILE_IMPLEMENT = "implement"

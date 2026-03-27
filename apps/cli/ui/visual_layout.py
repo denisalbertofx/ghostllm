@@ -248,17 +248,17 @@ def format_live_phase_rail(
     if prof == _uc.LIVE_RAIL_PROFILE_READONLY:
         b = _readonly_rail_bucket(phase)
         labels_full = (
-            _uc.PHASE_RAIL_LABEL_EXPLORAR,
-            _uc.PHASE_RAIL_LABEL_REVISAR,
-            _uc.PHASE_RAIL_LABEL_CIERRE,
+            _uc.PHASE_RAIL_LABEL_GATHER,
+            _uc.PHASE_RAIL_LABEL_REVIEW,
+            _uc.PHASE_RAIL_LABEL_CLOSE,
         )
     else:
         b = _phase_rail_bucket(phase)
         labels_full = (
-            _uc.PHASE_RAIL_LABEL_EXPLORAR,
-            _uc.PHASE_RAIL_LABEL_ACTUAR,
-            _uc.PHASE_RAIL_LABEL_VERIFICAR,
-            _uc.PHASE_RAIL_LABEL_CIERRE,
+            _uc.PHASE_RAIL_LABEL_GATHER,
+            _uc.PHASE_RAIL_LABEL_PLAN,
+            _uc.PHASE_RAIL_LABEL_ACT,
+            _uc.PHASE_RAIL_LABEL_VERIFY,
         )
 
     if ly.rail_use_abbrev_labels:
@@ -266,7 +266,7 @@ def format_live_phase_rail(
     else:
         labels = labels_full
 
-    sep_token = " | " if ly.ascii_ui else " [ghost.dim]│[/ghost.dim] "
+    sep_token = " > " if ly.ascii_ui else " [ghost.dim]›[/ghost.dim] "
     parts: List[str] = []
     for i, lab in enumerate(labels):
         el = escape(lab)
@@ -289,22 +289,22 @@ def format_live_phase_rail(
 
 def _phase_rail_bucket(phase: str) -> int:
     p = (phase or "EXPLORE").strip().upper()
-    if p in ("IDLE", "INTAKE", "EXPLORE"):
+    if p in ("IDLE", "INTAKE", "EXPLORE", "GATHER"):
         return 0
-    if p == "ACT":
+    if p == "PLAN":
         return 1
-    if p in ("VERIFY", "REPAIR"):
+    if p == "ACT":
         return 2
-    if p in ("CLOSING", "DONE", "ABORTED"):
+    if p in ("VERIFY", "REPAIR", "CLOSING", "DONE", "ABORTED"):
         return 3
     return 0
 
 
 def _readonly_rail_bucket(phase: str) -> int:
     p = (phase or "EXPLORE").strip().upper()
-    if p in ("IDLE", "INTAKE", "EXPLORE"):
+    if p in ("IDLE", "INTAKE", "EXPLORE", "GATHER"):
         return 0
-    if p in ("ACT", "VERIFY", "REPAIR"):
+    if p in ("PLAN", "ACT", "VERIFY", "REPAIR", "REVIEW"):
         return 1
     if p in ("CLOSING", "DONE", "ABORTED"):
         return 2

@@ -14,7 +14,9 @@ import json
 import os
 import re
 import sys
+import time
 from collections import deque
+from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 from rich.console import Console
@@ -629,6 +631,7 @@ class GhostRenderer:
         self._composer_multiline: bool = False
         self._tool_section_live: bool = False
         self._auto_approve_shell: bool = False
+        self._workspace_snapshot_cache: Dict[str, Any] = {}
 
     def _tty_layout(self) -> GhostVisualLayout:
         w = self.console.width
@@ -721,7 +724,11 @@ class GhostRenderer:
 
     def _status_full_message(self, phase: str, state: str) -> str:
         ly = self._tty_layout()
-        rail = format_live_phase_rail(phase, self._live_rail_profile, layout=ly)
+        rail = format_live_phase_rail(
+            self._display_phase_for_rail(phase, state),
+            self._live_rail_profile,
+            layout=ly,
+        )
         detail = (self._live_detail or "").strip()
         if not detail:
             detail = _default_live_detail_line(state)
@@ -747,6 +754,143 @@ class GhostRenderer:
                 else _ui_contract.PERMISSION_SHELL_APPROVAL
             )
         return " ".join(bits)
+
+    def _display_phase_for_rail(self, phase: str, state: str) -> str:
+        prof = str(self._live_rail_profile or _ui_contract.LIVE_RAIL_PROFILE_IMPLEMENT).strip().lower()
+        p = str(phase or "EXPLORE").strip().upper() or "EXPLORE"
+        s = str(state or "").strip().lower()
+        if prof == _ui_contract.LIVE_RAIL_PROFILE_READONLY:
+            if p in ("CLOSING", "DONE", "ABORTED"):
+                return "CLOSING"
+            if p in ("ACT", "VERIFY", "REPAIR", "REVIEW"):
+                return "REVIEW"
+            if s in ("tool_exec", "tool_result"):
+                return "GATHER"
+            return "PLAN"
+        if p in ("VERIFY", "REPAIR", "CLOSING", "DONE", "ABORTED"):
+            return "VERIFY"
+        if p == "ACT":
+            return "ACT"
+        if s in ("tool_exec", "tool_result"):
+            return "GATHER"
+        return "PLAN"
+
+    def _resolve_git_dir(self, root: Path) -> Optional[Path]:
+        dotgit = root / ".git"
+        try:
+            if dotgit.is_dir():
+                return dotgit
+            if dotgit.is_file():
+                raw = dotgit.read_text(encoding="utf-8", errors="ignore").strip()
+                if raw.lower().startswith("gitdir:"):
+                    rel = raw.split(":", 1)[1].strip()
+                    return (root / rel).resolve()
+        except OSError:
+            return None
+        return None
+
+    def _discover_git_branch(self, root: Path) -> str:
+        git_dir = self._resolve_git_dir(root)
+        if not git_dir:
+            return ""
+        head = git_dir / "HEAD"
+        try:
+            raw = head.read_text(encoding="utf-8", errors="ignore").strip()
+        except OSError:
+            return ""
+        if raw.startswith("ref:"):
+            ref = raw.split(":", 1)[1].strip()
+            return ref.replace("refs/heads/", "")
+        return truncate_visible(raw[:12], 12)
+
+    def _count_workspace_files(self, root: Path) -> int:
+        ignored_dirs = {
+            ".git",
+            ".ghost",
+            ".next",
+            ".turbo",
+            ".venv",
+            "node_modules",
+            "__pycache__",
+            "build",
+            "dist",
+            "coverage",
+        }
+        total = 0
+        try:
+            for _base, dirs, files in os.walk(root):
+                dirs[:] = [d for d in dirs if d not in ignored_dirs]
+                total += len(files)
+                if total >= 9999:
+                    return 9999
+        except OSError:
+            return 0
+        return total
+
+    def _latest_session_timestamp(self, root: Path) -> float:
+        latest = 0.0
+        ghost_root = root / ".ghost"
+        for name in ("artifacts", "plans", "handoffs", "review_packets", "traces"):
+            bucket = ghost_root / name
+            if not bucket.exists():
+                continue
+            try:
+                for child in bucket.iterdir():
+                    if child.is_file():
+                        latest = max(latest, child.stat().st_mtime)
+            except OSError:
+                continue
+        return latest
+
+    def _format_age_label(self, ts: float) -> str:
+        if not ts:
+            return ""
+        delta = max(0, int(time.time() - ts))
+        if delta < 60:
+            return "just now"
+        if delta < 3600:
+            return f"{max(1, delta // 60)}m ago"
+        if delta < 86400:
+            return f"{max(1, delta // 3600)}h ago"
+        return f"{max(1, delta // 86400)}d ago"
+
+    def _workspace_snapshot(self, root: Path) -> Dict[str, Any]:
+        key = str(root.resolve())
+        now = time.time()
+        cached = self._workspace_snapshot_cache.get(key)
+        if isinstance(cached, dict) and (now - float(cached.get("ts") or 0.0)) < 30.0:
+            return dict(cached.get("data") or {})
+        data = {
+            "name": root.name or str(root),
+            "branch": self._discover_git_branch(root),
+            "file_count": self._count_workspace_files(root),
+            "last_session": self._format_age_label(self._latest_session_timestamp(root)),
+            "path": str(root),
+        }
+        self._workspace_snapshot_cache[key] = {"ts": now, "data": dict(data)}
+        return data
+
+    def _workspace_context(self, root: Path, ly: GhostVisualLayout) -> Tuple[str, str]:
+        snap = self._workspace_snapshot(root)
+        max_chars = min(max(40, ly.width - 24), 62)
+        bits = [truncate_visible(str(snap.get("name") or root.name or root), 20)]
+        candidates: List[str] = []
+        branch = truncate_visible(str(snap.get("branch") or ""), 22)
+        if branch:
+            candidates.append(f"branch {branch}")
+        last_session = str(snap.get("last_session") or "").strip()
+        if last_session:
+            candidates.append(f"last {last_session}")
+        file_count = int(snap.get("file_count") or 0)
+        if file_count > 0:
+            candidates.append(f"{file_count} files")
+        for piece in candidates:
+            proposal = " · ".join(bits + [piece])
+            if len(proposal) <= max_chars or len(bits) == 1:
+                bits.append(piece)
+        context_line = " · ".join(bits)
+        path_line = truncate_visible(str(snap.get("path") or root), max(ly.width - 18, 28))
+        return context_line, path_line
 
     def _ghost_prompt_plain(self) -> str:
         mark = ">" if self._tty_layout().ascii_ui else "›"
@@ -1067,7 +1211,7 @@ class GhostRenderer:
         if recent:
             recent_text = "  ·  recientes: " + " ".join(recent)
         rec = " ".join(self._recommended_actions()[:2])
-        phase = self._last_status_phase.lower()
+        phase = self._display_phase_for_rail(self._last_status_phase, "thinking").lower()
         multiline = "multiline on" if self._composer_multiline else "multiline off"
         perms = self._permission_display()
         return f"{phase}  ·  {perms}  ·  next {rec}  ·  F2 {multiline}{recent_text}"
@@ -1291,14 +1435,14 @@ class GhostRenderer:
         prof = str(self._live_rail_profile or _ui_contract.LIVE_RAIL_PROFILE_IMPLEMENT).strip().lower()
         phase = str(self._last_status_phase or "EXPLORE").strip().upper()
         if prof == _ui_contract.LIVE_RAIL_PROFILE_READONLY:
-            if phase == "CLOSE":
+            if phase in ("CLOSE", "CLOSING", "DONE", "ABORTED"):
                 return ["/review", "/do", "/doctor"]
             return ["/plan", "/do", "/doctor"]
         if phase == "VERIFY":
             return ["/fix", "/review", "/do"]
         if phase == "ACT":
             return ["/do", "/edit", "/fix"]
-        if phase == "CLOSE":
+        if phase in ("CLOSE", "CLOSING", "DONE", "ABORTED"):
             return ["/review", "/do", "/logs"]
         return ["/plan", "/do", "/fix"]
 
@@ -2151,7 +2295,8 @@ class GhostRenderer:
                     flags.append(k)
         flags_line = "  ".join(flags) if flags else "—"
         cwd = os.getcwd()
-        workspace = truncate_visible(cwd, max(ly.width - 18, 28))
+        root = Path(cwd)
+        workspace_context, workspace_path = self._workspace_context(root, ly)
         runtime_bits: List[str] = [
             truncate_visible(model or "sin modelo", 24),
             truncate_visible(command_mode or "dev", 12),
@@ -2168,6 +2313,7 @@ class GhostRenderer:
                     f"\n[ghost.brand]{escape(_ui_contract.BRAND_WORDMARK)}[/ghost.brand] "
                     f"[dim]{escape(command_mode)}[/dim]  "
                     f"[cyan]{escape(assistant_mode)}[/cyan]  "
+                    f"[dim]{escape(truncate_visible(workspace_context, max(ly.width - 40, 18)))}[/dim]  "
                     f"[dim]permissions[/dim] [white]{escape(permission_line)}[/white]  "
                     f"[dim]modelo[/dim] [white]{escape(model)}[/white]  "
                     f"[dim]flags[/dim] [dim]{escape(truncate_visible(flags_line, max(ly.width - 24, 40)))}[/dim]\n"
@@ -2190,9 +2336,10 @@ class GhostRenderer:
             )
             meta = Table.grid(padding=(0, 0))
             meta.add_row(title_line)
+            meta.add_row(f"[ghost.muted]{escape(workspace_context)}[/ghost.muted]")
             meta.add_row("")
             meta.add_row(
-                f"[dim]{escape(_ui_contract.STARTUP_LABEL_WORKSPACE)}:[/dim] [white]{escape(workspace)}[/white]"
+                f"[dim]{escape(_ui_contract.STARTUP_LABEL_WORKSPACE)}:[/dim] [white]{escape(workspace_path)}[/white]"
             )
             meta.add_row(
                 f"[dim]{escape(_ui_contract.STARTUP_LABEL_RUNTIME)}:[/dim] [white]{escape(runtime_line)}[/white]"
