@@ -500,6 +500,7 @@ class GhostRenderer:
         self._slash_recent: deque[str] = deque(maxlen=6)
         self._pt_session: Any = None
         self._composer_multiline: bool = False
+        self._tool_section_live: bool = False
 
     def _tty_layout(self) -> GhostVisualLayout:
         w = self.console.width
@@ -927,7 +928,7 @@ class GhostRenderer:
         phase = self._last_status_phase.lower()
         multiline = "multiline on" if self._composer_multiline else "multiline off"
         return (
-            f"{phase}  ·  {rec}  ·  F2 {multiline}  ·  Esc+Enter salto"
+            f"{phase}  ·  {rec}  ·  F2 {multiline}"
             + recent_text
         )
 
@@ -1505,6 +1506,7 @@ class GhostRenderer:
 
     def render_artifact_summary(self, artifact: Dict[str, Any]):
         """Cierre: modo operador (limpio) por defecto; GHOST_UI_VERBOSE=1 expone auditoría."""
+        self._tool_section_live = False
         verbose = _ui_verbose()
         ly = self._tty_layout()
         sid = artifact.get("session_id", "?")
@@ -1930,6 +1932,7 @@ class GhostRenderer:
         **kwargs: Any,
     ):
         """Render startup banner showing active mode, model, gateway URL and feature flags."""
+        self._tool_section_live = False
         _ = kwargs
         verbose = _ui_verbose()
         ly = self._tty_layout()
@@ -2132,8 +2135,9 @@ class GhostRenderer:
         repeat_batch = sig == self._last_tool_flush_signature
         self._last_tool_flush_signature = sig
 
-        self.console.print("")
         rule = _ghost_rule_markup(_ui_contract.RULE_LABEL_HERRAMIENTAS, layout=ly)
+        if not self._tool_section_live:
+            self.console.print("")
         if ly.merge_tool_rule_and_rail and rail and mode != "panel":
             self.console.print(f"{rule}  [dim]::[/dim]  [dim]últimas[/dim] {rail}")
         elif not repeat_batch:
@@ -2142,6 +2146,7 @@ class GhostRenderer:
                 self.console.print(f"  [dim]últimas[/dim]  {rail}")
         elif rail:
             self.console.print(f"  [dim]últimas[/dim]  {rail}")
+        self._tool_section_live = True
         if mode == "panel":
             t = Table(
                 title=f"[ghost.brand]Ghost[/ghost.brand] [dim]· {escape(_ui_contract.TOOL_TABLE_TITLE_MARKER)}[/dim]",
@@ -2169,16 +2174,14 @@ class GhostRenderer:
                     dur_cell,
                 )
             self.console.print(t)
-            self.console.print("")
         else:
             if mode == "compact":
-                self.console.print("")
+                pass
             else:
                 if not repeat_batch:
                     self.console.print(f"[dim]{escape(_ui_contract.BRAND_WORDMARK)} · operaciones[/dim]")
                 for row in self._tool_segment_buffer:
                     self.console.print(self._format_tool_chip_row(row, ly))
-            self.console.print("")
         self._tool_segment_buffer = []
 
     def append_tool_trace(

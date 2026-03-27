@@ -428,6 +428,18 @@ class TestRendererVerificationProvenance(unittest.TestCase):
         self.assertIn("package.json", out)
         self.assertNotIn("Ghost · operaciones", out)
 
+    def test_tool_segment_compact_reuses_same_section_without_double_spacing(self):
+        with patch.dict(os.environ, {"GHOST_TOOL_UI": "compact"}, clear=False):
+            self.renderer.begin_tool_segment()
+            self.renderer.append_tool_trace("read_file", "a.py", auto_approved=False)
+            self.renderer.flush_tool_segment()
+            self.renderer.begin_tool_segment()
+            self.renderer.append_tool_trace("read_file", "b.py", auto_approved=False)
+            self.renderer.flush_tool_segment()
+        out = self.output.getvalue()
+        self.assertEqual(out.count(ui_contract.RULE_LABEL_HERRAMIENTAS), 2)
+        self.assertNotIn("\n\n\n", out)
+
     def test_summarize_pytest_extracts_nodes_and_duration(self):
         blob = (
             "pytest collected 2 items\n\n"
