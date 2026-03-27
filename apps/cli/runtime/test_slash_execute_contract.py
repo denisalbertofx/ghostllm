@@ -37,6 +37,10 @@ class TestSlashExecuteContract(unittest.TestCase):
         self.assertTrue(apply_slash_execute_write_overrides(s, slash))
         self.assertEqual(s.change_expectation, "may_write")
         self.assertEqual(s.task_intent, "bugfix")
+        spec_after = s.task_contract.get("spec") or {}
+        budget = spec_after.get("budget_policy") or {}
+        self.assertGreaterEqual(int(budget.get("max_shell_calls") or 0), 4)
+        self.assertGreaterEqual(int(budget.get("reserved_write_tool_calls") or 0), 4)
 
     def test_plan_slash_not_overridden(self) -> None:
         s = ArtifactSession("sid_y", "revisa arquitectura", task_id="task_2")

@@ -2083,7 +2083,11 @@ Discovery actions this session: {discovery_count}
         except Exception:
             pass
 
-        apply_slash_execute_write_overrides(session, intent)
+        if apply_slash_execute_write_overrides(session, intent):
+            spec_after_override = self._session_contract_spec_dict() or {}
+            budget_after_override = spec_after_override.get("budget_policy") or {}
+            if isinstance(budget_after_override, dict):
+                self.budget_manager.reset_contract_spec_tool_limits(budget_after_override)
         seal_task_contract_after_intake(session)
         apply_iteration_budget_to_session(session, task_text=(text or "").strip(), intent=intent)
         self._mark_fast_path_intake_state(session)

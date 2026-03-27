@@ -130,7 +130,7 @@ def _looks_codeish(s: str) -> bool:
 
 # Prefer ```lang\nbody```; then ```...``` when body spans lines (avoids matching inline ```x```).
 _FENCE_RE_LANG = re.compile(r"```(?:[a-zA-Z0-9_.+-]*)\s*\r?\n(.*?)```", re.DOTALL)
-_FENCE_RE_PLAIN = re.compile(r"```(.*?)```", re.DOTALL)
+_FENCE_RE_PLAIN = re.compile(r"```(?![a-zA-Z0-9_.+-]+\s*\r?\n)(.*?)```", re.DOTALL)
 
 # Plain prose (no fenced placeholder): first ungrounded block gets one honest sentence; further blocks drop silently.
 _UNGROUNDED_SNIPPET_NOTE = (

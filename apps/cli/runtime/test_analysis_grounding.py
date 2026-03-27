@@ -72,6 +72,15 @@ class TestLedgerAndSnippets(unittest.TestCase):
         self.assertIn("def bar():", r.text)
         self.assertEqual(r.fenced_replaced, 0)
 
+    def test_language_fenced_block_kept_when_matches_read(self) -> None:
+        s = _sess_analysis()
+        code = "def baz():\n    return 7\n" + ("# y\n" * 30)
+        record_read_file_ledger(s, "c.py", code)
+        text = "Ok:\n```python\ndef baz():\n    return 7\n```\n"
+        r = enforce_readonly_assistant_message(text, s)
+        self.assertIn("def baz():", r.text)
+        self.assertEqual(r.fenced_replaced, 0)
+
     def test_strong_claim_softened_when_evidence_weak(self) -> None:
         s = _sess_analysis()
         record_read_file_ledger(s, "tiny.py", "x\n")

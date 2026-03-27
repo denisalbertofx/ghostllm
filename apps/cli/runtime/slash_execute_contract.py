@@ -15,6 +15,7 @@ from apps.cli.runtime.task_contract import (
     get_task_contract_spec,
     update_task_contract_after_spec_apply,
 )
+from apps.cli.runtime.taskspec_engine import _default_budget_policy
 
 logger = logging.getLogger(__name__)
 
@@ -61,12 +62,25 @@ def apply_slash_execute_write_overrides(session: Any, intent: Intent) -> bool:
     new_intent = "bugfix" if bugish else "implementation"
     new_spec = dict(spec)
     new_spec["intent"] = new_intent
-    if ce == "should_not_write":
-        new_spec["change_expectation"] = "may_write"
+    new_ce = "may_write" if ce == "should_not_write" else ce
+    new_spec["change_expectation"] = new_ce
+    writable_budget = _default_budget_policy(intent=new_intent, change_expectation=new_ce)
+    current_budget = dict(new_spec.get("budget_policy") or {})
+    new_spec["budget_policy"] = {
+        "max_shell_calls": max(int(current_budget.get("max_shell_calls") or 0), int(writable_budget["max_shell_calls"])),
+        "max_tool_calls": max(int(current_budget.get("max_tool_calls") or 0), int(writable_budget["max_tool_calls"])),
+        "reserved_write_tool_calls": max(
+            int(current_budget.get("reserved_write_tool_calls") or 0),
+            int(writable_budget.get("reserved_write_tool_calls") or 0),
+        ),
+        "soft_read_only_tool_calls": max(
+            int(current_budget.get("soft_read_only_tool_calls") or 0),
+            int(writable_budget.get("soft_read_only_tool_calls") or 0),
+        ),
+    }
 
     session.task_intent = new_intent
-    if ce == "should_not_write":
-        session.change_expectation = "may_write"
+    session.change_expectation = new_ce
     update_task_contract_after_spec_apply(session, new_spec)
 
     try:
@@ -76,7 +90,7 @@ def apply_slash_execute_write_overrides(session: Any, intent: Intent) -> bool:
                 "prior_spec_intent": intent_spec,
                 "prior_change_expectation": ce,
                 "new_intent": new_intent,
-                "new_change_expectation": str(new_spec.get("change_expectation") or ""),
+                "new_change_expectation": str(new_ce or ""),
             }
         )
     except Exception:
