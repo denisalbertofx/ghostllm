@@ -595,6 +595,8 @@ Discovery actions this session: {discovery_count}
         self._answer_now_synthesis_context: Optional[str] = None
         self._answer_now_pressure_injected_key: Optional[Tuple[int, int]] = None
         self._final_synthesis_done: bool = False
+        self._pending_readonly_plan_render: Optional[Dict[str, Any]] = None
+        self._shown_large_prompt_non_stream_hint: bool = False
         # Exploration Engine v2
         self._explore_v2_mismatch_checked: bool = False
         self._explore_v2_listing_path_checked: bool = False
@@ -1745,6 +1747,8 @@ Discovery actions this session: {discovery_count}
         self._discovery_action_count = 0
         self._micro_task_early_pressure_injected = False
         self._conclusion_nudge_injected = False
+        self._pending_readonly_plan_render = None
+        self._shown_large_prompt_non_stream_hint = False
         self._explore_v2_mismatch_checked = False
         self._explore_v2_listing_path_checked = False
         self._explore_v2_churn_nudge_injected = False
@@ -3196,6 +3200,22 @@ Discovery actions this session: {discovery_count}
         sess.terminal_resolution_record = rec
         self._apply_terminal_resolution(tr, sess)
         self._trace_phase_end("conclusion")
+
+        pending_plan = getattr(self, "_pending_readonly_plan_render", None)
+        if (
+            tr.outcome == OUTCOME_READ_ONLY
+            and (self._effective_prompt_mode() or "").strip().lower() == "plan"
+            and isinstance(pending_plan, dict)
+            and str(pending_plan.get("text") or "").strip()
+        ):
+            self.renderer.render_readonly_plan_response(
+                str(pending_plan.get("text") or ""),
+                tier=str(pending_plan.get("tier") or ""),
+                evidence_count=int(pending_plan.get("evidence_count") or 0),
+                next_command=str(pending_plan.get("next_command") or ""),
+            )
+            self.renderer._suppress_next_readonly_review_panel = True
+            self._pending_readonly_plan_render = None
 
         if is_no_op:
             if getattr(self, "_last_api_error_hint", ""):
@@ -5013,10 +5033,11 @@ Discovery actions this session: {discovery_count}
                 f"\n[ghost.brand]GHOST[/ghost.brand] [dim]·[/dim] "
                 f"[white]{getattr(self, 'project_name', 'GhostLLM')}[/white]"
             )
-        if not use_stream and tr_prompt_chars > 50_000:
+        if not use_stream and tr_prompt_chars > 50_000 and not self._shown_large_prompt_non_stream_hint:
             self.console.print(
                 "[dim]Modo sin streaming (prompt grande); timeout de lectura extendido si aplica.[/dim]"
             )
+            self._shown_large_prompt_non_stream_hint = True
 
         try:
             if not use_stream:
@@ -5175,10 +5196,7 @@ Discovery actions this session: {discovery_count}
                 _cl = self._strip_tool_calls_for_display(safe_content)
                 if _cl:
                     _tier_display = str(locals().get("_tier_now") or "").strip().lower()
-                    _task_next = ""
-                    _current_task = getattr(getattr(self, "task_manager", None), "current_task", None)
-                    if _current_task and getattr(_current_task, "title", None):
-                        _task_next = str(_current_task.title or "").strip()
+                    _task_next = str(self._primary_user_task_text() or "").strip()
                     if not _task_next:
                         _task_next = str(getattr(sess_g, "task", "") or "").strip()
                     if not _task_next:
@@ -5195,13 +5213,17 @@ Discovery actions this session: {discovery_count}
                         if str(ev.get("tool_name") or "").strip().lower()
                         in {"read_file", "ls", "search_code", "summarize_repo"}
                     )
-                    self.renderer.render_readonly_plan_response(
-                        _cl,
-                        tier=_tier_display,
-                        evidence_count=_evidence_count,
-                        next_command=_next_cmd,
-                    )
-                if use_stream:
+                    _plan_payload = {
+                        "text": _cl,
+                        "tier": _tier_display,
+                        "evidence_count": _evidence_count,
+                        "next_command": _next_cmd,
+                    }
+                    if (self._effective_prompt_mode() or "").strip().lower() == "plan":
+                        self._pending_readonly_plan_render = _plan_payload
+                    else:
+                        self.renderer.render_readonly_plan_response(**_plan_payload)
+                if use_stream and (self._effective_prompt_mode() or "").strip().lower() != "plan":
                     print("\n")
             msg = {"role": "assistant", "content": safe_content, "tool_calls": final_tool_calls if final_tool_calls else None}
             

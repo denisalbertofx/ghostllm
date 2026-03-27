@@ -200,6 +200,27 @@ class TestArtifactSummaryFindingsTier(unittest.TestCase):
         out = self.output.getvalue()
         self.assertTrue(ui_contract.output_contains_artifact_footer_line(out))
 
+    def test_readonly_artifact_summary_can_skip_review_panel_once(self):
+        art = {
+            "session_id": "x",
+            "timestamp": "",
+            "task": "/plan bug scan",
+            "harness_mode_label": "analysis",
+            "task_outcome": "read_only",
+            "closure_operator_view": {"primary_headline_es": "Hallazgos preliminares."},
+            "findings_evidence_tier": "unverified",
+            "evidence_lines": ["Verification: no checks executed"],
+            "review_packet_path": ".ghost/review_packets/x.json",
+            "artifact_path": ".ghost/artifacts/x.md",
+            "plan_path": ".ghost/plans/x.md",
+        }
+        self.renderer._suppress_next_readonly_review_panel = True
+        with patch.dict(os.environ, {"GHOST_UI_VERBOSE": "0"}, clear=False):
+            self.renderer.render_artifact_summary(art)
+        out = self.output.getvalue()
+        self.assertFalse(ui_contract.output_contains_review_panel(out))
+        self.assertTrue(ui_contract.output_contains_artifact_footer_line(out))
+
     def test_startup_summary_shows_quick_actions_hint(self):
         with patch.object(
             self.renderer,

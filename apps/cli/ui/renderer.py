@@ -637,6 +637,7 @@ class GhostRenderer:
         self._tool_section_live: bool = False
         self._auto_approve_shell: bool = False
         self._workspace_snapshot_cache: Dict[str, Any] = {}
+        self._suppress_next_readonly_review_panel: bool = False
 
     def _tty_layout(self) -> GhostVisualLayout:
         w = self.console.width
@@ -1887,6 +1888,8 @@ class GhostRenderer:
         intent = str(spec_body.get("intent") or "") if isinstance(spec_body, dict) else ""
         ce = str(spec_body.get("change_expectation") or "") if isinstance(spec_body, dict) else ""
         readonly = _artifact_readonly_intent(artifact)
+        suppress_readonly_panel = bool(self._suppress_next_readonly_review_panel)
+        self._suppress_next_readonly_review_panel = False
         mode = escape(str(artifact.get("harness_mode_label") or "—"))
         outcome = escape(str(artifact.get("task_outcome") or "—"))
         cov = artifact.get("closure_operator_view") if isinstance(artifact.get("closure_operator_view"), dict) else {}
@@ -1936,7 +1939,7 @@ class GhostRenderer:
                 )
             )
             self._render_review_packet_console(artifact, readonly=readonly, verbose=True)
-        elif readonly:
+        elif readonly and not suppress_readonly_panel:
             tier = str(artifact.get("findings_evidence_tier") or "").strip().lower()
             ev_filtered = _evidence_lines_without_tier_banner(artifact.get("evidence_lines") or [], max_items=10)
             max_ev = 6
