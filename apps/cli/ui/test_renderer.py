@@ -210,13 +210,14 @@ class TestArtifactSummaryFindingsTier(unittest.TestCase):
             provider_backend_label="openai_compatible",
         )
         out = self.output.getvalue()
-        self.assertIn("atajos:", out.lower())
+        self.assertIn("acciones:", out.lower())
         self.assertIn("/plan", out)
         self.assertIn("escribe `/`", out)
         self.assertIn("workspace:", out.lower())
         self.assertIn("runtime:", out.lower())
-        self.assertIn("empieza con:", out.lower())
-        self.assertIn("↑↓ mueve", out)
+        self.assertIn("siguiente:", out.lower())
+        self.assertIn("continuidad", out.lower())
+        self.assertIn("historial/menu", out)
 
     def test_renderer_history_navigation_helper(self):
         self.renderer._record_input_history("/plan bugs")
@@ -243,7 +244,7 @@ class TestArtifactSummaryFindingsTier(unittest.TestCase):
         self.renderer._live_rail_profile = ui_contract.LIVE_RAIL_PROFILE_READONLY
         self.renderer._last_status_phase = "EXPLORE"
         bar = self.renderer._prompt_toolkit_bottom_toolbar()
-        self.assertIn("recomienda:", bar)
+        self.assertIn("explore", bar)
         self.assertIn("/plan", bar)
         self.assertIn("F2", bar)
 

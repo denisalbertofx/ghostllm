@@ -18,6 +18,7 @@ from __future__ import annotations
 # ── Marca (copy corto, estable) ─────────────────────────────────────────────
 BRAND_WORDMARK = "Ghost"
 BRAND_RUNNER_SUBTITLE = "coding agent · terminal-first"
+BRAND_RUNNER_VALUES = "continuidad · memoria · ejecucion"
 STARTUP_LABEL_WORKSPACE = "workspace"
 STARTUP_LABEL_RUNTIME = "runtime"
 STARTUP_LABEL_EMPIEZA = "empieza con"

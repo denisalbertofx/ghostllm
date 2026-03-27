@@ -896,7 +896,7 @@ class GhostRenderer:
 
         style = Style.from_dict(
             {
-                "bottom-toolbar": "bg:#0F172A #94A3B8",
+                "bottom-toolbar": "#64748B",
                 "completion-menu": "bg:#111827 #E5E7EB",
                 "completion-menu.completion.current": "bg:#7C3AED #FFFFFF bold",
                 "completion-menu.meta.completion.current": "bg:#7C3AED #E9D5FF",
@@ -927,7 +927,7 @@ class GhostRenderer:
         phase = self._last_status_phase.lower()
         multiline = "multiline on" if self._composer_multiline else "multiline off"
         return (
-            f"fase: {phase}  ·  recomienda: {rec}  ·  F2 {multiline}  ·  Esc+Enter nueva linea"
+            f"{phase}  ·  {rec}  ·  F2 {multiline}  ·  Esc+Enter salto"
             + recent_text
         )
 
@@ -1979,6 +1979,7 @@ class GhostRenderer:
             meta = Table.grid(padding=(0, 0))
             meta.add_row(title_line)
             meta.add_row(f"[dim]{escape(_ui_contract.BRAND_RUNNER_SUBTITLE)}[/dim]")
+            meta.add_row(f"[ghost.dim]{escape(_ui_contract.BRAND_RUNNER_VALUES)}[/ghost.dim]")
             meta.add_row("")
             meta.add_row(
                 f"[dim]{escape(_ui_contract.STARTUP_LABEL_WORKSPACE)}:[/dim] [white]{escape(workspace)}[/white]"
@@ -2040,14 +2041,14 @@ class GhostRenderer:
             )
         quick = "  ".join(slash_menu_quick_actions())
         self.console.print(
-            f"[dim]atajos:[/dim] [white]{escape(quick)}[/white] [dim]· {escape(_ui_contract.STARTUP_HINT_SLASH)}[/dim]"
+            f"[dim]acciones:[/dim] [white]{escape(quick)}[/white] [dim]· {escape(_ui_contract.STARTUP_HINT_SLASH)}[/dim]"
         )
         start_rows = slash_menu_start_suggestions()
         if ly.ultra_narrow:
             first_cmd, first_tail = start_rows[0]
             first_line = first_cmd if not first_tail else f"{first_cmd} {first_tail}"
             self.console.print(
-                f"[dim]{escape(_ui_contract.STARTUP_LABEL_EMPIEZA)}:[/dim] [white]{escape(truncate_visible(first_line, max(ly.width - 16, 20)))}[/white]"
+                f"[dim]siguiente:[/dim] [white]{escape(truncate_visible(first_line, max(ly.width - 16, 20)))}[/white]"
             )
         else:
             start_bits = []
@@ -2055,12 +2056,12 @@ class GhostRenderer:
                 row = cmd if not tail else f"{cmd} {tail}"
                 start_bits.append(truncate_visible(row, max(18, (ly.width // 3) - 8)))
             self.console.print(
-                f"[dim]{escape(_ui_contract.STARTUP_LABEL_EMPIEZA)}:[/dim] "
+                f"[dim]siguiente:[/dim] "
                 f"[white]{escape(start_bits[0])}[/white] [ghost.dim]·[/ghost.dim] "
                 f"[white]{escape(start_bits[1])}[/white] [ghost.dim]·[/ghost.dim] "
                 f"[white]{escape(start_bits[2])}[/white]"
             )
-        self.console.print(f"[dim]{escape(_ui_contract.STARTUP_HINT_CONTROLS)}[/dim]")
+        self.console.print("[ghost.dim]↑↓ historial/menu · Tab completa · Esc cierra[/ghost.dim]")
         if verbose and role_models and isinstance(role_models, dict) and role_models:
             rm = ", ".join(f"{k}={v}" for k, v in list(role_models.items())[:6])
             self.console.print(f"[dim]role_models:[/dim] [dim]{escape(rm)}[/dim]")
