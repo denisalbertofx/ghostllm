@@ -143,3 +143,24 @@ def ghost_banner_ascii_only_lines() -> List[str]:
         "  | rapido | verificable | enfocado           |",
         "  +------------------------------------------+",
     ]
+
+
+def ghost_mark_lines(*, ascii_only: bool = False, compact: bool = False) -> List[str]:
+    """Pequeño emblema reconocible para la cabecera de Ghost."""
+    if compact:
+        return [" .-. ", "(o o)", "| O |", "'~~~'"] if ascii_only else ["  👻  "]
+    if ascii_only:
+        return [
+            "  .-.  ",
+            " (o o) ",
+            " | O | ",
+            " |   | ",
+            " '~~~' ",
+        ]
+    return [
+        "  .-.  ",
+        " (o o) ",
+        " | O | ",
+        " |   | ",
+        " '~~~' ",
+    ]

@@ -27,7 +27,7 @@ from rich import box
 from rich.table import Table
 
 from apps.cli.ui import ui_contract as _ui_contract
-from apps.cli.ui.theme import ghost_box_rounded
+from apps.cli.ui.theme import ghost_box_rounded, ghost_mark_lines
 from apps.cli.ui.slash_menu import (
     SlashMenuState,
     slash_menu_apply_selection,
@@ -859,6 +859,7 @@ class GhostRenderer:
         from prompt_toolkit.history import InMemoryHistory
         from prompt_toolkit.key_binding import KeyBindings
         from prompt_toolkit.shortcuts.prompt import CompleteStyle
+        from prompt_toolkit.styles import Style
 
         history = InMemoryHistory()
         for entry in list(self._input_history):
@@ -893,6 +894,16 @@ class GhostRenderer:
         def _insert_newline(event) -> None:
             event.current_buffer.insert_text("\n")
 
+        style = Style.from_dict(
+            {
+                "bottom-toolbar": "bg:#0F172A #94A3B8",
+                "completion-menu": "bg:#111827 #E5E7EB",
+                "completion-menu.completion.current": "bg:#7C3AED #FFFFFF bold",
+                "completion-menu.meta.completion.current": "bg:#7C3AED #E9D5FF",
+                "scrollbar.background": "bg:#111827",
+                "scrollbar.button": "bg:#475569",
+            }
+        )
         self._pt_session = PromptSession(
             history=history,
             auto_suggest=AutoSuggestFromHistory(),
@@ -903,6 +914,7 @@ class GhostRenderer:
             enable_history_search=True,
             multiline=_multiline_mode,
             key_bindings=kb,
+            style=style,
         )
         return self._pt_session
 
@@ -1940,30 +1952,61 @@ class GhostRenderer:
         elif llm_gateway_reachable is False:
             runtime_bits.append("gateway down")
         runtime_line = "  ·  ".join(runtime_bits)
-        if verbose:
-            self.console.print(
-                f"\n[ghost.brand]{escape(_ui_contract.BRAND_WORDMARK)}[/ghost.brand] "
-                f"[dim]{escape(command_mode)}[/dim]  "
-                f"[cyan]{escape(assistant_mode)}[/cyan]  "
-                f"[dim]modelo[/dim] [white]{escape(model)}[/white]  "
-                f"[dim]flags[/dim] [dim]{escape(truncate_visible(flags_line, max(ly.width - 24, 40)))}[/dim]\n"
-            )
-            self.console.print(f"[dim]{escape(_ui_contract.BRAND_RUNNER_SUBTITLE)}[/dim]\n")
+        if ly.ultra_narrow:
+            if verbose:
+                self.console.print(
+                    f"\n[ghost.brand]{escape(_ui_contract.BRAND_WORDMARK)}[/ghost.brand] "
+                    f"[dim]{escape(command_mode)}[/dim]  "
+                    f"[cyan]{escape(assistant_mode)}[/cyan]  "
+                    f"[dim]modelo[/dim] [white]{escape(model)}[/white]  "
+                    f"[dim]flags[/dim] [dim]{escape(truncate_visible(flags_line, max(ly.width - 24, 40)))}[/dim]\n"
+                )
+                self.console.print(f"[dim]{escape(_ui_contract.BRAND_RUNNER_SUBTITLE)}[/dim]\n")
+            else:
+                line1, line2 = startup_lines(
+                    assistant_mode=assistant_mode,
+                    model=model,
+                    command_mode=command_mode,
+                    subtitle=_ui_contract.BRAND_RUNNER_SUBTITLE,
+                    layout=ly,
+                )
+                self.console.print(f"\n{line1}\n{line2}\n")
         else:
-            line1, line2 = startup_lines(
-                assistant_mode=assistant_mode,
-                model=model,
-                command_mode=command_mode,
-                subtitle=_ui_contract.BRAND_RUNNER_SUBTITLE,
-                layout=ly,
+            title_line = (
+                f"[ghost.brand]{escape(_ui_contract.BRAND_WORDMARK)}[/ghost.brand] "
+                f"[white]{escape(assistant_mode)}[/white] "
+                f"[ghost.dim]│[/ghost.dim] [white]{escape(model)}[/white] "
+                f"[ghost.dim]│[/ghost.dim] [dim]{escape(command_mode)}[/dim]"
             )
-            self.console.print(f"\n{line1}\n{line2}\n")
-        self.console.print(
-            f"[dim]{escape(_ui_contract.STARTUP_LABEL_WORKSPACE)}:[/dim] [white]{escape(workspace)}[/white]"
-        )
-        self.console.print(
-            f"[dim]{escape(_ui_contract.STARTUP_LABEL_RUNTIME)}:[/dim] [white]{escape(runtime_line)}[/white]"
-        )
+            sub_line = f"[dim]{escape(_ui_contract.BRAND_RUNNER_SUBTITLE)}[/dim]"
+            right = Table.grid(padding=(0, 0))
+            right.add_row(title_line)
+            right.add_row(sub_line)
+            right.add_row(
+                f"[dim]{escape(_ui_contract.STARTUP_LABEL_WORKSPACE)}:[/dim] [white]{escape(workspace)}[/white]"
+            )
+            right.add_row(
+                f"[dim]{escape(_ui_contract.STARTUP_LABEL_RUNTIME)}:[/dim] [white]{escape(runtime_line)}[/white]"
+            )
+            if verbose:
+                right.add_row(
+                    f"[dim]flags:[/dim] [dim]{escape(truncate_visible(flags_line, max(ly.width - 28, 32)))}[/dim]"
+                )
+            emblem = Text("\n".join(ghost_mark_lines(ascii_only=ly.ascii_ui, compact=False)), style="ghost.brand")
+            header = Table.grid(padding=(0, 2))
+            header.add_column(no_wrap=True)
+            header.add_column()
+            header.add_row(emblem, right)
+            self.console.print("")
+            self.console.print(
+                Panel(
+                    header,
+                    border_style="ghost.brand",
+                    box=ghost_box_rounded(),
+                    padding=ly.panel_padding,
+                    expand=False,
+                )
+            )
         if llm_gateway_url:
             if llm_gateway_reachable is True:
                 gw_line = (
