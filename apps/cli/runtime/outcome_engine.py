@@ -38,6 +38,24 @@ OUTCOME_NO_OP = "no_op"
 DISCOVERY_ACTIONS = frozenset(["summarize_repo", "ls", "read_file"])
 WRITE_ACTIONS = frozenset(["write_file", "edit_file", "delete_file"])
 
+
+def verification_integrity_stale(session: Any) -> bool:
+    """
+    True when file mutations (write_epoch) occurred after the last successful integrity verification
+    checkpoint (last_integrity_ok_write_epoch). Used to avoid treating old pytest output as current.
+    """
+    we = int(getattr(session, "write_epoch", 0) or 0)
+    li = getattr(session, "last_integrity_ok_write_epoch", None)
+    if li is None:
+        return False
+    try:
+        li_i = int(li)
+    except (TypeError, ValueError):
+        return False
+    if li_i < 0:
+        return False
+    return we > li_i
+
 # Intent categories for outcome logic
 INTENT_IMPLEMENTATION = frozenset(["direct_edit", "code", "fix", "scaffold", "bug_fix", "refactor"])
 INTENT_MODIFICATION = frozenset(["direct_edit", "fix", "bug_fix", "refactor"])
@@ -45,6 +63,15 @@ INTENT_INFORMATIONAL = frozenset(["research", "ask", "review"])
 
 # Intents where missing-path tool errors are treated as informative read-only, not hard BLOCKED → ABORTED.
 _INFORMATIVE_MISSING_PATH_INTENTS = frozenset({"analysis", "review"})
+
+
+def _session_readonly_contract(session: Any) -> bool:
+    ts = get_task_contract_spec(session)
+    ce_spec = ""
+    if isinstance(ts, Mapping):
+        ce_spec = str(ts.get("change_expectation") or "").strip().lower()
+    ce_sess = str(getattr(session, "change_expectation", "") or "").strip().lower()
+    return ce_spec == "should_not_write" or ce_sess == "should_not_write"
 
 INFORMATIVE_KIND_EXPLORE_CHURN = "explore_churn_stop"
 INFORMATIVE_KIND_MISSING_PATH_TOOLS = "missing_path_readonly"
@@ -97,6 +124,8 @@ class TaskOutcomeResult:
     recommended_next_action: str = ""
     # Informative read-only / blocked-explore (machine-readable; drives closure_reason UX)
     informative_readonly_kind: Optional[str] = None
+    # analysis/review: grounding tier for operator UI (no NLP on model prose)
+    findings_evidence_tier: Optional[str] = None
 
 
 def _extract_tool_call_args_by_id(messages: List[Dict[str, Any]]) -> Dict[str, Dict[str, Any]]:
@@ -224,6 +253,10 @@ def _build_already_implemented_diagnostic(
     return base
 
 
+def _already_implemented_next_action() -> str:
+    return "No changes needed. Use 'continua' only if you want a different behavior or wording."
+
+
 def _normalize_tool_history(messages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     """Extract tool results from history (handles both tool role and legacy TOOL_RESULT)."""
     out = []
@@ -249,6 +282,25 @@ def _normalize_tool_history(messages: List[Dict[str, Any]]) -> List[Dict[str, An
                 except Exception:
                     pass
     return out
+
+
+def normalize_tool_history(messages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Public API: tool messages normalized for tier / evidence scoring (stable for callers)."""
+    return _normalize_tool_history(messages)
+
+
+def _readonly_findings_evidence_applies(session: Any, intent: str, made_changes: bool) -> bool:
+    """
+    True for sessions that should get findings_evidence_tier (read-only review discipline).
+
+    Includes analysis/review intents and any task with change_expectation=should_not_write
+    (e.g. /plan, misclassified modification that stays read-only).
+    """
+    if made_changes:
+        return False
+    if intent in ("analysis", "review"):
+        return True
+    return _session_readonly_contract(session)
 
 
 def _is_recovered_tool_failure(err_str: str, diff_summary: List[Dict[str, Any]]) -> bool:
@@ -302,6 +354,8 @@ def _get_normalized_tool_errors(
             if not err:
                 continue
             err_str = str(err)[:120]
+            if "already implemented fast-path" in err_str.lower():
+                continue
             # Skip contradictory "Tool X not found" when writes succeeded (existing logic)
             if diff_summary and "tool " in err_str.lower() and "not found" in err_str.lower():
                 continue
@@ -406,6 +460,7 @@ def _score_evidence(
     executed_passed = [c for c in checks if c.get("provenance") == "executed" and c.get("status") in ("passed", "success") and c.get("exit_code", 1) == 0]
     any_executed_passed = len(executed_passed) > 0
     blocked_checks = [c for c in checks if c.get("status") in ("blocked", "denied")]
+    stale_integrity = verification_integrity_stale(session)
 
     if v_status in ("incomplete", "skipped") and steps_executed == 0:
         score -= 5
@@ -413,6 +468,9 @@ def _score_evidence(
     elif v_status == "blocked" or blocked_checks:
         score -= 10
         lines.append("Verification: blocked (policy/shell)")
+    elif stale_integrity and v_status == "success" and any_executed_passed:
+        score -= 8
+        lines.append("Verification: stale (edits after last successful integrity run; re-run checks)")
     elif v_status == "success" and any_executed_passed:
         score += 10
         lines.append("Verification: passed")
@@ -567,6 +625,8 @@ def _build_verification_failed_next_action(
         return "Fix the verification failures. Run build/lint locally to debug."
     first_fail = failed[0]
     name = first_fail.get("name", "Check")
+    cwd = str(first_fail.get("cwd") or ".")
+    cause_code = str(first_fail.get("cause") or "")
     err = (
         first_fail.get("stderr") or first_fail.get("stdout")
         or first_fail.get("error") or first_fail.get("output_summary") or first_fail.get("reason") or ""
@@ -583,11 +643,17 @@ def _build_verification_failed_next_action(
             files_str = f"{files_str} (el diff tocó: {', '.join(unique_files)})"
     else:
         files_str = ", ".join(unique_files) if unique_files else "changed files"
-    parts = [f"{name} still failing in {files_str}."]
+    parts = [f"{name} still failing in {files_str} (cwd: {cwd})."]
     if err_preview:
         err_low = err_str.lower()
         if "error ts" in err_low:
             cause = _first_compiler_line(err_str, limit=200) or err_preview
+        elif "modulenotfounderror" in err_low or "no module named" in err_low:
+            cause = _first_compiler_line(err_str, limit=200) or "python import path / test entrypoint mismatch"
+        elif "unicode" in err_low and "decode" in err_low:
+            cause = _first_compiler_line(err_str, limit=200) or "pytest collection is reading a non-Python text artifact"
+        elif "enoent" in err_low and "package.json" in err_low:
+            cause = _first_compiler_line(err_str, limit=200) or "workspace cwd is wrong for the Node check"
         elif "drizzle" in err_low or "drizzle-orm" in err_low:
             cause = _first_compiler_line(err_str, limit=200) or err_preview[:180]
         elif "not assignable" in err_low or "does not exist on type" in err_low:
@@ -597,10 +663,80 @@ def _build_verification_failed_next_action(
         else:
             cause = err_preview[:180]
         parts.append(f"Likely cause: {cause[:200]}.")
+    elif cause_code:
+        parts.append(f"Likely cause: {cause_code}.")
     if repair_count > 0 and repair_summary:
         parts.append(f"A repair was applied ({repair_summary[:80]}).")
-    parts.append("Re-run typecheck/build to confirm fix. If it still fails, inspect the failing check output and fix the reported errors.")
+    parts.append(
+        "Re-run the failing check in its real cwd, inspect only that output, and fix the reported root cause before broader verification."
+    )
     return " ".join(parts)
+
+
+def _readonly_read_metrics(tool_history: List[Dict[str, Any]]) -> Tuple[int, int]:
+    """Count successful read_file tools and approximate chars from file bodies."""
+    n = 0
+    chars = 0
+    for m in tool_history:
+        if m.get("role") != "tool" or m.get("name") != "read_file":
+            continue
+        try:
+            content = m.get("content", "")
+            res = json.loads(content) if isinstance(content, str) and content.strip().startswith("{") else {}
+        except Exception:
+            res = {}
+        if not isinstance(res, dict) or res.get("error"):
+            continue
+        c = res.get("content")
+        if isinstance(c, str) and c.strip():
+            n += 1
+            chars += len(c)
+        elif isinstance(res, dict) and not res.get("error"):
+            n += 1
+    return n, chars
+
+
+def compute_findings_evidence_tier(
+    tool_history: List[Dict[str, Any]],
+    verification: Dict[str, Any],
+) -> str:
+    """
+    Tier for read-only analysis/review (heuristic, tool-grounded only).
+
+    - confirmed: at least one verification check was actually executed this session.
+    - suspected: several substantive reads (still not proof of a specific bug without literal quotes).
+    - unverified: light exploration — model must not claim concrete bugs as fact.
+    """
+    ver = verification or {}
+    checks = ver.get("checks") or []
+    steps = ver.get("steps_executed_count")
+    if steps is None:
+        steps = sum(1 for c in checks if str(c.get("provenance") or "") == "executed")
+    if int(steps or 0) > 0:
+        return "confirmed"
+    rc, ch = _readonly_read_metrics(tool_history)
+    if rc >= 4 and ch >= 10_000:
+        return "suspected"
+    if rc >= 2 and ch >= 2_000:
+        return "suspected"
+    return "unverified"
+
+
+def _findings_tier_banner_line(tier: str) -> str:
+    if tier == "confirmed":
+        return (
+            "Findings tier: confirmed — hay al menos un check de verificación ejecutado en esta sesión; "
+            "los fallos de tests/lint/build pueden citarse como evidencia dura."
+        )
+    if tier == "suspected":
+        return (
+            "Findings tier: suspected — hay lecturas amplias pero sin check ejecutado; "
+            "no afirmes bugs concretos (archivo/línea/código) salvo que cites texto literal devuelto por read_file en esta sesión."
+        )
+    return (
+        "Findings tier: unverified — inspección superficial; NO afirmes bugs concretos ni muestres snippets como si fueran citas reales. "
+        "Etiqueta todo como sospecha o «necesita verificación» y propón el siguiente read_file o check mínimo."
+    )
 
 
 def _has_final_nl_response(messages: List[Dict[str, Any]]) -> bool:
@@ -844,6 +980,30 @@ def determine_task_outcome(
             recommended_next_action=rec,
         )
 
+    # 3b. Structured verification snapshot is no longer valid after edits post-checkpoint
+    if made_changes and v_status == "success" and executed_passed and steps_executed > 0 and verification_integrity_stale(session):
+        el = list(evidence_lines) + [
+            "Integrity evidence stale: edits after the last successful verification checkpoint; rerun VERIFY."
+        ]
+        rec = _build_verification_failed_next_action(
+            checks=checks,
+            diff_summary=diff_summary,
+            repair_summary=repair_summary,
+            repair_count=repair_count,
+            v_status="failed",
+        )
+        return TaskOutcomeResult(
+            outcome=OUTCOME_VERIFICATION_FAILED,
+            confidence=0.88,
+            evidence_score=evidence_score,
+            summary=(
+                "Code changed after the last successful integrity verification; "
+                "Ghost VERIFY must run again before claiming tests or checks passed."
+            ),
+            evidence_lines=el[:22],
+            recommended_next_action=rec or "Trigger VERIFY after latest edits (do not rely on prior pytest output).",
+        )
+
     # 4. Implemented: writes + verification passed (at least one check provenance=executed and passed)
     if made_changes and v_status == "success" and executed_passed and steps_executed > 0:
         return TaskOutcomeResult(
@@ -911,7 +1071,7 @@ def determine_task_outcome(
                 evidence_score=evidence_score,
                 summary=diagnostic,
                 evidence_lines=evidence_lines,
-                recommended_next_action="Review task outcome. Use 'continua' if you need adjustments.",
+                recommended_next_action=_already_implemented_next_action(),
             )
         if moderate_evidence:
             return TaskOutcomeResult(
@@ -920,7 +1080,7 @@ def determine_task_outcome(
                 evidence_score=evidence_score,
                 summary=diagnostic,
                 evidence_lines=evidence_lines,
-                recommended_next_action="Review task outcome. Use 'continua' if changes are needed.",
+                recommended_next_action=_already_implemented_next_action(),
             )
         if light_evidence:
             return TaskOutcomeResult(
@@ -929,7 +1089,7 @@ def determine_task_outcome(
                 evidence_score=evidence_score,
                 summary=diagnostic,
                 evidence_lines=evidence_lines,
-                recommended_next_action="Review task outcome. Use 'continua' if changes are needed.",
+                recommended_next_action=_already_implemented_next_action(),
             )
 
     # 7. Partially implemented: some evidence but incomplete
@@ -943,16 +1103,29 @@ def determine_task_outcome(
             recommended_next_action="Continue with 'continua' to implement remaining pieces or verify scope.",
         )
 
-    # 8. Read-only: informational/analysis/review intent only
-    # Do NOT treat implementation+no-writes as read_only; that was handled as already_implemented
-    if intent in ("analysis", "review"):
+    # 8. Read-only review discipline: analysis/review and any should_not_write contract (incl. /plan)
+    if _readonly_findings_evidence_applies(session, intent, made_changes):
+        tier = compute_findings_evidence_tier(tool_history, verification)
+        banner = _findings_tier_banner_line(tier)
+        merged = [banner] + list(evidence_lines)
+        ev = ", ".join(evidence_lines[:3]) if evidence_lines else "Exploración con herramientas de lectura."
+        conf = 0.78 if tier == "confirmed" else 0.58 if tier == "suspected" else 0.42
         return TaskOutcomeResult(
             outcome=OUTCOME_READ_ONLY,
-            confidence=0.85,
+            confidence=conf,
             evidence_score=evidence_score,
-            summary=f"Read-only task. {', '.join(evidence_lines[:3]) if evidence_lines else 'Exploration only.'}",
-            evidence_lines=evidence_lines,
-            recommended_next_action="Review task outcome. Use 'continua' if needed.",
+            summary=(
+                f"[{tier}] Inspección solo lectura. No presentes bugs inventados: solo hallazgos con evidencia literal "
+                f"o resultados de check. Contexto: {ev}"
+            ),
+            evidence_lines=merged[:22],
+            recommended_next_action=(
+                "Validación mínima siguiente: un `read_file` en la ruta sospechosa o un solo check reproducible; "
+                "no se requiere implementación en esta sesión."
+                if tier != "confirmed"
+                else "Sin pasos de implementación en esta sesión; para cambios de código, abre un mensaje nuevo en modo ejecución."
+            ),
+            findings_evidence_tier=tier,
         )
     if not made_changes and tools_executed and intent not in ("implementation", "modification"):
         return TaskOutcomeResult(
@@ -966,7 +1139,12 @@ def determine_task_outcome(
 
     # 9. Default: implementation+no-writes => already_implemented; else read_only
     # Never return read_only when user asked to implement and explored scope
-    if intent in ("implementation", "modification") and not made_changes and tools_executed:
+    if (
+        intent in ("implementation", "modification")
+        and not made_changes
+        and tools_executed
+        and not _readonly_findings_evidence_applies(session, intent, made_changes)
+    ):
         diagnostic = _build_already_implemented_diagnostic(session, messages, verification, evidence_lines)
         return TaskOutcomeResult(
             outcome=OUTCOME_ALREADY_IMPLEMENTED,
@@ -974,7 +1152,7 @@ def determine_task_outcome(
             evidence_score=evidence_score,
             summary=diagnostic,
             evidence_lines=evidence_lines,
-            recommended_next_action="Review task outcome. Use 'continua' if changes are needed.",
+            recommended_next_action=_already_implemented_next_action(),
         )
     return TaskOutcomeResult(
         outcome=OUTCOME_READ_ONLY,

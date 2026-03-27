@@ -4,8 +4,189 @@ import unittest
 from io import StringIO
 from unittest.mock import patch
 
-from apps.cli.ui.renderer import GhostRenderer
+from apps.cli.ui import ui_contract
+from apps.cli.ui.renderer import (
+    GhostRenderer,
+    format_live_phase_rail,
+    format_phase_rail,
+    format_tool_live_hint_from_prepared,
+    summarize_test_runner_output,
+)
 from apps.cli.ui.theme import make_ghost_console
+from apps.cli.ui.visual_layout import build_ghost_visual_layout, format_live_phase_rail
+
+
+class TestPhaseRailAndChips(unittest.TestCase):
+    def test_phase_rail_marks_verify_bucket(self):
+        r = format_phase_rail("VERIFY")
+        self.assertIn(ui_contract.PHASE_RAIL_LABEL_VERIFICAR, r)
+        self.assertIn(ui_contract.PHASE_RAIL_LABEL_EXPLORAR, r)
+        self.assertTrue(ui_contract.live_rail_shows_current_marker(r))
+        self.assertTrue(
+            ui_contract.live_rail_has_step_labels(
+                r,
+                ui_contract.PHASE_RAIL_LABEL_EXPLORAR,
+                ui_contract.PHASE_RAIL_LABEL_ACTUAR,
+                ui_contract.PHASE_RAIL_LABEL_VERIFICAR,
+                ui_contract.PHASE_RAIL_LABEL_CIERRE,
+            )
+        )
+
+    def test_live_rail_plan_profile_three_steps(self):
+        r = format_live_phase_rail("EXPLORE", ui_contract.LIVE_RAIL_PROFILE_READONLY)
+        self.assertIn(ui_contract.PHASE_RAIL_LABEL_REVISAR, r)
+        self.assertNotIn(ui_contract.PHASE_RAIL_LABEL_ACTUAR, r)
+        r_act = format_live_phase_rail("ACT", ui_contract.LIVE_RAIL_PROFILE_READONLY)
+        self.assertIn(ui_contract.PHASE_RAIL_LABEL_REVISAR, r_act)
+        self.assertTrue(ui_contract.live_rail_shows_current_marker(r_act))
+
+    def test_format_tool_live_hint_read_file(self):
+        h = format_tool_live_hint_from_prepared(
+            [{"name": "read_file", "args": {"path": "apps/server/main.py"}}]
+        )
+        self.assertIn(ui_contract.LIVE_ACTION_READING, h)
+        self.assertIn("main.py", h)
+
+    def test_update_status_skips_duplicate_spinner_message(self):
+        class _St:
+            def __init__(self) -> None:
+                self.n = 0
+
+            def update(self, _msg: str) -> None:
+                self.n += 1
+
+        buf = StringIO()
+        r = GhostRenderer(make_ghost_console(file=buf, force_terminal=False))
+        st = _St()
+        r.update_status(st, "thinking", phase="EXPLORE")
+        r.update_status(st, "thinking", phase="EXPLORE")
+        self.assertEqual(st.n, 1)
+        r.update_status(st, "building", phase="EXPLORE")
+        self.assertEqual(st.n, 2)
+
+    def test_tool_chip_shows_duration(self):
+        buf = StringIO()
+        r = GhostRenderer(make_ghost_console(file=buf, force_terminal=False))
+        r.append_tool_trace("read_file", "x.py", True, duration_ms=42.0)
+        out = buf.getvalue()
+        self.assertIn("42ms", out)
+        self.assertIn("read", out)
+
+
+class TestArtifactSummaryFindingsTier(unittest.TestCase):
+    """Cierre read-only: revisión unificada (operador) vs paneles detallados (verbose)."""
+
+    def setUp(self):
+        self.output = StringIO()
+        self.console = make_ghost_console(file=self.output, force_terminal=False)
+        self.renderer = GhostRenderer(self.console)
+
+    def test_operator_mode_review_panel_findings_first(self):
+        art = {
+            "session_id": "x",
+            "timestamp": "",
+            "task": "/plan bug scan",
+            "harness_mode_label": "analysis",
+            "task_outcome": "read_only",
+            "closure_operator_view": {"primary_headline_es": "Inspección completada"},
+            "diff_summary": [],
+            "taskspec": {"intent": "analysis", "change_expectation": "should_not_write"},
+            "findings_evidence_tier": "unverified",
+            "analysis_grounding_digest": "fenced_snippet_ungrounded:1",
+            "evidence_lines": ["read_file devolvió 120 líneas de foo.py"],
+        }
+        with patch.dict(os.environ, {"GHOST_UI_VERBOSE": "0"}, clear=False):
+            self.renderer.render_artifact_summary(art)
+        out = self.output.getvalue()
+        self.assertTrue(ui_contract.output_contains_review_panel(out))
+        self.assertIn(ui_contract.TIER_SUBSTRING_SIN_VERIFICAR, out)
+        self.assertIn("foo.py", out)
+        self.assertNotIn(ui_contract.DEBUG_GROUNDING_PREFIX, out)
+        self.assertNotIn(ui_contract.PANEL_TITLE_CONTRACT_SPEC, out)
+
+    def test_verbose_mode_shows_grounding_and_evidence_panels(self):
+        art = {
+            "session_id": "x",
+            "timestamp": "",
+            "task": "/plan bug scan",
+            "harness_mode_label": "analysis",
+            "task_outcome": "read_only",
+            "closure_operator_view": {},
+            "diff_summary": [],
+            "taskspec": {"intent": "analysis", "change_expectation": "should_not_write"},
+            "findings_evidence_tier": "unverified",
+            "analysis_grounding_digest": "fenced_snippet_ungrounded:1",
+            "evidence_lines": ["Findings tier: unverified — inspección superficial.", "tool: ls"],
+        }
+        with patch.dict(os.environ, {"GHOST_UI_VERBOSE": "1"}, clear=False):
+            self.renderer.render_artifact_summary(art)
+        out = self.output.getvalue()
+        self.assertIn(ui_contract.DEBUG_GROUNDING_PREFIX, out)
+        self.assertIn("fenced_snippet_ungrounded", out)
+        self.assertIn(ui_contract.PANEL_TITLE_EVIDENCIA_HERRAMIENTAS, out)
+
+    def test_operator_artifact_footer_uses_compact_marker(self):
+        art = {
+            "session_id": "x",
+            "timestamp": "",
+            "task": "t",
+            "harness_mode_label": "implementation",
+            "task_outcome": "implemented",
+            "closure_operator_view": {"primary_headline_es": "OK"},
+            "diff_summary": [{"file": "a.py", "type": "Edit File"}],
+            "taskspec": {"intent": "implementation", "change_expectation": "may_write"},
+            "trace_path": ".ghost/traces/x.json",
+            "artifacts_json_path": ".ghost/artifacts/x.json",
+        }
+        with patch.dict(os.environ, {"GHOST_UI_VERBOSE": "0"}, clear=False):
+            self.renderer.render_artifact_summary(art)
+        out = self.output.getvalue()
+        self.assertTrue(ui_contract.output_contains_artifact_footer_line(out))
+
+    def test_implementation_closure_ready_for_review_banner(self):
+        art = {
+            "session_id": "x",
+            "timestamp": "",
+            "task": "t",
+            "harness_mode_label": "implementation",
+            "task_outcome": "implemented",
+            "closure_operator_view": {"primary_headline_es": "Listo"},
+            "diff_summary": [{"file": "a.py", "type": "Edit File"}],
+            "taskspec": {"intent": "implementation", "change_expectation": "may_write"},
+            "review_ready_for_review": True,
+            "review_readiness_detail_es": "Cambios registrados y comprobaciones ejecutadas en disco.",
+            "review_packet_path": ".ghost/review_packets/x.json",
+            "trace_path": ".ghost/traces/x.json",
+        }
+        with patch.dict(os.environ, {"GHOST_UI_VERBOSE": "0"}, clear=False):
+            self.renderer.render_artifact_summary(art)
+        out = self.output.getvalue()
+        self.assertIn(ui_contract.CLOSURE_REVIEW_STATUS_READY, out)
+        self.assertIn(ui_contract.CLOSURE_DIFF_REVIEW_CAPTION, out)
+        rp_p = ".ghost/review_packets/x.json"
+        tr_p = ".ghost/traces/x.json"
+        self.assertIn(rp_p, out)
+        self.assertIn(tr_p, out)
+        self.assertLess(out.find(rp_p), out.find(tr_p))
+
+    def test_implementation_closure_pending_review_when_not_ready(self):
+        art = {
+            "session_id": "x",
+            "timestamp": "",
+            "task": "t",
+            "harness_mode_label": "implementation",
+            "task_outcome": "implemented",
+            "closure_operator_view": {"primary_headline_es": "Casi"},
+            "diff_summary": [{"file": "a.py", "type": "Edit File"}],
+            "taskspec": {"intent": "implementation", "change_expectation": "may_write"},
+            "review_ready_for_review": False,
+            "review_readiness_detail_es": "Verify incompleto.",
+        }
+        with patch.dict(os.environ, {"GHOST_UI_VERBOSE": "0"}, clear=False):
+            self.renderer.render_artifact_summary(art)
+        out = self.output.getvalue()
+        self.assertIn(ui_contract.CLOSURE_REVIEW_STATUS_PENDING, out)
+        self.assertIn("Verify incompleto", out)
 
 
 class TestRendererVerificationProvenance(unittest.TestCase):
@@ -21,7 +202,7 @@ class TestRendererVerificationProvenance(unittest.TestCase):
         self.renderer.render_verification_results({"status": "success", "checks": []})
         out = self.output.getvalue()
         self.assertNotIn("PASSED", out)
-        self.assertNotIn("ALL SYSTEMS CLEAR", out)
+        self.assertNotIn(ui_contract.VERIFY_MSG_ALL_SYSTEMS_CLEAR, out)
 
     def test_checks_without_provenance_not_passed(self):
         """Checks with status=passed but no provenance=executed -> NOT RUN, no ALL SYSTEMS CLEAR."""
@@ -36,8 +217,9 @@ class TestRendererVerificationProvenance(unittest.TestCase):
         }
         self.renderer.render_verification_results(verification)
         out = self.output.getvalue()
-        self.assertIn("NOT RUN", out)
-        self.assertNotIn("ALL SYSTEMS CLEAR", out)
+        self.assertIn(ui_contract.VERIFY_CHECK_DISPLAY_NOT_RUN, out)
+        self.assertNotIn(ui_contract.VERIFY_MSG_ALL_SYSTEMS_CLEAR, out)
+        self.assertTrue(ui_contract.output_contains_verify_brand_or_rule(out))
 
     def test_steps_executed_zero_no_success_banner(self):
         """steps_executed_count=0, all not_run -> No verification checks were actually executed."""
@@ -51,8 +233,8 @@ class TestRendererVerificationProvenance(unittest.TestCase):
         }
         self.renderer.render_verification_results(verification)
         out = self.output.getvalue()
-        self.assertIn("No verification checks were actually executed", out)
-        self.assertNotIn("ALL SYSTEMS CLEAR", out)
+        self.assertIn(ui_contract.VERIFY_MSG_NO_CHECKS_ON_DISK, out)
+        self.assertNotIn(ui_contract.VERIFY_MSG_ALL_SYSTEMS_CLEAR, out)
 
     def test_mixed_passed_failed_shows_system_status_failed(self):
         """Lint PASSED + Build/TypeCheck FAILED -> global status clearly FAILED."""
@@ -67,10 +249,10 @@ class TestRendererVerificationProvenance(unittest.TestCase):
         }
         self.renderer.render_verification_results(verification)
         out = self.output.getvalue()
-        self.assertIn("System status: FAILED", out)
+        self.assertIn(ui_contract.RESULTADO_LINE_FAILED, out)
         self.assertIn("Build", out)
         self.assertIn("TypeCheck", out)
-        self.assertNotIn("ALL SYSTEMS CLEAR", out)
+        self.assertNotIn(ui_contract.VERIFY_MSG_ALL_SYSTEMS_CLEAR, out)
 
     def test_only_typecheck_executed_build_lint_not_run(self):
         """Only TypeCheck executed+passed => Build and Lint must render as NOT RUN."""
@@ -89,8 +271,32 @@ class TestRendererVerificationProvenance(unittest.TestCase):
         self.assertIn("PASSED", out)
         self.assertIn("Build", out)
         self.assertIn("Lint", out)
-        self.assertIn("NOT RUN", out)
-        self.assertIn("ALL SYSTEMS CLEAR", out)
+        self.assertIn(ui_contract.VERIFY_CHECK_DISPLAY_NOT_RUN, out)
+        self.assertIn(ui_contract.VERIFY_MSG_CHECKS_PASSED, out)
+
+    def test_render_failed_check_uses_pytest_suite_summary(self):
+        stderr = (
+            "pytest session starts\n"
+            "tests/unit/test_x.py::test_a PASSED [0.01s]\n"
+            "=========== 1 passed in 1.2s ===========\n"
+        )
+        verification = {
+            "status": "failed",
+            "steps_executed_count": 1,
+            "checks": [
+                {
+                    "name": "Tests",
+                    "status": "failed",
+                    "provenance": "executed",
+                    "exit_code": 1,
+                    "stderr": stderr,
+                },
+            ],
+        }
+        self.renderer.render_verification_results(verification)
+        out = self.output.getvalue()
+        self.assertIn("test_x.py::test_a", out)
+        self.assertIn(ui_contract.VERIFY_PYTEST_SUMMARY_HEADER_PREFIX, out)
 
     def test_tool_segment_flushes_single_panel(self):
         """GHOST_TOOL_UI=panel: tabla con título de lote."""
@@ -100,9 +306,9 @@ class TestRendererVerificationProvenance(unittest.TestCase):
             self.renderer.append_tool_trace("read_file", "README.md", auto_approved=True)
             self.renderer.flush_tool_segment()
         out = self.output.getvalue()
-        self.assertIn("Herramientas (lote del modelo)", out)
+        self.assertIn(ui_contract.TOOL_TABLE_TITLE_MARKER, out)
         self.assertIn("ls", out)
-        self.assertIn("read_file", out)
+        self.assertIn("read", out)
         self.assertIn("README.md", out)
 
     def test_tool_segment_compact_default_one_line(self):
@@ -112,9 +318,48 @@ class TestRendererVerificationProvenance(unittest.TestCase):
             self.renderer.append_tool_trace("read_file", "package.json", auto_approved=False)
             self.renderer.flush_tool_segment()
         out = self.output.getvalue()
-        self.assertNotIn("Herramientas (lote del modelo)", out)
-        self.assertIn("read_file", out)
+        self.assertNotIn(ui_contract.LEGACY_TOOLS_LOTE_PHRASE, out)
+        self.assertIn("read", out)
         self.assertIn("package.json", out)
+
+    def test_summarize_pytest_extracts_nodes_and_duration(self):
+        blob = (
+            "pytest collected 2 items\n\n"
+            "tests/unit/test_x.py::test_a PASSED [0.01s]\n"
+            "tests/unit/test_x.py::test_b FAILED [0.02s]\n"
+            "=========== 1 failed, 1 passed in 2.5s ===========\n"
+        )
+        s = summarize_test_runner_output(blob)
+        self.assertIsNotNone(s)
+        self.assertIn(ui_contract.VERIFY_PYTEST_SUMMARY_HEADER_EXTRACTO, s)
+        self.assertIn("test_x.py::test_a", s)
+        self.assertIn("PASSED", s)
+        self.assertIn("FAILED", s)
+
+    def test_summarize_random_blob_returns_none(self):
+        self.assertIsNone(summarize_test_runner_output("hello world no tests here"))
+
+
+class TestVisualLayoutAdaptive(unittest.TestCase):
+    def test_compact_density_reduces_review_cap_vs_comfortable(self) -> None:
+        c = build_ghost_visual_layout(width=100, verbose=False, density="compact")
+        h = build_ghost_visual_layout(width=100, verbose=False, density="comfortable")
+        self.assertLess(c.review_md_lines_normal, h.review_md_lines_normal)
+
+    def test_ascii_rail_uses_asterisk_not_bullet(self) -> None:
+        ly = build_ghost_visual_layout(width=100, verbose=False, ascii_ui=True, density="normal")
+        r = format_live_phase_rail("ACT", ui_contract.LIVE_RAIL_PROFILE_IMPLEMENT, layout=ly)
+        self.assertIn("*", r)
+        self.assertNotIn("●", r)
+
+    def test_narrow_console_merges_status_message_single_line(self) -> None:
+        buf = StringIO()
+        console = make_ghost_console(file=buf, width=48, force_terminal=False)
+        renderer = GhostRenderer(console)
+        with patch.dict(os.environ, {"GHOST_UI_VERBOSE": "0"}, clear=False):
+            msg = renderer._status_full_message("ACT", "thinking")
+        self.assertIn("::", msg)
+        self.assertEqual(msg.count("\n"), 0)
 
 
 if __name__ == "__main__":

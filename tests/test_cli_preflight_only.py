@@ -26,8 +26,8 @@ def test_dev_preflight_only_exits_before_runtime_loop() -> None:
         "apps.cli.main._preflight_gateway_or_exit", return_value=pf
     ):
         result = runner.invoke(app, ["dev", "--preflight-only"])
-    assert result.exit_code == 0, result.stdout
-    assert "Ghost Dev preflight OK" in result.stdout
+        assert result.exit_code == 0, result.stdout
+        assert "Ghost Dev preflight OK" in result.stdout
 
 
 def test_plan_preflight_only_exits_before_runtime_loop() -> None:
@@ -36,8 +36,8 @@ def test_plan_preflight_only_exits_before_runtime_loop() -> None:
         "apps.cli.main._preflight_gateway_or_exit", return_value=pf
     ):
         result = runner.invoke(app, ["plan", "smoke task", "--preflight-only"])
-    assert result.exit_code == 0, result.stdout
-    assert "Ghost Plan preflight OK" in result.stdout
+        assert result.exit_code == 0, result.stdout
+        assert "Ghost Plan preflight OK" in result.stdout
 
 
 def test_claude_preflight_only_skips_external_claude_launch() -> None:
@@ -48,9 +48,9 @@ def test_claude_preflight_only_skips_external_claude_launch() -> None:
         "apps.cli.main.require_provider_for_assistant"
     ), patch("apps.cli.main.subprocess.run") as run_mock:
         result = runner.invoke(app, ["claude", "--preflight-only"])
-    assert result.exit_code == 0, result.stdout
-    assert "Ghost Claude bridge preflight OK" in result.stdout
-    run_mock.assert_not_called()
+        assert result.exit_code == 0, result.stdout
+        assert "Ghost Claude bridge preflight OK" in result.stdout
+        run_mock.assert_not_called()
 
 
 def test_prepare_runtime_for_assistant_applies_coder_profile(monkeypatch, tmp_path) -> None:
@@ -74,3 +74,23 @@ def test_prepare_runtime_for_assistant_applies_architect_alias(monkeypatch, tmp_
     prep = _prepare_runtime_for_assistant(Profile.architect, initial_task="plan architecture")
     assert os.environ["GHOST_ACTIVE_PROFILE"] == "safe"
     assert prep.operational_profile == "safe"
+
+
+def test_doctor_reports_health_but_not_ready() -> None:
+    """Verifica que doctor reporte claramente cuando /health responde pero /ready no."""
+    from types import SimpleNamespace
+
+    # Gateway responde /health (ok=True) pero /ready falla (ready=False)
+    pf_ok = SimpleNamespace(ok=True, checked_url="http://127.0.0.1:8000/health", status_code=200)
+
+    with patch("apps.cli.main.is_running", return_value=True), patch(
+        "apps.cli.main.probe_gateway", return_value=pf_ok
+    ), patch("apps.cli.main.check_provider_ready", return_value=(False, "provider initializing")), patch(
+        "apps.cli.main._effective_gateway_url", return_value="http://127.0.0.1:8000"
+    ), patch("apps.cli.main.get_api_key", return_value="test-key"):
+        result = runner.invoke(app, ["doctor"])
+        assert result.exit_code == 0, result.stdout
+        # Debe mostrar que el gateway es alcanzable
+        assert "Reachable" in result.stdout or "reachable" in result.stdout.lower()
+        # Debe reportar el estado "healthy but not ready"
+        assert "healthy but not ready" in result.stdout.lower() or "Gateway healthy but not ready" in result.stdout

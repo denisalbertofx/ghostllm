@@ -16,6 +16,8 @@ from typing import Any, Dict, Iterator, List, Optional, Tuple
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from apps.cli.ui.ui_contract import TRACE_MD_ACTIVE_WORKSET_BOLD
+
 logger = logging.getLogger(__name__)
 
 _trace_ctx: ContextVar[Optional["SessionTraceManager"]] = ContextVar(
@@ -162,6 +164,8 @@ class RepairTrace(BaseModel):
     duration_ms: float
     failed_check: str = ""
     repair_summary: str = ""
+    causal_error_signature: str = ""
+    error_signature_delta: str = ""
     reverify_attempted: bool = False
     result: str = ""
     status: str = TRACE_STATUS_COMPLETED
@@ -205,6 +209,12 @@ class SessionTrace(BaseModel):
     planner_used: bool = False
     retrieval_used: bool = False
     execution_agent_used: bool = False
+    fast_path_eligible: bool = False
+    fast_path_used: bool = False
+    first_edit_turn: int = 0
+    verification_scope: str = ""
+    planned_check_cwds: Dict[str, str] = Field(default_factory=dict)
+    fallback_reason: str = ""
     batch_executor_used: bool = False
     approval_compression_used: bool = False
     compressed_approval_count: int = 0
@@ -224,6 +234,9 @@ class SessionTrace(BaseModel):
     approvals: List[ApprovalTrace] = Field(default_factory=list)
     verification: List[VerificationTrace] = Field(default_factory=list)
     repairs: List[RepairTrace] = Field(default_factory=list)
+    active_workset: Dict[str, Any] = Field(default_factory=dict)
+    phase_checkpoints: List[Dict[str, Any]] = Field(default_factory=list)
+    incremental_verify_state: Dict[str, Any] = Field(default_factory=dict)
     summary: Optional[SessionTraceSummary] = None
     trace_notes: List[str] = Field(default_factory=list)
     feature_flags: Dict[str, str] = Field(default_factory=dict)
@@ -732,6 +745,42 @@ def format_trace_markdown_lines(
     return "\n".join(lines)
 
 
+def format_trace_workset_markdown(
+    active_workset: Dict[str, Any],
+    phase_checkpoints: List[Dict[str, Any]],
+    incremental_verify_state: Dict[str, Any],
+) -> str:
+    lines: List[str] = []
+    if active_workset:
+        focus = list(active_workset.get("edited_files") or []) + list(active_workset.get("candidate_files") or [])
+        dedup_focus: List[str] = []
+        for item in focus:
+            if item and item not in dedup_focus:
+                dedup_focus.append(str(item))
+        lines.append("## LONG-RUN CONTEXT")
+        if dedup_focus:
+            lines.append(f"{TRACE_MD_ACTIVE_WORKSET_BOLD} {', '.join(dedup_focus[:8])}")
+        if active_workset.get("related_tests"):
+            lines.append(f"**Related tests:** {', '.join((active_workset.get('related_tests') or [])[:6])}")
+        if active_workset.get("last_focus_reason"):
+            lines.append(f"**Focus reason:** {active_workset.get('last_focus_reason')}")
+    if phase_checkpoints:
+        last = phase_checkpoints[-1]
+        lines.append("## PHASE CHECKPOINT")
+        lines.append(
+            f"**Latest:** phase={last.get('phase','')} | reason={last.get('reason','')} | "
+            f"focus={', '.join((last.get('focus_files') or [])[:6])}"
+        )
+    if incremental_verify_state:
+        lines.append("## INCREMENTAL VERIFY")
+        lines.append(
+            f"**Batches:** {int(incremental_verify_state.get('batches_run') or 0)} | "
+            f"**Last status:** {incremental_verify_state.get('last_status') or 'n/a'} | "
+            f"**Last checks:** {', '.join((incremental_verify_state.get('last_checks') or [])[:6]) or 'n/a'}"
+        )
+    return "\n".join(lines)
+
+
 def persist_trace_file(project_root: str, trace: SessionTrace) -> str:
     traces_dir = Path(project_root) / ".ghost" / "traces"
     traces_dir.mkdir(parents=True, exist_ok=True)
@@ -791,6 +840,9 @@ class SessionTraceManager:
         self.final_state = ""
         self.execution_loop_model_turns = 0
         self.execution_loop_tool_rounds = 0
+        self.active_workset: Dict[str, Any] = {}
+        self.phase_checkpoints: List[Dict[str, Any]] = []
+        self.incremental_verify_state: Dict[str, Any] = {}
 
     def record_chat_model_turn(self) -> None:
         """Un turno donde el modelo principal devolvió mensaje (haya o no tool calls)."""
@@ -827,6 +879,15 @@ class SessionTraceManager:
             self.planner_used = bool(getattr(session, "planner_used", False))
             self.retrieval_used = bool(getattr(session, "retrieval_enabled", False))
             self.execution_agent_used = bool(getattr(session, "execution_agent_used", False))
+            self.fast_path_eligible = bool(getattr(session, "fast_path_eligible", False))
+            self.fast_path_used = bool(getattr(session, "fast_path_used", False))
+            self.first_edit_turn = int(getattr(session, "first_edit_turn", 0) or 0)
+            self.verification_scope = str(getattr(session, "verification_scope", "") or "")
+            self.planned_check_cwds = dict(getattr(session, "planned_check_cwds", {}) or {})
+            self.fallback_reason = str(getattr(session, "fallback_reason", "") or "")
+            self.active_workset = dict(getattr(session, "active_workset", {}) or {})
+            self.phase_checkpoints = list(getattr(session, "phase_checkpoints", []) or [])
+            self.incremental_verify_state = dict(getattr(session, "incremental_verify_state", {}) or {})
             rp = getattr(session, "repo_profile", None) or {}
             if isinstance(rp, dict) and rp.get("root"):
                 self.set_repo_root(str(rp["root"]))
@@ -995,6 +1056,9 @@ class SessionTraceManager:
             approvals=list(self.approvals),
             verification=list(self.verification),
             repairs=list(self.repairs),
+            active_workset=dict(self.active_workset or {}),
+            phase_checkpoints=list(self.phase_checkpoints or []),
+            incremental_verify_state=dict(self.incremental_verify_state or {}),
             trace_notes=list(self.trace_notes),
             feature_flags=collect_feature_flag_snapshot(),
             wrong_repo_diagnostic=wrong
@@ -1030,6 +1094,13 @@ class SessionTraceManager:
                 trace.wrong_repo_diagnostic or "",
                 batch_extra=format_batch_execution_markdown(trace),
             )
+            extra = format_trace_workset_markdown(
+                trace.active_workset,
+                trace.phase_checkpoints,
+                trace.incremental_verify_state,
+            )
+            if extra:
+                detail_md = detail_md + "\n" + extra
             return path, short, detail_md
         except Exception as e:
             logger.warning("session trace persist failed (non-fatal): %s", e)

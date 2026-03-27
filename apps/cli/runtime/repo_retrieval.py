@@ -1477,21 +1477,28 @@ def run_retrieval_for_session(
 def build_retrieval_prompt_block(session: Any) -> str:
     if getattr(session, "micro_task_kind", None):
         return ""
+    agents_hint = ""
+    ap = str(getattr(session, "agents_md_path", "") or "").strip()
+    if ap:
+        agents_hint = (
+            f"[Retrieval context: project rules are loaded from `{ap}` in the system prompt — "
+            f"prioritize paths and conventions described there when ranking files.]\n\n"
+        )
     if not getattr(session, "retrieval_enabled", False):
-        return ""
+        return agents_hint
     raw = getattr(session, "retrieval_result", None) or {}
     if not raw:
-        return ""
+        return agents_hint
     try:
         rr = RetrievalResult.model_validate(raw)
     except Exception:
-        return ""
+        return agents_hint
     q = getattr(session, "retrieval_query", None) or {}
     qt = ""
     if isinstance(q, dict):
         qt = str(q.get("text") or "")
     mode = str(getattr(session, "retrieval_mode", "advisory") or "advisory")
-    return retrieval_result_to_prompt_block(
+    return agents_hint + retrieval_result_to_prompt_block(
         rr,
         qt,
         mode=mode,

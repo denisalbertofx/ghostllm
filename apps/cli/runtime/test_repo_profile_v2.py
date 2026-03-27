@@ -12,6 +12,8 @@ from apps.cli.runtime.repo_profile_v2 import (
     build_repo_profile,
     repo_profile_to_prompt_block,
     repo_profile_to_summary_text,
+    verification_command_command,
+    verification_command_cwd,
 )
 from apps.cli.runtime.taskspec_adapter import repo_profile_to_dict
 from apps.cli.runtime.verification import VerificationManager
@@ -103,15 +105,16 @@ class TestRepoProfileV2NextDrizzle(unittest.TestCase):
         p = build_repo_profile(self.root, cache=False)
         self.assertIn("npm", " ".join(p.stack.package_manager).lower())
         self.assertIsNotNone(p.verification_commands.typecheck)
-        self.assertIn("typecheck", p.verification_commands.typecheck)
+        self.assertIn("typecheck", verification_command_command(p.verification_commands.typecheck) or "")
         self.assertIsNotNone(p.verification_commands.build)
         self.assertIsNotNone(p.verification_commands.lint)
+        self.assertEqual(verification_command_cwd(p.verification_commands.build), ".")
 
     def test_verification_commands_pnpm(self):
         self._write_next_drizzle_fixture(use_pnpm=True)
         p = build_repo_profile(self.root, cache=False)
         self.assertIn("pnpm", p.stack.package_manager)
-        self.assertIn("pnpm", p.verification_commands.typecheck or "")
+        self.assertIn("pnpm", verification_command_command(p.verification_commands.typecheck) or "")
 
     def test_verification_manager_uses_profile_commands(self):
         self._write_next_drizzle_fixture()
@@ -125,9 +128,12 @@ class TestRepoProfileV2NextDrizzle(unittest.TestCase):
                 "tests": p.verification_commands.tests,
             },
         )
-        checks = {c["name"]: c["command"] for c in m.get_applicable_checks()}
+        checks = {c["name"]: c for c in m.get_applicable_checks(files_changed=[{"file": "app/api/issues/route.ts"}])}
         self.assertIn("TypeCheck", checks)
-        self.assertEqual(checks["TypeCheck"], p.verification_commands.typecheck)
+        self.assertEqual(
+            checks["TypeCheck"]["command"],
+            verification_command_command(p.verification_commands.typecheck),
+        )
 
     def test_repo_profile_to_dict_session_shape(self):
         self._write_next_drizzle_fixture()
@@ -192,8 +198,8 @@ class TestRepoProfileV2AgentsMd(unittest.TestCase):
         )
         p = build_repo_profile(self.root, cache=False)
         self.assertIn("agents_md", p.verification_commands.source)
-        self.assertIn("custom-tc", p.verification_commands.typecheck or "")
-        self.assertIn("custom-build", p.verification_commands.build or "")
+        self.assertIn("custom-tc", verification_command_command(p.verification_commands.typecheck) or "")
+        self.assertIn("custom-build", verification_command_command(p.verification_commands.build) or "")
 
 
 class TestRepoProfileV2PlainNode(unittest.TestCase):
@@ -283,6 +289,7 @@ class TestRepoProfileV2PolyglotMonorepo(unittest.TestCase):
         self.assertIn("ui", p.layers_detected)
         self.assertIn("apps/web/src/app", p.entrypoints.ui_roots)
         self.assertIn("apps/server", p.entrypoints.api_roots)
+        self.assertEqual(verification_command_cwd(p.verification_commands.build), "apps/web")
 
 
 class TestScanRepoProfileCompat(unittest.TestCase):

@@ -161,6 +161,68 @@ class TestDecisionPlannerCore(unittest.TestCase):
         if vp.steps:
             self.assertLessEqual(len(vp.steps), 1)
 
+    def test_structured_verification_commands_preserve_cwd(self):
+        ts = {
+            "intent": "modification",
+            "scope": ["api"],
+            "verification_policy": {
+                "required": True,
+                "typecheck": True,
+                "build": True,
+                "lint": True,
+                "tests": True,
+            },
+        }
+        repo = _repo_v2_api()
+        repo["verification_commands"] = {
+            "typecheck": {"command": "pnpm exec tsc --noEmit", "cwd": "apps/web", "source": ["package_json"]},
+            "build": {"command": "pnpm run build", "cwd": "apps/web", "source": ["package_json"]},
+            "lint": {"command": "pnpm run lint", "cwd": "apps/web", "source": ["package_json"]},
+            "tests": {"command": "pnpm test", "cwd": "apps/web", "source": ["package_json"]},
+            "source": ["package_json"],
+        }
+        sess = make_session_state_for_planner(budget_remaining=100)
+        ex = build_exploration_plan(ts, repo, sess)
+        ep = build_execution_plan(ts, repo, ex, sess)
+        vp = build_verification_plan(ts, repo, ep, sess)
+        by_check = {s.check: s for s in vp.steps}
+        self.assertEqual(by_check["typecheck"].cwd, "apps/web")
+        self.assertEqual(by_check["build"].cwd, "apps/web")
+        self.assertEqual(by_check["lint"].cwd, "apps/web")
+        self.assertEqual(by_check["tests"].cwd, "apps/web")
+        self.assertEqual(by_check["typecheck"].source, "package_json")
+
+    def test_python_target_does_not_schedule_node_typecheck_in_polyglot_repo(self):
+        ts = {
+            "intent": "bugfix",
+            "scope": [],
+            "change_expectation": "must_write",
+            "target_files": ["apps/cli/main.py"],
+            "verification_policy": {"required": True, "typecheck": False, "build": False, "lint": False, "tests": True},
+        }
+        repo = {
+            "entrypoints": {"api_roots": ["apps/server"], "ui_roots": ["apps/web/src/app"]},
+            "api_routes": [],
+            "validation_files": [],
+            "db_schema_files": [],
+            "key_files": ["pyproject.toml", "apps/web/package.json"],
+            "stack": {"language": ["typescript", "python"]},
+            "verification_commands": {
+                "typecheck": {"command": "npm run typecheck", "cwd": "apps/web", "source": ["package_json"]},
+                "build": {"command": "npm run build", "cwd": "apps/web", "source": ["package_json"]},
+                "lint": {"command": "npm run lint", "cwd": "apps/web", "source": ["package_json"]},
+                "tests": {"command": "uv run python -m pytest", "cwd": ".", "source": ["defaults"]},
+                "source": ["package_json", "defaults"],
+            },
+        }
+        sess = make_session_state_for_planner(budget_remaining=100)
+        ex = build_exploration_plan(ts, repo, sess)
+        ep = build_execution_plan(ts, repo, ex, sess)
+        vp = build_verification_plan(ts, repo, ep, sess)
+        checks = [step.check for step in vp.steps]
+        self.assertFalse(any(step.check == "typecheck" for step in vp.steps))
+        self.assertIn("tests", checks)
+
     def test_refactor_first_when_intent_refactor(self):
         ts = {
             "intent": "refactor",
@@ -210,6 +272,22 @@ class TestDecisionPlannerCore(unittest.TestCase):
         ep = build_execution_plan(ts, repo, ex, sess)
         self.assertEqual(ep.execution_strategy, "direct_edit")
         self.assertEqual(ep.risk.level, "low")
+
+    def test_focused_target_files_lock_expected_files_changed(self):
+        ts = {
+            "intent": "bugfix",
+            "scope": [],
+            "change_expectation": "must_write",
+            "target_files": ["apps/cli/main.py"],
+            "verification_policy": {"required": True, "tests": True},
+        }
+        repo = _repo_v2_api()
+        sess = make_session_state_for_planner(budget_remaining=100)
+        ex = build_exploration_plan(ts, repo, sess)
+        ep = build_execution_plan(ts, repo, ex, sess)
+        self.assertEqual(ep.expected_files_changed, ["apps/cli/main.py"])
+        self.assertEqual(ep.execution_strategy, "direct_edit")
+        self.assertEqual(ep.blast_radius, "file")
 
     def test_staged_edit_medium_or_multi_file(self):
         ts = {
@@ -266,6 +344,30 @@ class TestDecisionPlannerCore(unittest.TestCase):
         block = build_decision_planner_prompt_block(session)
         self.assertIn("[DECISION PLANNER", block)
         self.assertNotIn("PlannerOutput(", block)
+
+    def test_advisory_flag_on_accepts_structured_verification_commands(self):
+        session = ArtifactSession("s1", "task")
+        ensure_task_contract_foundation(session, Intent(mode="Chat", task="x", original_text="x"))
+        session.runtime_contract_source = "taskspec"
+        session.task_contract["spec"] = {
+            "intent": "modification",
+            "scope": ["api"],
+            "verification_policy": {"required": True, "typecheck": True, "build": True},
+        }
+        repo = _repo_v2_api()
+        repo["verification_commands"] = {
+            "typecheck": {"command": "pnpm exec tsc --noEmit", "cwd": "apps/web", "source": ["package_json"]},
+            "build": {"command": "pnpm run build", "cwd": "apps/web", "source": ["package_json"]},
+            "lint": {"command": "pnpm run lint", "cwd": "apps/web", "source": ["package_json"]},
+            "source": ["package_json"],
+        }
+        session.repo_profile = {"profile_v2": repo}
+        with mock.patch.dict(os.environ, {"GHOST_USE_DECISION_PLANNER": "1"}):
+            apply_decision_planner_to_session(session, budget_remaining=100)
+        self.assertTrue(session.planner_used)
+        decision_plan = session.contract_decision_plan()
+        steps = decision_plan["verification_plan"]["steps"]
+        self.assertTrue(any(step["cwd"] == "apps/web" for step in steps))
 
     def test_normalize_verification_steps_rejects_pipes(self):
         steps = normalize_verification_steps(

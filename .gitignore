@@ -5,6 +5,9 @@ __pycache__/
 .next/
 node_modules/
 out/
+.ghost/
+.playwright-cli/
+*.pyc
 
 ghost.pid
 ghost.log
@@ -13,6 +16,9 @@ ghost_memory.db
 ghost_daemon.log
 nvidia_debug.log
 server_stdout.log
+*.db
+*.log
+*.pid
 
 configs/default.local.yaml
 apps/web/dev-*.log

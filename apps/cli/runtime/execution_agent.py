@@ -273,6 +273,30 @@ def _path_allowed(
     return True
 
 
+def _focused_target_lock_paths(taskspec: Dict[str, Any]) -> List[str]:
+    """
+    For narrow write tasks with explicit target_files, keep execution context tightly
+    locked to those files instead of widening with planner/retrieval candidates.
+    """
+    ce = str(taskspec.get("change_expectation") or "").strip().lower()
+    if ce not in ("must_write", "may_write"):
+        return []
+    out: List[str] = []
+    seen: Set[str] = set()
+    for raw in taskspec.get("target_files") or []:
+        if not isinstance(raw, str) or not raw.strip():
+            continue
+        norm = _norm_path(raw)
+        key = norm.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(norm)
+        if len(out) >= 3:
+            break
+    return out if 1 <= len(out) <= 2 else []
+
+
 def infer_file_role(path: str, repo_v2: Dict[str, Any]) -> str:
     p = path.replace("\\", "/").lower()
     if "route" in p or "/api/" in p or p.startswith("app/api"):
@@ -439,6 +463,8 @@ def build_execution_context_bundle(
     dp = inp.decision_plan
     targets: List[CandidateEditTarget] = []
     seen: Set[str] = set()
+    focused_lock_paths = _focused_target_lock_paths(ts)
+    focused_lock_set = {p.lower() for p in focused_lock_paths}
 
     def add_target(
         path: str,
@@ -448,6 +474,8 @@ def build_execution_context_bundle(
     ) -> None:
         p = _norm_path(path)
         if not p or not _path_allowed(p, ts, repo_v2):
+            return
+        if focused_lock_set and p.lower() not in focused_lock_set:
             return
         k = p.lower()
         if k in seen:
@@ -461,13 +489,14 @@ def build_execution_context_bundle(
         if isinstance(tf, str) and tf.strip():
             add_target(tf, "taskspec", 1.0, "taskspec_target_files")
 
-    for i, lt in enumerate(inp.likely_edit_targets or []):
-        if isinstance(lt, str) and lt.strip():
-            rs = ""
-            lr = inp.likely_edit_reasons or []
-            if i < len(lr):
-                rs = str(lr[i])
-            add_target(lt, "retrieval", 0.85, rs or "likely_edit_target")
+    if not focused_lock_paths:
+        for i, lt in enumerate(inp.likely_edit_targets or []):
+            if isinstance(lt, str) and lt.strip():
+                rs = ""
+                lr = inp.likely_edit_reasons or []
+                if i < len(lr):
+                    rs = str(lr[i])
+                add_target(lt, "retrieval", 0.85, rs or "likely_edit_target")
 
     rr = inp.retrieval_result or {}
     top_files = rr.get("top_files") or []
@@ -478,16 +507,17 @@ def build_execution_context_bundle(
             if isinstance(p, str) and p.strip():
                 add_target(p, "retrieval", min(1.0, 0.3 + sc / 150.0), "retrieval_top_file")
 
-    for p in _planner_file_paths(dp):
-        add_target(p, "planner", 0.6, "planner_candidate")
+    if not focused_lock_paths:
+        for p in _planner_file_paths(dp):
+            add_target(p, "planner", 0.6, "planner_candidate")
 
-    for row in inp.merged_candidate_order or []:
-        if isinstance(row, dict):
-            p = row.get("path")
-            if isinstance(p, str) and p.strip():
-                add_target(p, "merged", 0.55, str(row.get("source") or "merged"))
+        for row in inp.merged_candidate_order or []:
+            if isinstance(row, dict):
+                p = row.get("path")
+                if isinstance(p, str) and p.strip():
+                    add_target(p, "merged", 0.55, str(row.get("source") or "merged"))
 
-    key_needed = len(targets) < 3
+    key_needed = not focused_lock_paths and len(targets) < 3
     if key_needed:
         for kf in repo_v2.get("key_files") or []:
             if isinstance(kf, str) and kf.strip():
@@ -521,6 +551,8 @@ def build_execution_context_bundle(
         fp = str(h.get("file_path") or "")
         if not fp or not _path_allowed(fp, ts, repo_v2):
             continue
+        if focused_lock_set and _norm_path(fp).lower() not in focused_lock_set:
+            continue
         sl = int(h.get("start_line") or 0)
         el = int(h.get("end_line") or 0)
         prev = str(h.get("preview") or "")[:1200]
@@ -532,6 +564,8 @@ def build_execution_context_bundle(
             continue
         fp = str(ch.get("file_path") or "")
         if not fp or not _path_allowed(fp, ts, repo_v2):
+            continue
+        if focused_lock_set and _norm_path(fp).lower() not in focused_lock_set:
             continue
         append_excerpt(
             fp,
@@ -822,6 +856,9 @@ def run_execution_agent(inp: ExecutionAgentInput) -> ExecutionAgentOutput:
     mode, selected = resolve_execution_mode(inp.taskspec, inp.decision_plan, paths, inp.repo_profile_v2)
     if mode == "no_op":
         selected = []
+    focused_lock_paths = _focused_target_lock_paths(inp.taskspec)
+    if focused_lock_paths and mode != "no_op":
+        selected = list(focused_lock_paths)
 
     model_sel = select_execution_model(
         inp.taskspec,
@@ -836,6 +873,8 @@ def run_execution_agent(inp: ExecutionAgentInput) -> ExecutionAgentOutput:
         f"targets_considered={len(paths)}",
         f"model={model_sel.model_id}",
     ]
+    if focused_lock_paths:
+        reasoning.append("focused_target_lock=" + ",".join(focused_lock_paths[:2]))
 
     conf = 0.55
     if mode == "no_op":

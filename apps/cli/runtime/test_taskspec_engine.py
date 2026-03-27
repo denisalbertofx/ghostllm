@@ -2,6 +2,7 @@ import unittest
 from pathlib import Path
 
 from apps.cli.runtime.intent_classifier import (
+    INTENT_ANALYSIS,
     INTENT_BUGFIX,
     INTENT_IMPLEMENTATION,
     INTENT_REFACTOR,
@@ -48,14 +49,48 @@ class TestTaskSpecEngine(unittest.TestCase):
         self.assertIn("api", ts.scope)
         self.assertTrue(ts.verification_policy.get("typecheck"))
         self.assertEqual(ts.repair_policy.get("max_attempts"), 1)
-        self.assertEqual(ts.budget_policy.get("max_shell_calls"), 2)
-        self.assertEqual(ts.budget_policy.get("max_tool_calls"), 12)
+        self.assertEqual(ts.budget_policy.get("max_shell_calls"), 4)
+        self.assertEqual(ts.budget_policy.get("max_tool_calls"), 24)
 
     def test_review_task(self):
         repo = self._node_repo()
         r = build_taskspec("Review the authentication flow and report findings only.", repo)
         ts = r.taskspec
         self.assertEqual(ts.intent, INTENT_REVIEW)
+        self.assertEqual(ts.change_expectation, "should_not_write")
+        self.assertFalse(ts.verification_policy.get("required"))
+        self.assertFalse(any(ts.verification_policy.get(k) for k in ("typecheck", "build", "lint", "tests")))
+        self.assertEqual(ts.budget_policy.get("max_shell_calls"), 0)
+
+    def test_plan_biggest_bug_is_analysis_read_only(self):
+        repo = self._node_repo()
+        r = build_taskspec("/plan dime el bug más grande que encuentres en este proyecto", repo)
+        ts = r.taskspec
+        self.assertEqual(ts.intent, INTENT_ANALYSIS)
+        self.assertEqual(ts.change_expectation, "should_not_write")
+        self.assertFalse(ts.verification_policy.get("required"))
+        self.assertFalse(any(ts.verification_policy.get(k) for k in ("typecheck", "build", "lint", "tests")))
+        self.assertEqual(ts.budget_policy.get("max_shell_calls"), 0)
+
+    def test_inspection_prompt_explicit_pytest_raises_shell_budget(self):
+        repo = self._node_repo()
+        r = build_taskspec(
+            "/plan dime el bug más grande y ejecuta pytest al final",
+            repo,
+        )
+        ts = r.taskspec
+        self.assertEqual(ts.intent, INTENT_ANALYSIS)
+        self.assertGreaterEqual(int(ts.budget_policy.get("max_shell_calls") or 0), 3)
+
+    def test_llm_merge_cannot_force_bugfix_on_inspection_prompt(self):
+        repo = self._node_repo()
+
+        def malicious(_u: str, _r: str, _d: dict) -> dict:
+            return {"intent": INTENT_BUGFIX, "change_expectation": "must_write"}
+
+        r = build_taskspec("/plan encuentra el bug más grave del repo", repo, llm_merge_fn=malicious)
+        ts = r.taskspec
+        self.assertEqual(ts.intent, INTENT_ANALYSIS)
         self.assertEqual(ts.change_expectation, "should_not_write")
 
     def test_repo_overview_prompt_is_analysis_read_only(self):
@@ -110,8 +145,10 @@ class TestTaskSpecEngine(unittest.TestCase):
         )
         ts = r.taskspec
         self.assertEqual(ts.intent, INTENT_BUGFIX)
+        self.assertEqual(ts.change_expectation, "must_write")
         self.assertEqual(ts.scope, [])
         self.assertIn("apps/cli/main.py", ts.target_files or [])
+        self.assertFalse(ts.verification_policy.get("build"))
 
     def test_infer_cli_maintenance_targets_doctor(self):
         targets = infer_cli_maintenance_targets(
@@ -147,13 +184,16 @@ class TestTaskSpecEngine(unittest.TestCase):
             return {
                 "intent": INTENT_IMPLEMENTATION,
                 "scope": ["api"],
-                "verification_policy": {"typecheck": False},
+                "verification_policy": {"typecheck": False, "tests": False},
             }
 
         r = build_taskspec("add API feature", repo, llm_merge_fn=bad_merge)
         self.assertTrue(r.repaired)
         self.assertEqual(r.validation_status, "repaired")
-        self.assertTrue(r.taskspec.verification_policy.get("typecheck"))
+        self.assertTrue(
+            r.taskspec.verification_policy.get("typecheck")
+            or r.taskspec.verification_policy.get("tests")
+        )
         self.assertEqual(len(r.validation_errors), 0)
 
     def test_verification_policy_assignment(self):
@@ -163,8 +203,9 @@ class TestTaskSpecEngine(unittest.TestCase):
         )
         r = build_taskspec("Update API route handlers", repo)
         ts = r.taskspec
-        self.assertTrue(ts.verification_policy.get("typecheck"))
-        self.assertTrue(ts.verification_policy.get("build"))
+        self.assertTrue(
+            ts.verification_policy.get("typecheck") or ts.verification_policy.get("tests")
+        )
 
     def test_ui_scope_lint(self):
         repo = RepoProfile(layers_detected=["ui"], has_package_json=True)
@@ -176,8 +217,10 @@ class TestTaskSpecEngine(unittest.TestCase):
     def test_budget_policy_assignment(self):
         r = build_taskspec("implement x", self._node_repo())
         ts = r.taskspec
-        self.assertEqual(ts.budget_policy.get("max_shell_calls"), 2)
-        self.assertEqual(ts.budget_policy.get("max_tool_calls"), 12)
+        self.assertEqual(ts.budget_policy.get("max_shell_calls"), 4)
+        self.assertEqual(ts.budget_policy.get("max_tool_calls"), 24)
+        self.assertEqual(ts.budget_policy.get("reserved_write_tool_calls"), 4)
+        self.assertEqual(ts.budget_policy.get("soft_read_only_tool_calls"), 12)
 
     def test_extract_target_files(self):
         p = "Edit src/app/route.ts and configs/foo.yaml"
@@ -190,7 +233,7 @@ class TestTaskSpecEngine(unittest.TestCase):
             forbidden_layers=[],
             change_expectation="must_write",
             acceptance_criteria=["x"],
-            verification_policy={"required": True, "typecheck": False, "build": False, "lint": False},
+            verification_policy={"required": True, "typecheck": False, "build": False, "lint": False, "tests": False},
             repair_policy={"max_attempts": 1},
             budget_policy={"max_shell_calls": 2, "max_tool_calls": 12},
             confidence=0.9,
@@ -201,7 +244,9 @@ class TestTaskSpecEngine(unittest.TestCase):
         fixed = repair_taskspec(ts, v.errors)
         v2 = validate_taskspec(fixed)
         self.assertTrue(v2.is_valid)
-        self.assertTrue(fixed.verification_policy.get("typecheck"))
+        self.assertTrue(
+            fixed.verification_policy.get("typecheck") or fixed.verification_policy.get("tests")
+        )
 
     def test_scan_repo_profile_smoke(self):
         root = Path(__file__).resolve().parents[3]

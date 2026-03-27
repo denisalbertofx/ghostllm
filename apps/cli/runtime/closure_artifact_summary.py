@@ -11,6 +11,51 @@ from typing import Any, Dict, Optional, Tuple
 
 from apps.cli.runtime.session_phase import LOOP_ABORT_MAX_ITERATIONS
 
+# Frases que implican verificación/certeza fuerte sin tier ``confirmed`` (solo lectura).
+_TIER_STRONG_CLAIM_ES = (
+    "bug confirmado",
+    "confirmado que hay",
+    "confirmado:",
+    "está confirmado",
+    "impacto crítico",
+    "crítico y confirmado",
+    "fallará",
+    "va a fallar",
+    "seguro que falla",
+    "definitivamente",
+    "sin duda hay un bug",
+    "hay un bug en",
+    "bloquea todo",
+    "bloquea el servicio",
+    "bloquea todo el servicio",
+    "confirmed bug",
+    "critical impact",
+    "will fail",
+    "definitely broken",
+    "service will fail",
+)
+
+
+def apply_tier_language_guard_es(text: str, tier: Optional[str]) -> str:
+    """
+    Si la evidencia no es ``confirmed``, no dejamos pasar narrativa de bug/criticidad como hecho.
+    """
+    if not (text or "").strip():
+        return text
+    t = (tier or "").strip().lower()
+    if t == "confirmed":
+        return text
+    if t not in ("suspected", "unverified"):
+        return text
+    low = text.lower()
+    if any(p in low for p in _TIER_STRONG_CLAIM_ES):
+        return (
+            "Los hallazgos deben interpretarse como **hipótesis** (evidencia no confirmada con checks en disco). "
+            "Revisa la respuesta completa y las citas de `read_file` antes de actuar; el modelo usó lenguaje "
+            "demasiado tajante para el nivel de evidencia registrado."
+        )
+    return text
+
 # Human / operator alias (English) for grep and dashboards — codes remain stable in closure_reason.
 CLOSURE_REASON_OPERATOR_ALIASES_EN: Dict[str, str] = {
     "primary_verification_pass": "verified_write",
@@ -193,7 +238,9 @@ def primary_headline_es(session: Any) -> str:
 
     crs = (getattr(session, "closure_reason_summary_es", None) or "").strip()
     if crs:
-        return crs.split(". ")[0][:220] + ("…" if len(crs) > 220 else "")
+        tier = str(getattr(session, "findings_evidence_tier", "") or "").strip().lower()
+        line = crs.split(". ")[0][:220] + ("…" if len(crs) > 220 else "")
+        return apply_tier_language_guard_es(line, tier)
     return "Ghost completó la sesión según el outcome y la fase terminal registrados en el artefacto."
 
 
@@ -212,8 +259,11 @@ def build_closure_operator_view(session: Any) -> Dict[str, Any]:
 
     iter_secondary = bool(loop_raw == LOOP_ABORT_MAX_ITERATIONS and style == COMPLETION_SOFT)
 
+    tier = str(getattr(session, "findings_evidence_tier", "") or "").strip().lower()
+    headline = primary_headline_es(session)
+    headline = apply_tier_language_guard_es(headline, tier)
     return {
-        "primary_headline_es": primary_headline_es(session),
+        "primary_headline_es": headline,
         "completion_style": style,
         "completion_style_label_es": {
             COMPLETION_FIRM: "cierre_firme",
@@ -253,7 +303,11 @@ def build_closure_operator_markdown_section(session: Any) -> str:
     oc = float(cov.get("outcome_confidence") or 0.0)
     outcome = cov.get("task_outcome") or ""
     phase = cov.get("terminal_phase") or ""
-    crs = (getattr(session, "closure_reason_summary_es", None) or "").strip()
+    tier_md = str(getattr(session, "findings_evidence_tier", "") or "").strip().lower()
+    crs = apply_tier_language_guard_es(
+        (getattr(session, "closure_reason_summary_es", None) or "").strip(),
+        tier_md,
+    )
     cp = (getattr(session, "closure_posture_es", None) or "").strip()
 
     ila_ctx = cov.get("iteration_limit_context") or {}

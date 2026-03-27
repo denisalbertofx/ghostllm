@@ -28,7 +28,10 @@ def test_native_payload():
         payload = kwargs["json"]
         
         assert "tools" in payload
-        assert len(payload["tools"]) == 4
+        payload_tool_names = [tool["name"] for tool in payload["tools"]]
+        expected_tool_names = [tool["name"] for tool in assistant.NATIVE_TOOLS]
+        assert payload_tool_names == expected_tool_names
+        assert len(payload["tools"]) == len(assistant.NATIVE_TOOLS)
         assert payload["tool_choice"] == "auto"
         print("✓ Payload contains native tools definition.")
 

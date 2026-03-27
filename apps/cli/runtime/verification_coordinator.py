@@ -19,16 +19,38 @@ from typing import Any, Callable, Dict, List, Optional
 from apps.cli.runtime.task_contract import append_verification_run_record, get_task_contract_spec
 from apps.cli.runtime.verification import (
     CHECK_BLOCKED,
+    CHECK_DENIED,
     CHECK_ERROR,
     CHECK_FAILED,
     VerificationManager,
-    adjust_verification_plan_for_ux_level,
-    choose_verification_plan,
-    choose_verification_plan_from_contract_spec,
-    filter_plan_to_available_checks,
 )
 
 logger = logging.getLogger(__name__)
+
+
+def format_integrity_verify_preamble(labels: List[str], *, pytest_focus_n: int = 0) -> str:
+    """
+    Single string shown before VERIFY runs — must match planned execution (no generic placeholder).
+    """
+    clean = [str(x).strip() for x in (labels or []) if str(x).strip()]
+    if not clean:
+        return "No checks resolved for this plan (policy / skip / empty scope)"
+    core = " · ".join(clean)
+    if pytest_focus_n > 0:
+        return f"{core} [pytest focus: {pytest_focus_n} path(s)]"
+    return core
+
+
+def _format_planned_check_line(check: Optional[Dict[str, Any]]) -> str:
+    """Single-line label: name, cwd, truncated command (for CLI/UI parity with execution)."""
+    if not isinstance(check, dict) or not check.get("name"):
+        return ""
+    nm = str(check["name"])
+    cwd = str(check.get("cwd") or ".").strip() or "."
+    cmd = str(check.get("command") or "").replace("\n", " ").strip()
+    if len(cmd) > 96:
+        cmd = cmd[:93] + "..."
+    return f"{nm} @ {cwd}: {cmd}"
 
 
 def verification_diff_fingerprint(diff_summary: List[Dict[str, Any]]) -> str:
@@ -69,7 +91,9 @@ def attach_coordinator_view(raw: Dict[str, Any]) -> Dict[str, Any]:
     """Augment VerificationManager output with structured coordinator fields (artifact + repair)."""
     checks = list(raw.get("checks") or [])
     failed_checks = [
-        dict(c) for c in checks if c.get("status") in (CHECK_FAILED, CHECK_ERROR, CHECK_BLOCKED)
+        dict(c)
+        for c in checks
+        if c.get("status") in (CHECK_FAILED, CHECK_ERROR, CHECK_BLOCKED, CHECK_DENIED)
     ]
     stderr: List[Dict[str, Any]] = []
     for c in checks:
@@ -91,6 +115,10 @@ def attach_coordinator_view(raw: Dict[str, Any]) -> Dict[str, Any]:
         "reparable": reparable,
     }
     out["verification_source"] = "VerificationCoordinator"
+    if "verification_scope" in raw:
+        out["verification_scope"] = raw.get("verification_scope")
+    if "planned_check_cwds" in raw:
+        out["planned_check_cwds"] = dict(raw.get("planned_check_cwds") or {})
     return out
 
 
@@ -116,35 +144,32 @@ class VerificationCoordinator:
         spec: Optional[Dict[str, Any]] = (
             contract_spec if contract_spec is not None else taskspec_dict
         )
+        ordered, _vs = self._mgr.resolve_ordered_checks(
+            task_type=task_type,
+            scope=scope,
+            files_changed=files_changed,
+            budget_remaining=budget_remaining,
+            failed_check_names=failed_check_names,
+            contract_spec=spec,
+            repo_v2=repo_v2,
+        )
+        if ordered:
+            return [
+                _format_planned_check_line(c) or str(c.get("name") or "")
+                for c in ordered
+                if c.get("name")
+            ]
         all_checks = self._mgr.get_applicable_checks(
-            task_type=task_type, scope=scope, files_changed=files_changed
+            task_type=task_type,
+            scope=scope,
+            files_changed=files_changed,
+            contract_spec=spec,
         )
-        if spec is not None:
-            plan = choose_verification_plan_from_contract_spec(
-                spec,
-                task_type=task_type,
-                scope=scope,
-                files_changed=files_changed,
-                budget_remaining=budget_remaining,
-                failed_check_names=failed_check_names,
-                repo_v2=repo_v2,
-            )
-        else:
-            plan = choose_verification_plan(
-                task_type=task_type,
-                scope=scope,
-                files_changed=files_changed,
-                budget_remaining=budget_remaining,
-                failed_check_names=failed_check_names,
-                repo_v2=repo_v2,
-            )
-        plan = filter_plan_to_available_checks(plan, all_checks)
-        plan = adjust_verification_plan_for_ux_level(
-            plan, all_checks, failed_check_names=failed_check_names
-        )
-        if plan.check_names:
-            return list(plan.check_names)
-        return [c["name"] for c in all_checks[:5]]
+        return [
+            _format_planned_check_line(c) or str(c.get("name") or "")
+            for c in all_checks[:5]
+            if c.get("name")
+        ]
 
     def try_reuse_stored_verification(
         self,
@@ -210,6 +235,7 @@ class VerificationCoordinator:
         reuse_if_verified: bool = False,
         failed_check_names: Optional[List[str]] = None,
         verification_completed_flag: bool = False,
+        pytest_focus_paths: Optional[List[str]] = None,
     ) -> Dict[str, Any]:
         """
         Run integrity checks or reuse last executed results if fingerprint matches diff_summary.
@@ -237,20 +263,54 @@ class VerificationCoordinator:
             if reused is not None:
                 return reused
 
-        raw = self._mgr.verify_change(
-            task_type=task_type,
-            history=history,
-            blocked_commands=blocked_commands,
-            skip_execution=skip_execution,
-            skip_reason=skip_reason,
-            scope=scope,
-            files_changed=diff_summary,
-            budget_remaining=budget_remaining,
-            failed_check_names=failed_check_names,
-            contract_spec=spec,
-            repo_v2=repo_v2,
-            verify_batch_approval_fn=verify_batch_approval_fn,
-        )
+        try:
+            raw = self._mgr.verify_change(
+                task_type=task_type,
+                history=history,
+                blocked_commands=blocked_commands,
+                skip_execution=skip_execution,
+                skip_reason=skip_reason,
+                scope=scope,
+                files_changed=diff_summary,
+                budget_remaining=budget_remaining,
+                failed_check_names=failed_check_names,
+                contract_spec=spec,
+                repo_v2=repo_v2,
+                verify_batch_approval_fn=verify_batch_approval_fn,
+                pytest_focus_paths=pytest_focus_paths,
+            )
+        except Exception as exc:
+            logger.exception("verify_change aborted at coordinator boundary: %s", exc)
+            raw = {
+                "status": "failed",
+                "checks": [
+                    {
+                        "name": "VerifyRuntime",
+                        "kind": "internal",
+                        "status": CHECK_ERROR,
+                        "provenance": "internal",
+                        "error": str(exc),
+                        "cause": type(exc).__name__,
+                    }
+                ],
+                "steps_executed_count": 0,
+                "verification_scope": "",
+                "planned_check_cwds": {},
+                "justification": "verify_change raised; treated as failed verification",
+            }
+            if session is not None:
+                try:
+                    ev = getattr(session, "events", None)
+                    if isinstance(ev, list):
+                        ev.append(
+                            {
+                                "event": "verify_runtime_exception",
+                                "cause": type(exc).__name__,
+                                "detail": str(exc)[:240],
+                            }
+                        )
+                except Exception:
+                    pass
         out = attach_coordinator_view(raw)
         if session is not None and int(out.get("steps_executed_count") or 0) > 0 and not skip_execution:
             session.verification_diff_fingerprint = verification_diff_fingerprint(diff_summary)

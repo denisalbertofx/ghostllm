@@ -19,6 +19,7 @@ REASON_READ_ONLY_STAGNATION_THRESHOLD = "read_only_stagnation_threshold"
 REASON_REPO_CONTEXT_SUFFICIENT = "repo_context_sufficient"
 REASON_FOCUSED_WRITE_CONTEXT_READY = "focused_write_context_ready"
 REASON_SIMPLE_WRITE_MIN_CONTEXT = "simple_write_min_context"
+REASON_REPEATED_TARGET_READ = "repeated_target_read"
 REASON_EXPLICIT_MODEL_MODIFY_INTENT = "explicit_model_modify_intent"
 REASON_EXPLORE_TEXT_ONLY_STREAK = "explore_text_only_streak"
 
@@ -62,6 +63,7 @@ class ExplorationMetrics:
     unique_read_paths: int
     target_file_count: int
     relevant_read_hits: int
+    max_target_read_count: int
     focused_write_task: bool
     simple_write_task: bool
     policy_allows_act: bool
@@ -129,6 +131,14 @@ def should_promote_explore_to_act(
         and m.discovery_action_count >= 1
     ):
         exploration_metrics.last_promotion_reason = REASON_FOCUSED_WRITE_CONTEXT_READY
+        return True
+
+    if (
+        m.focused_write_task
+        and m.target_file_count > 0
+        and m.max_target_read_count >= 2
+    ):
+        exploration_metrics.last_promotion_reason = REASON_REPEATED_TARGET_READ
         return True
 
     if (

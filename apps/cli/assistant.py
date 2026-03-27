@@ -9,6 +9,7 @@ import random
 import logging
 import subprocess
 import difflib
+from collections.abc import Mapping
 from pathlib import Path
 from typing import List, Dict, Any, Optional, Tuple
 import requests
@@ -19,8 +20,12 @@ from rich.markup import escape
 from rich.table import Table
 from rich import box
 
+from apps.cli.ui.renderer import format_tool_live_hint_from_prepared
+from apps.cli.ui.ui_contract import MSG_ACTIVE_WORKSET_PLAIN_PREFIX, MSG_APPROVAL_SAME_BUNDLE
+from apps.cli.runtime.slash_execute_contract import apply_slash_execute_write_overrides
 from apps.cli.runtime.task_contract import (
     Intent,
+    append_budget_extension_record,
     append_repair_run_record,
     contract_has_operational_spec,
     ensure_task_contract_foundation,
@@ -31,16 +36,22 @@ from apps.cli.runtime.task_contract import (
 )
 from apps.cli.runtime.adapters.contract_intake import intake_fill_task_contract_spec
 from .runtime.policy_gate import PolicyGate, ApprovalLevel
-from .runtime.verification import VerificationManager
-from .runtime.verification_coordinator import VerificationCoordinator
-from .runtime.artifacts import ArtifactManager
+from .runtime.verification import VerificationManager, parse_pytest_focus_targets
+from .runtime.verification_coordinator import VerificationCoordinator, format_integrity_verify_preamble
+from .runtime.artifacts import ArtifactManager, append_compacted_session_event
 from .runtime.hooks import HookManager, HookEvents
 from .runtime.tasks import TaskManager
 from .runtime.swarm import SwarmManager
 from .runtime.review_coordinator import ReviewCoordinator
 from .runtime.merge_assistant import MergeAssistant
 from .runtime.batch import BatchManager
-from apps.cli.runtime.autonomy import BudgetManager, StagnationDetector, AutonomyCheckpoint, ExplorationMemory
+from apps.cli.runtime.autonomy import (
+    AutonomyCheckpoint,
+    BudgetManager,
+    ExplorationMemory,
+    StagnationDetector,
+    stagnation_tool_detail,
+)
 from apps.cli.runtime.paths import PathComposer, WorkingDirectoryGuard
 
 logger = logging.getLogger(__name__)
@@ -65,7 +76,7 @@ from apps.cli.runtime.exploration_planner import path_under_ui_roots
 from apps.cli.runtime.taskspec_adapter import (
     build_contract_prompt_blocks,
     contract_spec_dict_from_session,
-    max_repair_attempts,
+    effective_max_repair_attempts,
     verification_skip_respects_contract_spec,
     write_blocked_by_contract_spec,
 )
@@ -86,9 +97,25 @@ from apps.cli.runtime.session_trace import (
     ToolCallTrace,
     verification_trace_from_result,
 )
+from apps.cli.runtime.harness_bundle import (
+    build_agents_project_prompt_block,
+    hydrate_agents_on_session,
+    readonly_analysis_truthfulness_prompt_section,
+)
+from apps.cli.runtime.analysis_grounding import (
+    enforce_readonly_assistant_message,
+    readonly_analysis_grounding_enabled,
+    record_read_file_ledger,
+)
+from apps.cli.runtime.analysis_output_policy import finalize_readonly_editorial_reply
+from apps.cli.runtime.outcome_engine import compute_findings_evidence_tier, normalize_tool_history
+from apps.cli.runtime.intent_classifier import user_explicitly_requests_verify_shell
 from apps.cli.runtime.explore_promotion import (
     ExploreTurnResult,
     ExplorationMetrics,
+    REASON_FOCUSED_WRITE_CONTEXT_READY,
+    REASON_REPEATED_TARGET_READ,
+    REASON_SIMPLE_WRITE_MIN_CONTEXT,
     should_promote_explore_to_act,
 )
 from apps.cli.runtime.repo_search import (
@@ -162,8 +189,14 @@ from apps.cli.runtime.session_phase import (
     LOOP_HALT_PHASES,
     SessionPhase,
 )
-from apps.cli.runtime.outcome_engine import _has_final_nl_response
+from apps.cli.runtime.outcome_engine import (
+    OUTCOME_ALREADY_IMPLEMENTED,
+    _has_final_nl_response,
+    determine_task_outcome,
+    verification_integrity_stale,
+)
 from apps.cli.runtime.task_confidence_engine import merge_iteration_limit_summary_with_confidence
+from apps.cli.runtime.verification import VerificationManager
 from apps.cli.runtime.terminal_resolution import (
     PolicyTerminalStatus,
     ProviderTerminalStatus,
@@ -191,19 +224,34 @@ from apps.cli.runtime.chat_prompt import (
     shrink_tool_result_for_prompt,
     sliding_window_enabled,
 )
+from apps.cli.runtime.repair_safety import (
+    failed_checks_indicate_structural_python_failure,
+    parse_error_fingerprint,
+    parse_python_file_errors,
+    validate_edited_python_parse,
+)
+from apps.cli.runtime.policy_tool_dedup import canonical_tool_invocation_key
 from apps.cli.runtime.repair_specialist import (
     REPAIR_JSON_SYSTEM,
     REPAIR_OUTCOME_APPLIED_PATCH,
     REPAIR_OUTCOME_INVALID_PATCH,
     REPAIR_OUTCOME_NO_EFFECTIVE_PATCH,
     REPAIR_OUTCOME_OUT_OF_ALLOWLIST,
+    REPAIR_OUTCOME_PARSE_BLOCKED,
     REPAIR_OUTCOME_PROVIDER_FAILURE,
     build_repair_allowlist,
+    classify_error_signature_delta,
+    classify_failure_set_delta,
+    classify_failure_set_delta_meta,
     classify_structured_repair_outcome,
+    compute_causal_error_signature,
+    snapshot_failed_verification,
     repair_context_char_budget,
     repair_specialist_enabled,
+    summarize_primary_failure,
     run_repair_specialist_llm,
 )
+from apps.cli.runtime.repair_budget_nonpy import resolve_repair_operational_budget
 from .indexer import RepoIndexer
 from .ui.renderer import GhostRenderer
 from .ui.theme import ghost_panel, make_ghost_console
@@ -213,6 +261,83 @@ from ghostllm_core.memory import MemoryStore
 def _sha256_utf8(s: str) -> str:
     """Helper to get sha256 hex digest of a string encoded as utf-8."""
     return hashlib.sha256(s.encode("utf-8")).hexdigest()
+
+
+def _positive_int_or_none(value: Any) -> Optional[int]:
+    try:
+        if value is None or value == "":
+            return None
+        parsed = int(value)
+    except (TypeError, ValueError):
+        return None
+    return parsed if parsed > 0 else None
+
+
+def _normalize_newlines_with_index_map(text: str) -> Tuple[str, List[int]]:
+    normalized: List[str] = []
+    index_map: List[int] = []
+    i = 0
+    while i < len(text):
+        index_map.append(i)
+        ch = text[i]
+        if ch == "\r":
+            normalized.append("\n")
+            if i + 1 < len(text) and text[i + 1] == "\n":
+                i += 2
+            else:
+                i += 1
+            continue
+        normalized.append(ch)
+        i += 1
+    index_map.append(len(text))
+    return "".join(normalized), index_map
+
+
+def _dominant_newline(text: str) -> str:
+    if "\r\n" in text:
+        return "\r\n"
+    if "\n" in text:
+        return "\n"
+    if "\r" in text:
+        return "\r"
+    return os.linesep
+
+
+def _coerce_newlines_like_reference(text: str, reference: str) -> str:
+    target_newline = _dominant_newline(reference)
+    normalized, _ = _normalize_newlines_with_index_map(text)
+    return normalized.replace("\n", target_newline)
+
+
+def _line_number_from_offset(text: str, offset: int) -> int:
+    if offset <= 0:
+        return 1
+    current = 0
+    for idx, line in enumerate(text.splitlines(keepends=True), start=1):
+        current += len(line)
+        if offset < current:
+            return idx
+    return max(1, len(text.splitlines()) or 1)
+
+
+def _suggest_recovery_read_window(path: str, content: str, old_str: str) -> Optional[Dict[str, Any]]:
+    content_lines = content.splitlines()
+    if not content_lines:
+        return None
+    candidates = [line.strip() for line in old_str.splitlines() if line.strip()]
+    for needle in candidates:
+        if len(needle) < 6:
+            continue
+        for idx, line in enumerate(content_lines, start=1):
+            if needle in line:
+                start_line = max(1, idx - 3)
+                max_lines = min(12, len(content_lines) - start_line + 1)
+                return {
+                    "path": path,
+                    "start_line": start_line,
+                    "max_lines": max_lines,
+                }
+    return None
 
 
 DISCOVERY_ACTIONS = frozenset(["summarize_repo", "ls", "read_file"])
@@ -256,6 +381,7 @@ Use JSON within <tool_call> tags. Example:
 # Path & File Handling
 - Directories: use `ls` with the path. If you pass a directory to `read_file`, Ghost returns the listing automatically.
 - Files: use `read_file` only for file paths (e.g. app/api/issues/route.ts). Paths are normalized (no double slashes).
+- For surgical context, prefer `read_file(path, start_line=..., max_lines=...)` over shell snippets.
 - **Documentation / agent files:** Do NOT use `write_file` to replace `AGENTS.md`, `README.md`, `CONTRIBUTING.md`, or `LICENSE` with the user's request text, a one-line "plan", or a dump of the prompt. Those files define project or agent rules. For UI/branding work, edit `app/`, `components/`, styles, and `public/` unless the user explicitly names a doc file.
 
 # Typed Validation (Zod/TypeScript)
@@ -267,6 +393,7 @@ Use JSON within <tool_call> tags. Example:
 - For implementation tasks (API, schema, endpoints): after discovering the code exists (schema, routes, build passes), conclude with "Already implemented" and list evidence. Do not stay in read-only exploration indefinitely.
 
 {fast_session_nudge}
+{agents_project_block}
 # Session phases (MANDATORY)
 You MUST follow this loop. Never stay in EXPLORE forever.
 
@@ -307,7 +434,19 @@ Discovery actions this session: {discovery_count}
 
     NATIVE_TOOLS = [
         {"name": "ls", "description": "List files in a directory", "parameters": {"type": "object", "properties": {"path": {"type": "string", "default": "."}}}},
-        {"name": "read_file", "description": "Read file content", "parameters": {"type": "object", "properties": {"path": {"type": "string"}}, "required": ["path"]}},
+        {
+            "name": "read_file",
+            "description": "Read file content. Optional line slicing: start_line + max_lines.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "path": {"type": "string"},
+                    "start_line": {"type": "integer"},
+                    "max_lines": {"type": "integer"},
+                },
+                "required": ["path"],
+            },
+        },
         {
             "name": "search_code",
             "description": (
@@ -382,6 +521,8 @@ Discovery actions this session: {discovery_count}
         self._gateway_preflight = gateway_preflight
         self.model = model
         self.mode = mode
+        self._bundle_approval_fp: Optional[str] = None
+        self._bundle_approval_ok: Optional[bool] = None
         self.auto_approve = auto_approve
         self.profile = profile
         self.project_name = project_name
@@ -435,6 +576,7 @@ Discovery actions this session: {discovery_count}
         self._loop_abort_reason: Optional[str] = None
         self._discovery_action_count = 0
         self._explore_seen_read_paths: set = set()
+        self._explore_read_path_counts: Dict[str, int] = {}
         self._explore_text_only_streak = 0
         self._explore_ls_paths_this_dispatch: set = set()
         self._small_scope_planning_nudge_sent = False
@@ -457,6 +599,7 @@ Discovery actions this session: {discovery_count}
         self._explore_v2_listing_path_checked: bool = False
         self._explore_v2_churn_nudge_injected: bool = False
         self._explore_v2_tool_ranking_nudge_injected: bool = False
+        self._last_tool_denial_key: Optional[Tuple[str, str]] = None
 
     @staticmethod
     def _api_failure_user_hint(status_code: int, err_msg: Any) -> str:
@@ -586,6 +729,7 @@ Discovery actions this session: {discovery_count}
             )
         if phase == SessionPhase.EXPLORE and prev != SessionPhase.EXPLORE:
             self._explore_seen_read_paths = set()
+            self._explore_read_path_counts = {}
             self._explore_text_only_streak = 0
             self._small_scope_planning_nudge_sent = False
             self._last_explore_assistant_text = ""
@@ -602,6 +746,8 @@ Discovery actions this session: {discovery_count}
                 from_phase=str(prev_s) if prev_s is not None else "",
                 iteration=getattr(self, "_session_loop_iteration", None),
             )
+            if prev != phase and phase != SessionPhase.IDLE:
+                self._append_phase_checkpoint(sess, phase, detail)
         if sync_task and self.task_manager.current_task:
             ct = self.task_manager.current_task
             if ct.status != phase.value or detail:
@@ -631,6 +777,7 @@ Discovery actions this session: {discovery_count}
         session.closure_reason_summary_es = getattr(tr, "closure_reason_summary_es", "") or ""
         session.closure_posture_es = getattr(tr, "closure_posture_es", "") or ""
         session.task_confidence_signals = dict(getattr(tr, "task_confidence_signals", {}) or {})
+        session.findings_evidence_tier = str(getattr(tr, "findings_evidence_tier", "") or "")
         self._loop_abort_reason = tr.loop_abort_reason
         self._apply_session_phase(tr.phase, detail="session complete", sync_task=True)
 
@@ -834,6 +981,26 @@ Discovery actions this session: {discovery_count}
                     continue
                 allow, deny_reason = self._contract_spec_allow_tool(tc_name, tc_args)
                 if not allow:
+                    try:
+                        _dk = canonical_tool_invocation_key(tc_name, tc_args if isinstance(tc_args, dict) else {})
+                    except Exception:
+                        try:
+                            _ak = json.dumps(tc_args, sort_keys=True, default=str)[:1200]
+                        except (TypeError, ValueError):
+                            _ak = str(tc_args)[:1200]
+                        _dk = (str(tc_name or "").lower(), _ak)
+                    if _dk == getattr(self, "_last_tool_denial_key", None):
+                        deny_reason = f"{deny_reason} [repeated identical blocked call — do not retry this tool until policy changes]"
+                        _sess_d = self.artifact_manager.current_session
+                        if _sess_d is not None and getattr(_sess_d, "events", None) is not None:
+                            _sess_d.events.append(
+                                {
+                                    "event": "redundant_tool_deny",
+                                    "tool": tc_name,
+                                    "key_tail": (_dk[1][:120] if len(_dk) > 1 else ""),
+                                }
+                            )
+                    self._last_tool_denial_key = _dk
                     _d = tc_args.get("path") or tc_args.get("command") or ""
                     _lbl = f"{_d} — bloqueado: {deny_reason}" if _d else str(deny_reason or "bloqueado")
                     self.renderer.append_tool_trace(tc_name, _lbl, False)
@@ -854,6 +1021,7 @@ Discovery actions this session: {discovery_count}
                     self.memory.add_message(self.session_id, mem_kind, res_content)
                     seg_ok = False
                     continue
+                self._last_tool_denial_key = None
 
                 if tc_name == "ls":
                     from apps.cli.runtime.exploration_redundancy import get_previous_ls_result_payload
@@ -891,10 +1059,15 @@ Discovery actions this session: {discovery_count}
                         executed_names.append(tc_name)
                         self._after_explore_tool_result("ls", tc_args, tool_result, legacy)
                         continue
-                self.budget_manager.consume(tc_name)
+                _bt_path = ""
+                if tc_name == "read_file":
+                    _bt_path = str(tc_args.get("path") or "").strip()
+                elif tc_name in ("edit_file", "write_file", "patch_file"):
+                    _bt_path = str(tc_args.get("path") or "").strip()
+                self.budget_manager.consume(tc_name, path=_bt_path)
                 self.budget_manager.record_contract_spec_tool_invocation(tc_name)
                 self.stagnation_detector.add_action(
-                    tc_name, tc_args.get("path") or tc_args.get("command") or ""
+                    tc_name, stagnation_tool_detail(tc_name, tc_args if isinstance(tc_args, dict) else {})
                 )
                 self._tools_executed_this_session = True
                 if tc_name == "run_shell" and pc.get("shell_batch_preapproved") is False:
@@ -923,8 +1096,10 @@ Discovery actions this session: {discovery_count}
                     _rp = (tc_args.get("path") or "").strip()
                     if _rp:
                         _composed = PathComposer.compose(self.cwd, _rp)
-                        self._explore_seen_read_paths.add(
-                            os.path.normcase(os.path.normpath(_composed))
+                        _norm_read = os.path.normcase(os.path.normpath(_composed))
+                        self._explore_seen_read_paths.add(_norm_read)
+                        self._explore_read_path_counts[_norm_read] = (
+                            int(self._explore_read_path_counts.get(_norm_read, 0) or 0) + 1
                         )
                 if (
                     self.session_phase == SessionPhase.EXPLORE
@@ -950,6 +1125,24 @@ Discovery actions this session: {discovery_count}
                         }
                     )
                 self.memory.add_message(self.session_id, mem_kind, res_content)
+                if (
+                    tc_name == "read_file"
+                    and isinstance(tool_result, dict)
+                    and not tool_result.get("error")
+                ):
+                    _sess_ledger = self.artifact_manager.current_session
+                    _lpath = str(tc_args.get("path") or "").strip()
+                    _lcontent = tool_result.get("content")
+                    if _sess_ledger and _lpath and isinstance(_lcontent, str) and _lcontent.strip():
+                        record_read_file_ledger(_sess_ledger, _lpath, _lcontent)
+                if tc_name in ("write_file", "edit_file") and isinstance(tool_result, dict) and not tool_result.get(
+                    "error"
+                ):
+                    self.budget_manager.note_successful_write_path(str(tc_args.get("path") or ""))
+                if tc_name == "edit_file" and isinstance(tool_result, dict) and tool_result.get("error"):
+                    _ee = str(tool_result.get("error") or "").lower()
+                    if "old_str" in _ee or "target string" in _ee or "not found" in _ee:
+                        self.stagnation_detector.add_failed_edit_attempt(str(tc_args.get("path") or ""))
                 self._after_explore_tool_result(tc_name, tc_args, tool_result, legacy)
                 if tool_result.get("terminal"):
                     if status:
@@ -1021,6 +1214,198 @@ Discovery actions this session: {discovery_count}
             )
         except Exception:
             pass
+
+    @staticmethod
+    def _looks_like_test_path(path: str) -> bool:
+        norm = str(path or "").replace("\\", "/").lower()
+        return norm.startswith("tests/") or "/test_" in norm or norm.startswith("test_")
+
+    def _workset_target_files(self) -> List[str]:
+        ts = self._session_contract_spec_dict()
+        if not isinstance(ts, dict):
+            return []
+        out: List[str] = []
+        for item in ts.get("target_files") or []:
+            if isinstance(item, str) and item.strip():
+                out.append(item.replace("\\", "/"))
+        return out[:8]
+
+    def _update_session_workset_from_tool(
+        self,
+        name: str,
+        args: Dict[str, Any],
+        result: Dict[str, Any],
+    ) -> None:
+        sess = self.artifact_manager.current_session
+        if not sess or not isinstance(result, dict) or result.get("error"):
+            return
+        try:
+            targets = self._workset_target_files()
+            if name == "read_file":
+                path = str(result.get("path") or args.get("path") or "")
+                if path and path != ".":
+                    sess.note_workset_read(path)
+                    if self._looks_like_test_path(path):
+                        sess.note_related_test(path)
+                    for target in targets:
+                        if target and target != path:
+                            sess.note_dependency_edge(target, path, "read_context")
+                    sess.set_workset_focus_reason(f"read_file:{path}")
+            elif name == "search_code":
+                mode = str(args.get("mode") or "")
+                query = str(args.get("query") or "")
+                sess.note_search_query(mode, query)
+                for match in (result.get("matches") or [])[:10]:
+                    if not isinstance(match, dict):
+                        continue
+                    path = str(match.get("path") or "")
+                    if not path:
+                        continue
+                    sess.note_workset_candidate(path)
+                    if self._looks_like_test_path(path):
+                        sess.note_related_test(path)
+                    for target in targets:
+                        if target and target != path:
+                            sess.note_dependency_edge(target, path, f"search_{mode or 'code'}")
+                if query:
+                    sess.set_workset_focus_reason(f"search_code:{mode or 'symbol'}:{query}")
+            elif name == "ls":
+                path = str(args.get("path") or "")
+                if path and path not in (".", "./"):
+                    sess.note_workset_candidate(path)
+                    sess.set_workset_focus_reason(f"ls:{path}")
+            elif name in ("write_file", "edit_file", "delete_file"):
+                path = str(args.get("path") or result.get("file") or "")
+                op = "edit"
+                if name == "write_file":
+                    op = "write"
+                elif name == "delete_file":
+                    op = "delete"
+                if path:
+                    sess.note_workset_edit(path, op)
+                    if self._looks_like_test_path(path):
+                        sess.note_related_test(path)
+                    sess.set_workset_focus_reason(f"{name}:{path}")
+            elif name == "run_shell":
+                cmd = str(args.get("command") or "")
+                if cmd:
+                    sess.note_shell_command(cmd)
+                    for match in re.findall(r"((?:tests|apps|packages)/[\\w./-]+\\.py)", cmd.replace("\\", "/")):
+                        sess.note_related_test(match)
+                        for target in targets:
+                            if target and target != match:
+                                sess.note_dependency_edge(target, match, "shell_verify")
+                    sess.set_workset_focus_reason("run_shell")
+        except Exception:
+            pass
+
+    @staticmethod
+    def _phase_checkpoint_next_step(phase: SessionPhase) -> str:
+        if phase == SessionPhase.INTAKE:
+            return "Bound the workset and prepare focused exploration."
+        if phase == SessionPhase.EXPLORE:
+            return "Read only the files needed to reach an implementation or no-op decision."
+        if phase == SessionPhase.ACT:
+            return "Apply the next coherent batch of edits on the active workset."
+        if phase == SessionPhase.VERIFY:
+            return "Run incremental verification against the files changed so far."
+        if phase == SessionPhase.REPAIR:
+            return "Patch only the root-cause files from the failed verification batch."
+        if phase == SessionPhase.CLOSING:
+            return "Summarize outcome, residual risks, and the next engineering action."
+        return ""
+
+    def _phase_checkpoint_open_risks(self, sess: Any) -> List[str]:
+        risks: List[str] = []
+        if getattr(self, "_pending_edit_recovery", None):
+            risks.append("pending_edit_recovery")
+        if bool(getattr(sess, "reverification_pending", False)):
+            risks.append("reverification_pending")
+        if bool(getattr(sess, "repo_mismatch_detected", False)):
+            risks.append("repo_mismatch_detected")
+        ver = getattr(sess, "verification", {}) or {}
+        if isinstance(ver, dict) and ver.get("status") == "failed":
+            risks.append("verification_failed")
+        if int(getattr(sess, "repair_attempt_count", 0) or 0) > 0:
+            risks.append("repair_in_progress")
+        return risks
+
+    def _append_phase_checkpoint(self, sess: Any, phase: SessionPhase, detail: str = "") -> None:
+        try:
+            sess.set_workset_focus_reason(detail or phase.value)
+            sess.append_phase_checkpoint(
+                phase=phase.value,
+                reason=detail,
+                iteration=getattr(self, "_session_loop_iteration", None),
+                task_summary=getattr(sess, "plan", "") or getattr(sess, "task", ""),
+                focus_files=sess.workset_focus_files(),
+                open_risks=self._phase_checkpoint_open_risks(sess),
+                planned_next_step=self._phase_checkpoint_next_step(phase),
+            )
+        except Exception:
+            pass
+
+    def _workset_focus_files(self, sess: Any, limit: int = 6) -> List[str]:
+        try:
+            return list(sess.workset_focus_files(limit=limit))
+        except Exception:
+            return []
+
+    def _repair_focus_files(self, sess: Any, failed_checks: List[Dict[str, Any]]) -> List[str]:
+        focus: List[str] = []
+        ws = getattr(sess, "active_workset", {}) or {}
+        for key in ("edited_files", "written_files"):
+            for item in ws.get(key, []) or []:
+                if item and item not in focus:
+                    focus.append(str(item))
+        for item in self._workset_target_files():
+            if item and item not in focus:
+                focus.append(item)
+        names = {str(c.get("name") or "") for c in failed_checks if isinstance(c, dict)}
+        if "Tests" in names:
+            for item in ws.get("related_tests", []) or []:
+                if item and item not in focus:
+                    focus.append(str(item))
+        return focus[:8]
+
+    def _persist_repair_causal_digest(self, sess: Any, failed_checks: List[Dict[str, Any]]) -> None:
+        if not sess or not failed_checks:
+            return
+        _, digest = compute_causal_error_signature(failed_checks)
+        if digest:
+            sess.last_repair_causal_digest = digest
+
+    def _filter_diff_summary_for_repair(
+        self,
+        sess: Any,
+        failed_checks: List[Dict[str, Any]],
+        diff_summary: List[Dict[str, Any]],
+    ) -> List[Dict[str, Any]]:
+        if len(diff_summary) <= 1:
+            return diff_summary
+        focus = set(self._repair_focus_files(sess, failed_checks))
+        if not focus:
+            return diff_summary
+        narrowed = [d for d in diff_summary if str(d.get("file") or "") in focus]
+        return narrowed or diff_summary
+
+    def _workset_runtime_nudge(self, state: Any) -> str:
+        sess = self.artifact_manager.current_session
+        if not sess:
+            return ""
+        parts: List[str] = []
+        focus = self._workset_focus_files(sess, limit=6)
+        if focus:
+            parts.append(f"{MSG_ACTIVE_WORKSET_PLAIN_PREFIX} {', '.join(focus[:4])}.")
+        ivs = getattr(sess, "incremental_verify_state", {}) or {}
+        batches = int(ivs.get("batches_run") or 0)
+        if batches > 0 and state in (SessionPhase.ACT, SessionPhase.REPAIR, SessionPhase.VERIFY):
+            covered = ", ".join((ivs.get("files_covered") or [])[:3]) or "n/a"
+            last_status = str(ivs.get("last_status") or "n/a")
+            parts.append(f"Incremental verify: batches={batches}, last={last_status}, covered={covered}.")
+        if len(focus) > 1 and state in (SessionPhase.ACT, SessionPhase.REPAIR):
+            parts.append("Edit one coherent batch, then hand off to VERIFY before expanding scope.")
+        return " ".join(parts)
 
     def _record_main_model_trace(
         self,
@@ -1261,6 +1646,29 @@ Discovery actions this session: {discovery_count}
         self.current_intent = route_intake_intent(text)
         intent = self.current_intent
         maybe_coerce_intent_for_operational_mode(intent)
+        if intent.is_slash_command:
+            self.mode = intent.mode
+        self._bundle_approval_fp = None
+        self._bundle_approval_ok = None
+
+        if (
+            not is_resumed
+            and not self.task_manager.current_task
+        ):
+            from apps.cli.runtime.workflow_continuity import (
+                is_continuation_user_message,
+                load_latest_handoff_any,
+            )
+
+            if is_continuation_user_message(text):
+                ho, _hn = load_latest_handoff_any(self.cwd)
+                tid = str((ho or {}).get("task_id") or "").strip()
+                if tid:
+                    r = self.task_manager.resume_task(tid)
+                    if r:
+                        self.console.print(
+                            f"[dim]Continuidad: reanudando tarea `{tid}` desde handoff reciente.[/dim]"
+                        )
 
         # 0. Preflight Working Directory Guard (Hard-Block enforcement)
         bootstrap_keywords = ["desde cero", "nuevo", "inicializa", "re-inicializa", "bootstrap", "clean start"]
@@ -1324,6 +1732,8 @@ Discovery actions this session: {discovery_count}
         self._session_failed = False
         self._last_api_error_hint = ""
         self._blocked_shell_commands: List[tuple] = []  # (command, error) for run_shell blocked by policy
+        self._pending_edit_recovery: Optional[Dict[str, Any]] = None
+        self._already_implemented_answer_pending: Optional[Dict[str, Any]] = None
         self._stream_interrupted_this_session = False  # for strict verification provenance (no fake success)
         self._verification_completed_this_session = False  # True when we ran verification without skip_execution
         self._finalize_skip_integrity_re_verify = False  # loop VERIFY already ran full coordinator
@@ -1349,6 +1759,10 @@ Discovery actions this session: {discovery_count}
             step_id=step_id_val
         )
         session = self.artifact_manager.current_session
+        session.role_operator = (
+            os.getenv("USER") or os.getenv("USERNAME") or session.role_operator or "human_operator"
+        )
+        session.role_author = session.role_author or "ghost_model"
         session.provider_backend = "openai_compatible"
         session.llm_gateway_url = self.server_url
         gw_pf0 = getattr(self, "_gateway_preflight", None)
@@ -1418,9 +1832,56 @@ Discovery actions this session: {discovery_count}
         v = os.getenv("GHOST_EDIT_MISS_NUDGE", "1").strip().lower()
         return v not in ("0", "false", "no", "off")
 
+    def _fast_path_eligible(self, spec: Optional[Dict[str, Any]] = None) -> bool:
+        if isinstance(spec, Mapping):
+            ts: Mapping[str, Any] = spec
+        else:
+            current = self._session_contract_spec_dict() or {}
+            if not isinstance(current, Mapping):
+                return False
+            ts = current
+        ce = str(ts.get("change_expectation") or "").strip().lower()
+        if ce not in ("must_write", "may_write"):
+            return False
+        targets = [str(x).strip() for x in (ts.get("target_files") or []) if str(x).strip()]
+        return 1 <= len(targets) <= 2
+
+    def _mark_fast_path_intake_state(self, session: Any) -> None:
+        spec = contract_spec_dict_from_session(session) if session else None
+        eligible = self._fast_path_eligible(spec)
+        session.fast_path_eligible = bool(eligible)
+        session.fast_path_used = False
+        session.first_edit_turn = 0
+        session.verification_scope = ""
+        session.planned_check_cwds = {}
+        session.fallback_reason = ""
+
+    def _maybe_inject_fast_path_nudge(self) -> None:
+        if getattr(self, "_fast_path_nudge_sent", False):
+            return
+        sess = self.artifact_manager.current_session
+        if not sess or not getattr(sess, "fast_path_eligible", False):
+            return
+        spec = self._session_contract_spec_dict() or {}
+        targets = [str(x).strip() for x in (spec.get("target_files") or []) if str(x).strip()]
+        if not targets:
+            return
+        self._fast_path_nudge_sent = True
+        target_text = ", ".join(targets[:2])
+        msg = (
+            "[SYSTEM] Focused write fast path active. This task already has explicit target_files. "
+            f"Read only the minimum context around {target_text}, avoid repo-wide exploration, "
+            "use read_file(start_line,max_lines) before edit_file, and move to the first patch within this turn or the next. "
+            "Only inspect an extra file if it is a direct dependency of the target."
+        )
+        self.history.append({"role": "user", "content": msg})
+        self.memory.add_message(self.session_id, "user", msg)
+        sess.events.append({"event": "fast_path_nudge", "targets": targets[:2]})
+
     def _run_task_contract_intake(self, session: Any, text: str, intent: Intent) -> None:
         """TaskContract shell + TaskSpec / legacy spec, planner, retrieval, execution agent."""
         session.intake_timing_ms = {}
+        self._fast_path_nudge_sent = False
         ensure_task_contract_foundation(session, intent)
         _t_rp = time.monotonic()
         self._trace_phase_start("repo_profile")
@@ -1460,6 +1921,8 @@ Discovery actions this session: {discovery_count}
             except Exception:
                 logger.debug("intake repo_mismatch probe failed", exc_info=True)
         self.budget_manager.reset_contract_spec_tool_limits(budget_policy)
+        _agents_root = str(getattr(session, "effective_repo_root", "") or "").strip() or self.cwd
+        hydrate_agents_on_session(session, _agents_root, text or "")
         if source == "legacy_engine_off":
             self.console.print("[dim]Runtime contract: legacy (GHOST_USE_TASKSPEC disabled)[/dim]")
         elif source == "legacy_invalid_engine":
@@ -1620,8 +2083,10 @@ Discovery actions this session: {discovery_count}
         except Exception:
             pass
 
+        apply_slash_execute_write_overrides(session, intent)
         seal_task_contract_after_intake(session)
         apply_iteration_budget_to_session(session, task_text=(text or "").strip(), intent=intent)
+        self._mark_fast_path_intake_state(session)
 
     def _effective_iteration_cap(self) -> int:
         """Main loop, ACT nudges, and bounded-task pressure use this (never above GHOST_MAX_ITERATIONS)."""
@@ -1697,21 +2162,23 @@ Discovery actions this session: {discovery_count}
                 "[SYSTEM] Micro-task: tool output already answers the user. "
                 "Reply with the final answer only (match the user's format). Do not call tools."
             )
-            brand = "[ghost.brand]Ghost micro-task…[/ghost.brand]"
-            dim_line = "\n[dim]Micro-task: síntesis inmediata (sin herramientas)…[/dim]"
+            dim_line = "\n[dim]Micro-task: síntesis inmediata (sin más herramientas)[/dim]"
         else:
             nudge = (
                 "[SYSTEM] You already have enough evidence from tools for this bounded question. "
                 "Reply with the final answer only (match the user's format). Do not call tools."
             )
-            brand = "[ghost.brand]Ghost…[/ghost.brand]"
-            dim_line = "\n[dim]Evidencia suficiente: síntesis inmediata (sin herramientas)…[/dim]"
+            dim_line = "\n[dim]Evidencia suficiente: cierre en un turno (sin herramientas)[/dim]"
         self.history.append({"role": "user", "content": nudge})
         self.memory.add_message(self.session_id, "user", nudge)
         self.console.print(dim_line)
         self._final_synthesis_done = True
         try:
-            with self.console.status(brand) as status:
+            with self.renderer.session_status(
+                self.session_phase.value,
+                initial="thinking",
+                rail_profile=self._live_rail_profile(),
+            ) as status:
                 msg = self._stream_completion(status, show_turn_brand=False, tools=[])
         except Exception as e:
             logger.warning("evidence_sufficient immediate synthesis failed: %s", e)
@@ -1737,6 +2204,65 @@ Discovery actions this session: {discovery_count}
         self._apply_session_phase(SessionPhase.INTAKE, detail="intake start", sync_task=not is_resumed)
         self._trace_mgr.set_task_text(text)
         session.plan = intent.task or text
+        from apps.cli.runtime.workflow_continuity import (
+            ContinuityLoadResult,
+            _clean_identifier,
+            build_continuity_system_block,
+            is_continuation_user_message,
+            load_continuity_for_task,
+            load_latest_handoff_any,
+            strip_yaml_frontmatter,
+        )
+
+        if is_continuation_user_message(text):
+            tid = _clean_identifier(getattr(session, "task_id", None))
+            handoff: Dict[str, Any] = {}
+            if tid:
+                ctx = load_continuity_for_task(self.cwd, tid)
+                handoff = dict(ctx.handoff) if ctx.handoff else {}
+                if not handoff:
+                    ho2, _ = load_latest_handoff_any(self.cwd)
+                    if ho2:
+                        handoff = dict(ho2)
+            else:
+                ho_fb, _ = load_latest_handoff_any(self.cwd)
+                handoff = dict(ho_fb) if ho_fb else {}
+                tid_resolved = _clean_identifier(handoff.get("task_id")) if handoff else ""
+                if tid_resolved:
+                    ctx = load_continuity_for_task(self.cwd, tid_resolved)
+                    if ctx.handoff:
+                        handoff = dict(ctx.handoff)
+                else:
+                    ctx = ContinuityLoadResult(
+                        plan_path="",
+                        plan_body="",
+                        handoff={},
+                        handoff_warnings=[],
+                        handoff_source="",
+                    )
+            plan_excerpt = ""
+            if ctx.plan_body.strip():
+                plan_excerpt = strip_yaml_frontmatter(ctx.plan_body)
+            elif handoff.get("plan_excerpt"):
+                plan_excerpt = str(handoff.get("plan_excerpt") or "").strip()
+            base_plan = (session.plan or text or "").strip()
+            if plan_excerpt:
+                session.plan = f"{plan_excerpt}\n\n---\nContinuación del operador: {base_plan}"
+            session.continuity_injected_block = build_continuity_system_block(
+                plan_excerpt or (session.plan or "")[:4000],
+                handoff,
+            )
+            session.continuity_loaded_handoff = handoff
+            try:
+                session.events.append(
+                    {
+                        "event": "continuity_loaded",
+                        "had_persisted_plan_file": bool(ctx.plan_path),
+                        "handoff_task_id": handoff.get("task_id"),
+                    }
+                )
+            except Exception:
+                pass
         self._run_task_contract_intake(session, text, intent)
         session.explore_class_hint = classify_explore_task(session.plan or text, session)
         _sess_ts = self.artifact_manager.current_session
@@ -1755,8 +2281,70 @@ Discovery actions this session: {discovery_count}
             if name in DISCOVERY_ACTIONS:
                 self._discovery_action_count += 1
 
+    def _effective_prompt_mode(self) -> str:
+        """Slash del turno (`/do`, `/plan`, …) prima sobre el modo del constructor (REPL)."""
+        sess = self.artifact_manager.current_session if self.artifact_manager else None
+        if sess:
+            tc = getattr(sess, "task_contract", None)
+            if isinstance(tc, dict):
+                id_rec = tc.get("intent")
+                if isinstance(id_rec, dict) and id_rec.get("is_slash_command"):
+                    m = str(id_rec.get("mode") or "").strip()
+                    if m:
+                        return m
+        return (self.mode or "Chat").strip() or "Chat"
+
+    def _live_rail_profile(self) -> str:
+        """Perfil del rail vivo del spinner: /plan → solo lectura (3 pasos), resto → implementación."""
+        from apps.cli.ui import ui_contract as _uic
+
+        if (self._effective_prompt_mode() or "").strip().lower() == "plan":
+            return _uic.LIVE_RAIL_PROFILE_READONLY
+        return _uic.LIVE_RAIL_PROFILE_IMPLEMENT
+
+    def _slash_execute_routing_active(self) -> bool:
+        sess = self.artifact_manager.current_session if self.artifact_manager else None
+        if not sess:
+            return False
+        tc = getattr(sess, "task_contract", None)
+        if not isinstance(tc, dict):
+            return False
+        id_rec = tc.get("intent")
+        if not isinstance(id_rec, dict) or not id_rec.get("is_slash_command"):
+            return False
+        return str(id_rec.get("mode") or "").strip() in ("Execute", "Patch", "Fix")
+
+    def _inject_readonly_truthfulness(self, session: Any) -> bool:
+        if self._slash_execute_routing_active():
+            return False
+        spec_rd = self._session_contract_spec_dict() or {}
+        intent_rd = str(spec_rd.get("intent") or getattr(session, "task_intent", "") or "").strip().lower()
+        ce_rd = str(spec_rd.get("change_expectation") or getattr(session, "change_expectation", "") or "").strip().lower()
+        mode_l = (self._effective_prompt_mode() or "").strip().lower()
+        return bool(intent_rd in ("analysis", "review") or ce_rd == "should_not_write" or mode_l == "plan")
+
+    @staticmethod
+    def _bundled_actions_fingerprint(actions: List[Dict[str, Any]]) -> str:
+        if not actions:
+            return ""
+        parts: List[str] = []
+        for a in actions:
+            if not isinstance(a, dict):
+                continue
+            nm = str(a.get("name") or "")
+            ar = a.get("args")
+            if not isinstance(ar, dict):
+                ar = {}
+            try:
+                blob = json.dumps(ar, sort_keys=True, ensure_ascii=False)
+            except (TypeError, ValueError):
+                blob = str(ar)
+            parts.append(f"{nm}|{blob}")
+        base = "\n".join(sorted(parts))
+        return hashlib.sha256(base.encode("utf-8")).hexdigest()[:32]
+
     def _explore_act_policy_allows(self) -> bool:
-        if (self.mode or "").strip().lower() == "plan":
+        if (self._effective_prompt_mode() or "").strip().lower() == "plan":
             return False
         sess = self.artifact_manager.current_session
         if sess and (getattr(sess, "change_expectation", "") or "").strip().lower() == "should_not_write":
@@ -1767,12 +2355,13 @@ Discovery actions this session: {discovery_count}
         """Small set of concrete write targets that justify an early EXPLORE -> ACT handoff."""
         sess = self.artifact_manager.current_session
         spec = self._session_contract_spec_dict() or {}
-        candidates: List[str] = []
+        spec_candidates: List[str] = []
         if isinstance(spec, dict):
             for p in spec.get("target_files") or []:
                 if isinstance(p, str) and p.strip():
-                    candidates.append(p)
-        if sess:
+                    spec_candidates.append(p)
+        candidates: List[str] = list(spec_candidates)
+        if not (1 <= len(spec_candidates) <= 2) and sess:
             for p in getattr(sess, "selected_targets", []) or []:
                 if isinstance(p, str) and p.strip():
                     candidates.append(p)
@@ -1794,6 +2383,12 @@ Discovery actions this session: {discovery_count}
             return 0
         seen_reads = set(getattr(self, "_explore_seen_read_paths", set()) or set())
         return sum(1 for p in target_paths if p in seen_reads)
+
+    def _max_target_read_count_for_promotion(self, target_paths: List[str]) -> int:
+        if not target_paths:
+            return 0
+        read_counts = getattr(self, "_explore_read_path_counts", {}) or {}
+        return max(int(read_counts.get(p, 0) or 0) for p in target_paths)
 
     def _build_exploration_metrics_for_promotion(self) -> ExplorationMetrics:
         sess = self.artifact_manager.current_session
@@ -1825,6 +2420,7 @@ Discovery actions this session: {discovery_count}
             unique_read_paths=len(getattr(self, "_explore_seen_read_paths", set())),
             target_file_count=target_file_count,
             relevant_read_hits=relevant_read_hits,
+            max_target_read_count=self._max_target_read_count_for_promotion(target_paths),
             focused_write_task=focused_write_task,
             simple_write_task=simple_write_task,
             policy_allows_act=self._explore_act_policy_allows(),
@@ -1863,6 +2459,16 @@ Discovery actions this session: {discovery_count}
         )
 
     def _promote_explore_to_act(self, reason_code: str, extra: Optional[Dict[str, Any]] = None) -> None:
+        sess = self.artifact_manager.current_session
+        if sess and getattr(sess, "fast_path_eligible", False):
+            if reason_code in (
+                REASON_FOCUSED_WRITE_CONTEXT_READY,
+                REASON_REPEATED_TARGET_READ,
+                REASON_SIMPLE_WRITE_MIN_CONTEXT,
+            ):
+                sess.fast_path_used = True
+            elif not getattr(sess, "fallback_reason", ""):
+                sess.fallback_reason = f"fast_path_fallback:{reason_code}"
         self.stagnation_detector.reset()
         self._log_explore_promotion(reason_code, extra)
         logger.info("phase transition: EXPLORE -> ACT (explore_promote:%s)", reason_code)
@@ -1933,8 +2539,88 @@ Discovery actions this session: {discovery_count}
     def _promote_explore_to_closing_readonly(self, reason_code: str, extra: Optional[Dict[str, Any]] = None) -> None:
         self._promote_explore_to_closing(reason_code, extra, synthesis_context="readonly")
 
+    def _detect_already_implemented_fast_path(self) -> Optional[Dict[str, Any]]:
+        sess = self.artifact_manager.current_session
+        if not sess or self._session_has_diff():
+            return None
+        spec = self._session_contract_spec_dict() or {}
+        change_expectation = str(spec.get("change_expectation") or "").strip().lower()
+        if change_expectation not in ("must_write", "may_write"):
+            return None
+        raw_targets = spec.get("target_files") or []
+        target_files = [str(p).replace("\\", "/").strip() for p in raw_targets if isinstance(p, str) and p.strip()]
+        if not (1 <= len(target_files) <= 2):
+            return None
+
+        probe_verification = {"status": "skipped", "checks": [], "steps_executed_count": 0}
+        outcome = determine_task_outcome(sess, self.history, probe_verification)
+        if outcome.outcome != OUTCOME_ALREADY_IMPLEMENTED:
+            return None
+
+        repo_v2 = self._session_repo_v2_dict() or {}
+        repo_vc = repo_v2.get("verification_commands") if isinstance(repo_v2, dict) else None
+        manager = VerificationManager(self.cwd, repo_verification_commands=repo_vc if isinstance(repo_vc, dict) else None)
+        checks = manager.get_applicable_checks(files_changed=[{"file": path} for path in target_files])
+        targeted_tests = [
+            str(check.get("command") or "")
+            for check in checks
+            if str(check.get("kind") or "") == "tests"
+            and "targeted" in str(check.get("name") or "").lower()
+            and str(check.get("command") or "").strip()
+        ]
+        if not targeted_tests:
+            return None
+        return {
+            "summary": str(outcome.summary or ""),
+            "evidence_lines": list(outcome.evidence_lines or []),
+            "target_files": target_files,
+            "targeted_tests": targeted_tests,
+            "next_action": str(outcome.recommended_next_action or ""),
+        }
+
+    def _queue_already_implemented_completion(self, signal: Dict[str, Any]) -> None:
+        self._already_implemented_answer_pending = dict(signal)
+        tests_summary = "; ".join(str(x) for x in (signal.get("targeted_tests") or [])[:2])
+        nudge = (
+            "[SYSTEM] The requested change is already implemented in the focused target and nearby tests already cover it. "
+            "Reply with the final answer only: say that no code changes are needed, cite the target file and nearby test evidence briefly, "
+            "and do not call more tools."
+        )
+        if tests_summary:
+            nudge += f" Nearby test command: {tests_summary}."
+        self.history.append({"role": "user", "content": nudge})
+        self.memory.add_message(self.session_id, "user", nudge)
+        sess = self.artifact_manager.current_session
+        if sess:
+            sess.events.append(
+                {
+                    "event": "already_implemented_fast_path",
+                    "target_files": list(signal.get("target_files") or []),
+                    "targeted_tests": list(signal.get("targeted_tests") or []),
+                }
+            )
+
+    def _assistant_text_claims_already_implemented(self, content: Any) -> bool:
+        text = str(content or "").strip().lower()
+        if not text:
+            return False
+        needles = (
+            "already implemented",
+            "already exists",
+            "no changes are needed",
+            "no changes needed",
+            "ya está implementado",
+            "ya esta implementado",
+            "ya existe",
+            "no se requieren cambios",
+            "no requiere cambios",
+        )
+        return any(needle in text for needle in needles)
+
     def _explore_tools_for_turn(self, iterations: int) -> List[Dict[str, Any]]:
         """EXPLORE tool defs; may drop tools on last iteration for bounded answer-now tasks."""
+        if getattr(self, "_already_implemented_answer_pending", None):
+            return []
         defs = self._tool_defs_for_session_phase()
         if (
             explore_v2_enabled()
@@ -2125,6 +2811,8 @@ Discovery actions this session: {discovery_count}
         Extension / invariants: docs/RUNTIME_EXTENSION_BOUNDARIES.md ; tests/test_runtime_architecture_invariants.py
         """
         session = self.artifact_manager.current_session
+        self.budget_manager.reset_session_budget_state()
+        self._last_tool_denial_key = None
         self._tools_executed_this_session = False
         self._edit_miss_nudge_count = 0
         self._conclusion_nudge_injected = False
@@ -2239,7 +2927,11 @@ Discovery actions this session: {discovery_count}
             "\n[dim]Límite de iteraciones: generando síntesis final sin herramientas a partir del historial…[/dim]"
         )
         try:
-            with self.console.status("[ghost.brand]Ghost síntesis de cierre…[/ghost.brand]") as status:
+            with self.renderer.session_status(
+                SessionPhase.CLOSING.value,
+                initial="closing",
+                rail_profile=self._live_rail_profile(),
+            ) as status:
                 msg = self._stream_completion(status, show_turn_brand=False, tools=[])
             if msg and getattr(sess, "events", None) is not None:
                 sess.events.append(
@@ -2336,6 +3028,8 @@ Discovery actions this session: {discovery_count}
                     if v_reused is not None:
                         sess.verification = v_reused
                         sess.verification_justification = v_reused.get("justification", "")
+                        sess.verification_scope = str(v_reused.get("verification_scope") or "")
+                        sess.planned_check_cwds = dict(v_reused.get("planned_check_cwds") or {})
                         record_verification_metrics(sess, v_reused, reused=True)
                     else:
                         if not skip_exec:
@@ -2348,8 +3042,17 @@ Discovery actions this session: {discovery_count}
                                 repo_v2=repo_v2_fin,
                                 failed_check_names=failed_names_fin,
                             )
-                            self.console.print(
-                                f"\n[dim]⚙ Running integrity verification ({', '.join(check_names) or 'Build/TypeCheck/Lint'})...[/dim]"
+                            _pytest_ff = list(getattr(sess, "pytest_focus_targets", None) or [])
+                            _vf_b = format_integrity_verify_preamble(
+                                check_names, pytest_focus_n=len(_pytest_ff)
+                            )
+                            self.console.print(f"\n[dim]⚙ Running integrity verification: {_vf_b}[/dim]")
+                            sess.events.append(
+                                {
+                                    "event": "verify_preamble",
+                                    "text": _vf_b[:500],
+                                    "context_label": "finalize",
+                                }
                             )
                         self.hook_manager.trigger(HookEvents.PRE_VERIFICATION)
                         self._apply_session_phase(
@@ -2374,6 +3077,8 @@ Discovery actions this session: {discovery_count}
                             session=sess,
                             reuse_if_verified=False,
                             failed_check_names=failed_names_fin,
+                            pytest_focus_paths=list(getattr(sess, "pytest_focus_targets", None) or [])
+                            or None,
                         )
                         _mgr_vf = getattr(self, "_trace_mgr", None)
                         if _mgr_vf:
@@ -2387,10 +3092,34 @@ Discovery actions this session: {discovery_count}
                                 pass
                         self._trace_phase_end("verification")
                         self.hook_manager.trigger(HookEvents.POST_VERIFICATION, results=v_res)
-                        self.renderer.render_verification_results(v_res)
+                        self.renderer.render_verification_results(
+                            v_res,
+                            contract_spec=self._session_contract_spec_dict(),
+                        )
                         sess.verification = v_res
                         sess.verification_justification = v_res.get("justification", "")
                         record_verification_metrics(sess, v_res, reused=False)
+                        if str(v_res.get("status") or "") == "success":
+                            sess.last_verify_failure_snapshot = {}
+                            sess.pytest_focus_targets = []
+                            sess.last_repair_causal_digest = ""
+                            if not skip_exec:
+                                sess.last_integrity_ok_write_epoch = int(getattr(sess, "write_epoch", 0) or 0)
+                            _g = self.budget_manager.grant_extension_for_verified_progress(
+                                steps_executed=int(v_res.get("steps_executed_count") or 0),
+                            )
+                            if _g:
+                                logger.info("adaptive budget: +%s after finalize verify ok", _g)
+                                append_budget_extension_record(
+                                    sess,
+                                    {
+                                        "points": _g,
+                                        "reason": "verify_executed_ok",
+                                        "detail": "finalize",
+                                        "skipped": "",
+                                    },
+                                )
+                            self.stagnation_detector.reset_after_verified_progress()
             else:
                 sess.verification = {"status": "skipped", "checks": []}
         else:
@@ -2530,6 +3259,12 @@ Discovery actions this session: {discovery_count}
                     )
 
         self._finalize_session_trace()
+        try:
+            from apps.cli.runtime.workflow_continuity import persist_plan_and_handoff
+
+            persist_plan_and_handoff(self.cwd, self.artifact_manager.current_session)
+        except Exception as e:
+            logger.warning("workflow continuity persist failed (non-fatal): %s", e)
         self.task_manager.add_artifact(self.artifact_manager.current_session.session_id)
         self.artifact_manager.persist()
         self.renderer.render_artifact_summary(self.artifact_manager.current_session.to_dict())
@@ -2558,7 +3293,6 @@ Discovery actions this session: {discovery_count}
                     pass
             if status:
                 status.stop()
-            self.renderer.update_status(status, "tool_exec")
             if self.session_phase == SessionPhase.EXPLORE:
                 self._explore_ls_paths_this_dispatch = set()
             bundled_actions = []
@@ -2589,7 +3323,15 @@ Discovery actions this session: {discovery_count}
             if bundled_actions and not self.auto_approve:
                 if status:
                     status.stop()
-                authorized = self.renderer.render_bundled_approval_request(bundled_actions)
+                fp = self._bundled_actions_fingerprint(bundled_actions)
+                if fp and fp == self._bundle_approval_fp:
+                    authorized = bool(self._bundle_approval_ok)
+                    if not authorized:
+                        self.console.print(f"[dim]{MSG_APPROVAL_SAME_BUNDLE}[/dim]")
+                else:
+                    authorized = self.renderer.render_bundled_approval_request(bundled_actions)
+                    self._bundle_approval_fp = fp
+                    self._bundle_approval_ok = authorized
                 if authorized:
                     for pc in prepared_calls:
                         if pc["level"] == ApprovalLevel.BUNDLE:
@@ -2598,6 +3340,14 @@ Discovery actions this session: {discovery_count}
                     status.start()
             if status:
                 status.stop()
+            _live_hint = format_tool_live_hint_from_prepared(prepared_calls)
+            self.renderer.update_status(
+                status,
+                "tool_exec",
+                phase=self.session_phase.value,
+                live_detail=_live_hint,
+                rail_profile=self._live_rail_profile(),
+            )
             executed_names, exit_reason = self._run_segmented_prepared_calls(
                 prepared_calls, status, legacy=False
             )
@@ -2617,7 +3367,6 @@ Discovery actions this session: {discovery_count}
                     pass
             if status:
                 status.stop()
-            self.renderer.update_status(status, "tool_exec")
             if self.session_phase == SessionPhase.EXPLORE:
                 self._explore_ls_paths_this_dispatch = set()
             bundled_actions = []
@@ -2642,7 +3391,15 @@ Discovery actions this session: {discovery_count}
             if bundled_actions and not self.auto_approve:
                 if status:
                     status.stop()
-                authorized = self.renderer.render_bundled_approval_request(bundled_actions)
+                fp = self._bundled_actions_fingerprint(bundled_actions)
+                if fp and fp == self._bundle_approval_fp:
+                    authorized = bool(self._bundle_approval_ok)
+                    if not authorized:
+                        self.console.print(f"[dim]{MSG_APPROVAL_SAME_BUNDLE}[/dim]")
+                else:
+                    authorized = self.renderer.render_bundled_approval_request(bundled_actions)
+                    self._bundle_approval_fp = fp
+                    self._bundle_approval_ok = authorized
                 if authorized:
                     for pc in prepared_calls:
                         if pc["level"] == ApprovalLevel.BUNDLE:
@@ -2651,6 +3408,14 @@ Discovery actions this session: {discovery_count}
                     status.start()
             if status:
                 status.stop()
+            _live_hint_l = format_tool_live_hint_from_prepared(prepared_calls)
+            self.renderer.update_status(
+                status,
+                "tool_exec",
+                phase=self.session_phase.value,
+                live_detail=_live_hint_l,
+                rail_profile=self._live_rail_profile(),
+            )
             legacy_executed, exit_reason = self._run_segmented_prepared_calls(
                 prepared_calls, status, legacy=True
             )
@@ -2846,6 +3611,7 @@ Discovery actions this session: {discovery_count}
 
     def _phase_explore(self, task_obj: Any, iterations: int) -> str:
         """EXPLORE: read-only tools; transition to ACT via explicit promotion rules."""
+        self._maybe_inject_fast_path_nudge()
         if self._should_force_conclusion_after_discovery() and not self._conclusion_nudge_injected:
             self._conclusion_nudge_injected = True
             self._apply_session_phase(SessionPhase.EXPLORE, detail="discovery cap nudge")
@@ -2861,7 +3627,10 @@ Discovery actions this session: {discovery_count}
         v2_result = self._explore_v2_precheck(iterations)
         if v2_result is not None:
             return v2_result
-        with self.console.status("[ghost.brand]Ghost thinking...[/ghost.brand]") as status:
+        with self.renderer.session_status(
+            self.session_phase.value,
+            rail_profile=self._live_rail_profile(),
+        ) as status:
             self.renderer.render_budget_status(self.budget_manager.remaining, self.budget_manager.total_budget)
             sess0 = self.artifact_manager.current_session
             st_is, st_reason = self.stagnation_detector.check_stagnation()
@@ -2932,10 +3701,37 @@ Discovery actions this session: {discovery_count}
                         {"executed_tools": list(turn.executed_tool_names), "when": "post_tools"},
                     )
                 else:
-                    self._handle_answer_now_after_tools(list(executed or []))
+                    already_impl = self._detect_already_implemented_fast_path()
+                    if already_impl:
+                        self._queue_already_implemented_completion(already_impl)
+                    else:
+                        self._handle_answer_now_after_tools(list(executed or []))
                 return "ok"
             self._last_explore_assistant_text = content
             self._explore_text_only_streak += 1
+            already_impl = self._detect_already_implemented_fast_path()
+            if already_impl and self._assistant_text_claims_already_implemented(content):
+                self._promote_explore_to_closing(
+                    "already_implemented_text_only",
+                    extra={
+                        "content_len": len(str(content).strip()),
+                        "target_files": list(already_impl.get("target_files") or []),
+                    },
+                    synthesis_context="readonly",
+                )
+                return "ok"
+            if getattr(self, "_already_implemented_answer_pending", None) and (content or "").strip():
+                signal = dict(self._already_implemented_answer_pending or {})
+                self._already_implemented_answer_pending = None
+                self._promote_explore_to_closing(
+                    "already_implemented_after_nudge",
+                    extra={
+                        "content_len": len(str(content).strip()),
+                        "target_files": list(signal.get("target_files") or []),
+                    },
+                    synthesis_context="readonly",
+                )
+                return "ok"
             if self._answer_now_nudge_pending and (content or "").strip():
                 actx = self._answer_now_synthesis_context or "readonly"
                 if actx not in ("readonly", "factual"):
@@ -2974,7 +3770,10 @@ Discovery actions this session: {discovery_count}
             return "ok"
         max_iter_act = self._effective_iteration_cap()
         show_turn_brand = iterations == 1 or self._env_truthy("GHOST_SHOW_BRAND_EVERY_TURN")
-        with self.console.status("[ghost.brand]Ghost thinking...[/ghost.brand]") as status:
+        with self.renderer.session_status(
+            self.session_phase.value,
+            rail_profile=self._live_rail_profile(),
+        ) as status:
             self.renderer.render_budget_status(self.budget_manager.remaining, self.budget_manager.total_budget)
             if self._stagnation_should_halt(status):
                 return "halt"
@@ -3003,8 +3802,8 @@ Discovery actions this session: {discovery_count}
                     )
                     self._apply_session_phase(SessionPhase.VERIFY, detail="diff after ACT", sync_task=True)
                 return "ok"
-            plan_mode = (self.mode or "").strip().lower() == "plan"
-            cap_nudge = int(os.getenv("GHOST_EDIT_MISS_MAX_NUDGES", "2"))
+            plan_mode = (self._effective_prompt_mode() or "").strip().lower() == "plan"
+            cap_nudge = int(os.getenv("GHOST_EDIT_MISS_MAX_NUDGES", "1"))
             if (
                 self._edit_miss_nudge_enabled()
                 and not plan_mode
@@ -3016,11 +3815,25 @@ Discovery actions this session: {discovery_count}
             ):
                 self._edit_miss_nudge_count += 1
                 self._apply_session_phase(SessionPhase.ACT, detail="edit_file old_str miss", sync_task=True)
+                recovery = getattr(self, "_pending_edit_recovery", None) or {}
+                rec_args = dict(recovery.get("arguments") or {})
+                rec_path = str(rec_args.get("path") or "").strip()
+                rec_start = rec_args.get("start_line")
+                rec_max = rec_args.get("max_lines")
+                if rec_path:
+                    if rec_start and rec_max:
+                        one_step = (
+                            f"read_file(path='{rec_path}', start_line={rec_start}, max_lines={rec_max})"
+                        )
+                    else:
+                        one_step = f"read_file(path='{rec_path}')"
+                else:
+                    one_step = "read_file de la ruta que intentabas editar"
                 nudge_txt = (
-                    "[SYSTEM] edit_file falló: old_str no coincide con el contenido real del archivo. "
-                    "No cierres la tarea solo con texto. Haz read_file de la ruta que intentaste editar, "
-                    "copia un fragmento exacto del fichero como old_str y vuelve a edit_file, o usa write_file si "
-                    "necesitas reemplazar mucho. Para UI/branding prioriza app/ y components/."
+                    "[SYSTEM] edit_file falló: old_str no coincide con el disco. "
+                    f"PASO ÚNICO: {one_step} → copia old_str literal desde esa salida → vuelve a edit_file "
+                    "(o write_file si sustituyes casi todo el fichero). "
+                    "No cierres solo con texto; no uses run_shell para leer el archivo."
                 )
                 self.history.append({"role": "user", "content": nudge_txt})
                 self.memory.add_message(self.session_id, "user", nudge_txt)
@@ -3041,15 +3854,50 @@ Discovery actions this session: {discovery_count}
                 return "ok"
             logger.info("phase transition: ACT -> CLOSING (no diff, text-only; terminal at finalize)")
             self._apply_session_phase(SessionPhase.CLOSING, detail="no write scope", sync_task=True)
-            if content and content.strip() and hasattr(self, "current_intent") and self.current_intent.mode != "Chat":
+            already_impl_signal = self._detect_already_implemented_fast_path()
+            if (
+                content
+                and content.strip()
+                and hasattr(self, "current_intent")
+                and self.current_intent.mode != "Chat"
+                and not already_impl_signal
+            ):
                 self.console.print(f"\n[dim]💡 Siguiente Mejor Acción: [bold]ghost review[/bold][/dim]")
             elif not content or not str(content).strip():
                 tool_summary = self._format_tool_execution_summary()
                 if tool_summary:
                     self.console.print(f"\n[dim]{tool_summary}[/dim]")
-                elif hasattr(self, "current_intent") and self.current_intent.mode != "Chat":
+                elif (
+                    hasattr(self, "current_intent")
+                    and self.current_intent.mode != "Chat"
+                    and not already_impl_signal
+                ):
                     self.console.print(f"\n[dim]💡 Siguiente Mejor Acción: [bold]ghost review[/bold][/dim]")
             return "ok"
+
+    @staticmethod
+    def _failed_checks_blob(failed_checks: List[Dict[str, Any]]) -> str:
+        rows: List[str] = []
+        for c in failed_checks or []:
+            if not isinstance(c, dict):
+                continue
+            rows.append(
+                "\n".join(
+                    str(x or "")
+                    for x in (
+                        c.get("stderr"),
+                        c.get("stdout"),
+                        c.get("error"),
+                        c.get("output_summary"),
+                    )
+                )
+            )
+        return "\n".join(rows)
+
+    def _bump_session_write_epoch(self) -> None:
+        sess = self.artifact_manager.current_session
+        if sess:
+            sess.write_epoch = int(getattr(sess, "write_epoch", 0) or 0) + 1
 
     def _phase_verify(self, task_obj: Any, context_label: str) -> None:
         """VERIFY: run verify_change only (no LLM). CLOSING defers definitive DONE/ABORTED to finalize."""
@@ -3058,13 +3906,29 @@ Discovery actions this session: {discovery_count}
             return
         repair_count = getattr(sess, "repair_attempt_count", 0)
         tsd_loop = self._session_contract_spec_dict()
-        MAX_REPAIR = max_repair_attempts(tsd_loop, default=1)
         skip_exec, skip_reason, _tsd = self._resolve_verify_skip_flags(task_obj)
         tc_sess = get_task_contract(sess)
         if not skip_exec and not self._session_has_diff():
             logger.info("phase transition: VERIFY skipped (no diff) -> CLOSING")
+            sess.record_incremental_verification(
+                {
+                    "status": "skipped",
+                    "verification_scope": "",
+                    "checks": [],
+                    "steps_executed_count": 0,
+                },
+                diff_summary=getattr(sess, "diff_summary", []) or [],
+                context_label=f"{context_label}:skip_no_diff",
+            )
             self._apply_session_phase(SessionPhase.CLOSING, detail="verify skipped no diff", sync_task=True)
             return
+        prev_verification = getattr(sess, "verification", {}) or {}
+        failed_names = (
+            [c.get("name") for c in prev_verification.get("checks", []) if c.get("status") in ("failed", "error")]
+            if repair_count > 0 and prev_verification
+            else None
+        )
+        pytest_focus = list(getattr(sess, "pytest_focus_targets", None) or [])
         if not skip_exec:
             check_names = self.verification_coordinator.planned_check_labels(
                 task_type=task_obj.task_type,
@@ -3073,15 +3937,13 @@ Discovery actions this session: {discovery_count}
                 budget_remaining=getattr(self.budget_manager, "remaining", 100),
                 contract_spec=tsd_loop,
                 repo_v2=self._session_repo_v2_dict(),
-                failed_check_names=None,
+                failed_check_names=failed_names,
             )
-            self.console.print(f"\n[dim]⚙ Running integrity verification ({', '.join(check_names) or 'Build/TypeCheck/Lint'})...[/dim]")
-        prev_verification = getattr(sess, "verification", {}) or {}
-        failed_names = (
-            [c.get("name") for c in prev_verification.get("checks", []) if c.get("status") in ("failed", "error")]
-            if repair_count > 0 and prev_verification
-            else None
-        )
+            _v_banner = format_integrity_verify_preamble(check_names, pytest_focus_n=len(pytest_focus))
+            self.console.print(f"\n[dim]⚙ Running integrity verification: {_v_banner}[/dim]")
+            sess.events.append(
+                {"event": "verify_preamble", "text": _v_banner[:500], "context_label": context_label}
+            )
         self.hook_manager.trigger(HookEvents.PRE_VERIFICATION)
         self._apply_session_phase(
             SessionPhase.VERIFY,
@@ -3105,6 +3967,7 @@ Discovery actions this session: {discovery_count}
             session=sess,
             reuse_if_verified=False,
             failed_check_names=failed_names,
+            pytest_focus_paths=pytest_focus if pytest_focus else None,
         )
         _mgr_v = getattr(self, "_trace_mgr", None)
         if _mgr_v:
@@ -3119,16 +3982,139 @@ Discovery actions this session: {discovery_count}
         if not skip_exec:
             self._verification_completed_this_session = True
             self._finalize_skip_integrity_re_verify = True
-        self.renderer.render_verification_results(v_res)
+        self.renderer.render_verification_results(
+            v_res,
+            contract_spec=self._session_contract_spec_dict(),
+        )
         sess.verification = v_res
         sess.verification_justification = v_res.get("justification", "")
+        sess.verification_scope = str(v_res.get("verification_scope") or "")
+        sess.planned_check_cwds = dict(v_res.get("planned_check_cwds") or {})
+        sess.record_incremental_verification(
+            v_res,
+            diff_summary=getattr(sess, "diff_summary", []) or [],
+            context_label=context_label,
+        )
         record_verification_metrics(sess, v_res, reused=False)
         if v_res.get("status") != "failed":
+            sess.last_verify_failure_snapshot = {}
+            sess.reverification_pending = False
+            sess.pytest_focus_targets = []
+            sess.last_repair_causal_digest = ""
+            if not skip_exec:
+                sess.last_integrity_ok_write_epoch = int(getattr(sess, "write_epoch", 0) or 0)
+            added = self.budget_manager.grant_extension_for_verified_progress(
+                steps_executed=int(v_res.get("steps_executed_count") or 0),
+            )
+            if added:
+                logger.info("adaptive budget: +%s after verify ok (%s)", added, context_label)
+                append_budget_extension_record(
+                    sess,
+                    {
+                        "points": added,
+                        "reason": "verify_executed_ok",
+                        "detail": context_label,
+                        "skipped": "",
+                    },
+                )
+            self.stagnation_detector.reset_after_verified_progress()
             logger.info("phase transition: VERIFY -> CLOSING (%s)", context_label)
             self._apply_session_phase(SessionPhase.CLOSING, detail=f"verify ok ({context_label})", sync_task=True)
             return
         checks = v_res.get("checks", [])
         failed_checks = [c for c in checks if c.get("status") in ("failed", "error")]
+        _prev_vsnap = dict(getattr(sess, "last_verify_failure_snapshot", None) or {})
+        _cur_vsnap = snapshot_failed_verification(failed_checks)
+        _fd_prev = (
+            _prev_vsnap
+            if (str(_prev_vsnap.get("digest") or "").strip() or _prev_vsnap.get("names"))
+            else None
+        )
+        _failure_set_delta, _fd_meta = classify_failure_set_delta_meta(
+            _fd_prev,
+            failed_checks,
+            cur=_cur_vsnap,
+        )
+        _failed_blob = self._failed_checks_blob(failed_checks)
+        _extra_causal = bool(getattr(sess, "last_repair_extra_causal_attempt", False))
+        MAX_REPAIR = effective_max_repair_attempts(
+            tsd_loop,
+            failed_checks_blob=_failed_blob,
+            extra_causal_attempt=_extra_causal,
+            default=1,
+        )
+        sess.last_repair_extra_causal_attempt = False
+        if _failure_set_delta == "failure_reduced":
+            _op_add, _op_sk = self.budget_manager.grant_extension_for_operational_progress(
+                reason="verify_failure_progress:failure_reduced",
+                skip_if_read_churn=True,
+            )
+            if _op_add:
+                logger.info(
+                    "adaptive budget: +%s after %s (%s)",
+                    _op_add,
+                    _failure_set_delta,
+                    context_label,
+                )
+                append_budget_extension_record(
+                    sess,
+                    {
+                        "points": _op_add,
+                        "reason": "verify_failure_progress:failure_reduced",
+                        "detail": context_label,
+                        "skipped": _op_sk,
+                    },
+                )
+            elif _op_sk:
+                sess.events.append(
+                    {
+                        "event": "budget_extension_skipped",
+                        "reason": _failure_set_delta,
+                        "detail": _op_sk,
+                    }
+                )
+        elif _failure_set_delta in (
+            "same_failure_unchanged",
+            "failure_expanded",
+            "failure_signature_changed",
+        ):
+            sess.events.append(
+                {
+                    "event": "verify_failure_no_budget_extension",
+                    "delta": _failure_set_delta,
+                    "context_label": context_label,
+                    "note": "conservative_no_grant"
+                    if _failure_set_delta == "failure_signature_changed"
+                    else "",
+                }
+            )
+        _sig_after_txt, _sig_after_dig = compute_causal_error_signature(failed_checks)
+        sess.events.append(
+            {
+                "event": "verify_failure_set_delta",
+                "delta": _failure_set_delta,
+                "failed_names": [c.get("name") for c in failed_checks[:6]],
+                "causal_digest_before": str(_prev_vsnap.get("digest") or "")[:32],
+                "causal_digest_after": str(_sig_after_dig or "")[:32],
+                "structural_digest_before": str(_prev_vsnap.get("structural_digest") or "")[:32],
+                "structural_digest_after": str(_cur_vsnap.get("structural_digest") or "")[:32],
+                "budget_extended": _failure_set_delta == "failure_reduced",
+                "failure_delta_confidence_gate": str(_fd_meta.get("confidence_gate") or ""),
+                "prev_all_low_confidence": bool(_fd_meta.get("prev_all_low_confidence")),
+            }
+        )
+        sess.last_verify_failure_snapshot = _cur_vsnap
+        for fc in failed_checks:
+            kn = str(fc.get("kind") or "").lower()
+            nm = str(fc.get("name") or "")
+            if kn == "tests" or "pytest" in nm.lower() or "python tests" in nm.lower():
+                focused = parse_pytest_focus_targets(
+                    stdout=str(fc.get("stdout") or ""),
+                    stderr=str(fc.get("stderr") or ""),
+                )
+                if focused:
+                    sess.pytest_focus_targets = focused
+                break
         coord = v_res.get("coordinator") if isinstance(v_res.get("coordinator"), dict) else {}
         actionable = coord.get("reparable")
         if actionable is None:
@@ -3136,11 +4122,19 @@ Discovery actions this session: {discovery_count}
         if actionable and repair_count < MAX_REPAIR:
             err_summary = "; ".join([f"{c.get('name')}: failed" for c in failed_checks[:3]])
             failed_names_list = [c.get("name") for c in failed_checks]
+            repair_focus_files = self._repair_focus_files(sess, failed_checks)
             self._trace_phase_start("repair")
             _rep_t0 = time.monotonic()
             sess.repair_attempt_count = repair_count + 1
-            sess.repair_summary = f"Verification failed ({err_summary}). Repair attempted."
+            focus_hint = f" Focus files: {', '.join(repair_focus_files[:6])}." if repair_focus_files else ""
+            sess.repair_summary = f"Verification failed ({err_summary}). Repair attempted.{focus_hint}"
             sess.last_failed_check = ", ".join(failed_names_list[:3])
+            sess.reverification_pending = True
+            _sig_txt, _sig_dig = compute_causal_error_signature(failed_checks)
+            _delta_tr = classify_error_signature_delta(
+                getattr(sess, "last_repair_causal_digest", "") or "",
+                _sig_dig,
+            )
             _mgr_r = getattr(self, "_trace_mgr", None)
             if _mgr_r:
                 try:
@@ -3154,6 +4148,8 @@ Discovery actions this session: {discovery_count}
                             duration_ms=_rep_ms,
                             failed_check=", ".join(failed_names_list[:3]),
                             repair_summary=err_summary[:500],
+                            causal_error_signature=(_sig_txt or "")[:600],
+                            error_signature_delta=_delta_tr,
                             reverify_attempted=False,
                             result="repair_nudge_pending",
                             status=TRACE_STATUS_COMPLETED,
@@ -3172,11 +4168,14 @@ Discovery actions this session: {discovery_count}
                     "context_label": context_label,
                     "failed_checks": failed_names_list[:5],
                     "attempt": repair_count + 1,
+                    "failure_set_delta": _failure_set_delta,
+                    "max_repair": MAX_REPAIR,
                 },
             )
             self._apply_session_phase(SessionPhase.REPAIR, detail=err_summary[:200], sync_task=True)
             return
         logger.info("phase transition: VERIFY -> CLOSING (%s, verification failed)", context_label)
+        sess.reverification_pending = False
         self._apply_session_phase(SessionPhase.CLOSING, detail="verification failed", sync_task=True)
 
     def _phase_repair(self, task_obj: Any) -> None:
@@ -3196,9 +4195,17 @@ Discovery actions this session: {discovery_count}
         else:
             failed_checks = [c for c in checks if c.get("status") in ("failed", "error")]
         diff_summary = list(getattr(sess, "diff_summary", []) or [])
+        diff_summary_for_repair = self._filter_diff_summary_for_repair(sess, failed_checks, diff_summary)
+        repair_focus_files = self._repair_focus_files(sess, failed_checks)
+        primary_failure = summarize_primary_failure(failed_checks)
         prev_raw = getattr(sess, "repair_specialist_last_raw", "") or ""
+        causal_sig_text, causal_sig_digest = compute_causal_error_signature(failed_checks)
+        err_sig_delta = classify_error_signature_delta(
+            getattr(sess, "last_repair_causal_digest", "") or "",
+            causal_sig_digest,
+        )
 
-        repair_allow = build_repair_allowlist(failed_checks, diff_summary) if failed_checks else []
+        repair_allow = build_repair_allowlist(failed_checks, diff_summary_for_repair) if failed_checks else []
         if use_specialist and failed_checks and repair_allow:
             roles = resolve_model_role_map()
             repair_model = roles.get("repair") or ""
@@ -3212,11 +4219,13 @@ Discovery actions this session: {discovery_count}
             )
             res = run_repair_specialist_llm(
                 failed_checks=failed_checks,
-                diff_summary=diff_summary,
+                diff_summary=diff_summary_for_repair,
                 previous_patch_text=prev_raw,
                 last_main_turn_prompt_chars=self._last_main_turn_prompt_chars,
                 ghost_server_url=self.server_url,
                 ghost_api_key=self.api_key,
+                causal_signature_text=causal_sig_text,
+                error_signature_delta=err_sig_delta,
             )
             if sess:
                 record_repair_specialist_model_turn(sess)
@@ -3228,6 +4237,13 @@ Discovery actions this session: {discovery_count}
                 sess.repair_specialist_last_raw = res.raw_model_text or ""
             applied = 0
             apply_errs: List[str] = []
+            structural = failed_checks_indicate_structural_python_failure(failed_checks)
+            pre_parse_by_path: Dict[str, Any] = {}
+            if structural and res.provider_ok and res.parse_ok and res.edits_to_apply:
+                for ed in res.edits_to_apply:
+                    rel = str(ed.get("path") or "").replace("\\", "/").strip()
+                    if rel.lower().endswith(".py"):
+                        pre_parse_by_path[rel] = parse_python_file_errors(self.cwd, rel)
             if res.provider_ok and res.parse_ok and res.edits_to_apply:
                 metadata: Dict[str, Any] = {}
                 for ed in res.edits_to_apply:
@@ -3242,6 +4258,23 @@ Discovery actions this session: {discovery_count}
                     else:
                         applied += 1
                 res.edits_applied = applied
+            edited_py = [
+                str(ed["path"]).replace("\\", "/")
+                for ed in res.edits_to_apply
+                if str(ed.get("path") or "").lower().endswith(".py")
+            ]
+            if structural and applied > 0 and edited_py:
+                ok_parse, parse_reason, post_errs, same_sig = validate_edited_python_parse(
+                    self.cwd, edited_py, pre_errors=pre_parse_by_path
+                )
+                res.parse_validation_ok = ok_parse
+                res.parse_validation_reason = parse_reason
+                res.same_parse_signature_after_patch = same_sig
+                for rel in edited_py:
+                    pre_e = pre_parse_by_path.get(rel)
+                    post_e = post_errs.get(rel) if isinstance(post_errs, dict) else None
+                    res.pre_parse_fingerprints[rel] = parse_error_fingerprint(pre_e)
+                    res.post_parse_fingerprints[rel] = parse_error_fingerprint(post_e)
             outcome = classify_structured_repair_outcome(res, applied)
             if sess:
                 append_repair_run_record(
@@ -3252,6 +4285,16 @@ Discovery actions this session: {discovery_count}
                         "edits_applied": applied,
                         "edits_allowlisted": len(res.edits_to_apply),
                         "model_id": res.model_id,
+                        "causal_signature_text": (causal_sig_text or "")[:500],
+                        "causal_signature_digest": causal_sig_digest,
+                        "error_signature_delta": err_sig_delta,
+                        "parse_validation_ok": bool(getattr(res, "parse_validation_ok", True)),
+                        "parse_validation_reason": str(getattr(res, "parse_validation_reason", "") or "")[:500],
+                        "pre_parse_fingerprints": dict(getattr(res, "pre_parse_fingerprints", {}) or {}),
+                        "post_parse_fingerprints": dict(getattr(res, "post_parse_fingerprints", {}) or {}),
+                        "same_parse_signature_after_patch": bool(
+                            getattr(res, "same_parse_signature_after_patch", False)
+                        ),
                     },
                 )
             ro_detail: Dict[str, Any] = {
@@ -3264,6 +4307,13 @@ Discovery actions this session: {discovery_count}
                 "all_proposals_outside_allowlist": res.all_proposals_outside_allowlist,
                 "repair_attempt_count": int(getattr(sess, "repair_attempt_count", 0) or 0),
                 "model_id": res.model_id,
+                "parse_validation_ok": bool(getattr(res, "parse_validation_ok", True)),
+                "parse_validation_reason": str(getattr(res, "parse_validation_reason", "") or "")[:300],
+                "pre_parse_fingerprints": dict(getattr(res, "pre_parse_fingerprints", {}) or {}),
+                "post_parse_fingerprints": dict(getattr(res, "post_parse_fingerprints", {}) or {}),
+                "same_parse_signature_after_patch": bool(
+                    getattr(res, "same_parse_signature_after_patch", False)
+                ),
             }
             if apply_errs:
                 ro_detail["apply_errors_sample"] = apply_errs[:8]
@@ -3285,6 +4335,54 @@ Discovery actions this session: {discovery_count}
 
             if outcome == REPAIR_OUTCOME_APPLIED_PATCH:
                 record_repair_success(sess)
+                _rp_deserves, _rp_detail, _rp_conf, _rp_skip = resolve_repair_operational_budget(
+                    cwd=self.cwd,
+                    structural_python_failure=bool(structural),
+                    applied=int(applied),
+                    res=res,
+                    failed_checks=failed_checks,
+                    session=sess,
+                )
+                if _rp_deserves:
+                    _rp_add, _rp_sk = self.budget_manager.grant_extension_for_operational_progress(
+                        reason="repair_specialist_structured_progress",
+                        skip_if_read_churn=True,
+                    )
+                else:
+                    _rp_add, _rp_sk = 0, _rp_skip
+                    if sess is not None:
+                        append_compacted_session_event(
+                            sess,
+                            {
+                                "event": "budget_extension_skipped",
+                                "reason": "repair_no_structured_progress",
+                                "detail": _rp_skip,
+                                "confidence": _rp_conf,
+                            },
+                        )
+                if _rp_add:
+                    append_budget_extension_record(
+                        sess,
+                        {
+                            "points": _rp_add,
+                            "reason": "repair_structured_progress",
+                            "detail": _rp_detail,
+                            "skipped": _rp_sk,
+                            "confidence": _rp_conf,
+                        },
+                    )
+                elif _rp_deserves and _rp_sk:
+                    if sess is not None:
+                        append_compacted_session_event(
+                            sess,
+                            {
+                                "event": "budget_extension_skipped",
+                                "reason": "repair_structured_progress_churn",
+                                "detail": _rp_sk,
+                                "confidence": _rp_conf,
+                            },
+                        )
+                sess.last_repair_extra_causal_attempt = False
                 self.console.print(
                     f"[dim]Repair Specialist:[/dim] {res.root_cause or 'applied minimal edits'} "
                     f"[dim]({applied} edit(s))[/dim]"
@@ -3299,9 +4397,31 @@ Discovery actions this session: {discovery_count}
                     extra={"outcome": outcome, "edits_applied": applied},
                 )
                 self._apply_session_phase(SessionPhase.ACT, detail="repair_specialist_applied", sync_task=True)
+                self._persist_repair_causal_digest(sess, failed_checks)
                 return
 
-            max_rep = max_repair_attempts(self._session_contract_spec_dict(), default=1)
+            if sess:
+                sess.last_repair_extra_causal_attempt = bool(
+                    applied > 0
+                    and outcome == REPAIR_OUTCOME_PARSE_BLOCKED
+                    and not getattr(res, "same_parse_signature_after_patch", True)
+                )
+                if sess.last_repair_extra_causal_attempt:
+                    sess.events.append(
+                        {
+                            "event": "repair_extra_attempt_deserved",
+                            "outcome": outcome,
+                            "edits_applied": applied,
+                            "err_sig_delta": err_sig_delta,
+                        }
+                    )
+
+            _rep_blob = self._failed_checks_blob(failed_checks)
+            max_rep = effective_max_repair_attempts(
+                self._session_contract_spec_dict(),
+                failed_checks_blob=_rep_blob,
+                default=1,
+            )
             attempt_n = int(getattr(sess, "repair_attempt_count", 0) or 0)
             if outcome != REPAIR_OUTCOME_APPLIED_PATCH and attempt_n >= max_rep:
                 logger.info(
@@ -3318,6 +4438,9 @@ Discovery actions this session: {discovery_count}
                     extra={"outcome": outcome, "attempt": attempt_n, "max_repair": max_rep},
                 )
                 self._apply_session_phase(SessionPhase.CLOSING, detail=f"repair_{outcome}", sync_task=True)
+                self._persist_repair_causal_digest(sess, failed_checks)
+                if sess:
+                    sess.last_repair_extra_causal_attempt = False
                 return
 
             if outcome == REPAIR_OUTCOME_PROVIDER_FAILURE:
@@ -3330,11 +4453,22 @@ Discovery actions this session: {discovery_count}
                 self.console.print(
                     "[yellow]Repair Specialist: ningún cambio aplicado (0 edits efectivos); reparación conversacional.[/yellow]"
                 )
+            elif outcome == REPAIR_OUTCOME_PARSE_BLOCKED:
+                self.console.print(
+                    "[yellow]Repair Specialist: el parche no supera ast.parse / firma causal en .py; "
+                    "no se considera progreso estructural.[/yellow]"
+                )
 
         if sess:
             append_repair_run_record(
                 sess,
-                {"source": "legacy_repair_nudge", "summary_excerpt": summary[:120] if summary else ""},
+                {
+                    "source": "legacy_repair_nudge",
+                    "summary_excerpt": summary[:120] if summary else "",
+                    "causal_signature_text": (causal_sig_text or "")[:500],
+                    "causal_signature_digest": causal_sig_digest,
+                    "error_signature_delta": err_sig_delta,
+                },
             )
         self._record_phase_promotion(
             "repair_to_act",
@@ -3344,6 +4478,10 @@ Discovery actions this session: {discovery_count}
         )
         repair_nudge = (
             f"[REPAIR] Verification failed: {summary or 'see integrity output'}. "
+            f"{('Fix this exact active failure first: ' + primary_failure + '. ') if primary_failure else ''}"
+            f"{('Focus only on: ' + ', '.join(repair_focus_files[:6]) + '. ') if repair_focus_files else ''}"
+            "Do not refactor unrelated logic until the exact active failure disappears. "
+            "If the failure is syntax, import, attribute, or startup related, patch only the root-cause line or block. "
             "Fix the errors in the changed files. One focused repair pass. Use edit_file on the files you changed."
         )
         self.history.append({"role": "user", "content": repair_nudge})
@@ -3351,6 +4489,7 @@ Discovery actions this session: {discovery_count}
         self.console.print("\n[bold yellow]⚠ Verification failed. Repair pass — edit and save changes.[/bold yellow]")
         logger.info("phase transition: REPAIR -> ACT (legacy nudge)")
         self._apply_session_phase(SessionPhase.ACT, detail="after repair nudge", sync_task=True)
+        self._persist_repair_causal_digest(sess, failed_checks)
 
     _TOOL_CALL_XML_RE = re.compile(r"<tool_call>.*?</tool_call>", re.DOTALL)
 
@@ -3398,6 +4537,28 @@ Discovery actions this session: {discovery_count}
             nudge = "Phase VERIFY: integrity checks are running or have completed; address failures in REPAIR if needed."
         elif state == SessionPhase.REPAIR:
             nudge = "Phase REPAIR: fix verification failures with focused edits, then continue."
+        workset_nudge = self._workset_runtime_nudge(state)
+        if workset_nudge:
+            nudge = f"{nudge} {workset_nudge}".strip()
+        sess_ctx = self.artifact_manager.current_session
+        if sess_ctx and verification_integrity_stale(sess_ctx):
+            nudge = (
+                f"{nudge} Do not claim that tests passed or that verification succeeded unless Ghost VERIFY "
+                "has completed successfully after your latest write_file/edit_file; prior run_shell output is stale."
+            ).strip()
+        pending_rec = getattr(self, "_pending_edit_recovery", None)
+        if pending_rec and state in (SessionPhase.ACT, SessionPhase.REPAIR):
+            ra = dict(pending_rec.get("arguments") or {})
+            rp = str(ra.get("path") or "?")
+            sl, ml = ra.get("start_line"), ra.get("max_lines")
+            if sl is not None and ml is not None:
+                slice_h = f"read_file(path='{rp}', start_line={sl}, max_lines={ml})"
+            else:
+                slice_h = f"read_file(path='{rp}')"
+            nudge = (
+                f"{nudge} MANDATORY next step: {slice_h}, then edit_file with old_str copied literally from that "
+                "slice—do not call run_shell or write_file until the edit applies."
+            ).strip()
         return {"state": state_s, "discovery_count": count, "nudge": nudge}
 
     def _should_force_conclusion_after_discovery(self) -> bool:
@@ -3539,7 +4700,7 @@ Discovery actions this session: {discovery_count}
             "  2. Verify configs/default.yaml has valid upstream.nvidia_api_key\n"
             "  3. Restart the daemon: [bold cyan]ghost stop[/bold cyan] then [bold cyan]ghost start[/bold cyan]\n\n"
             + (f"[dim]Detail: {detail}[/dim]" if detail else ""),
-            title="[ghost.brand]👻 Recovery Required[/ghost.brand]",
+            title="[ghost.brand]Ghost[/ghost.brand] [dim]· recuperación[/dim]",
             border_style="red",
             expand=False,
         ))
@@ -3720,6 +4881,9 @@ Discovery actions this session: {discovery_count}
             intent_confidence = getattr(session, "intent_confidence", 0.0)
         else:
             task_intent, task_scope, change_expectation, intent_confidence = "modification", "unknown", "may_write", 0.0
+        agents_project_block = ""
+        if session:
+            agents_project_block = build_agents_project_prompt_block(session)
         if session:
             ts_block, rp_block, exp_block = build_contract_prompt_blocks(session)
         else:
@@ -3755,7 +4919,7 @@ Discovery actions this session: {discovery_count}
                 "- Si `edit_file` devuelve que no encontró `old_str`: vuelve a leer el fichero, ajusta el fragmento y **sigue con más herramientas** en el mismo turno o en el siguiente; no cierres la tarea solo con un párrafo explicativo.\n"
             )
         full_system = self.SYSTEM_PROMPT.format(
-            mode=self.mode if hasattr(self, "mode") else "Chat",
+            mode=self._effective_prompt_mode() if hasattr(self, "mode") else "Chat",
             project=self.project_name if hasattr(self, "project_name") else "GhostLLM",
             cwd=self.cwd,
             tree=tree,
@@ -3771,6 +4935,7 @@ Discovery actions this session: {discovery_count}
             discovery_count=ctx["discovery_count"],
             state_nudge=ctx["nudge"],
             fast_session_nudge=fast_nudge,
+            agents_project_block=agents_project_block,
             contract_spec_block=ts_block,
             repo_profile_block=rp_block,
             decision_planner_block=dp_block,
@@ -3783,6 +4948,13 @@ Discovery actions this session: {discovery_count}
             full_system = full_system + micro_task_system_prompt_section(mtk)
         elif detect_strategy_plan_request(self._primary_user_task_text()):
             full_system = full_system + strategy_plan_system_prompt_section()
+
+        if session and self._inject_readonly_truthfulness(session):
+            full_system = full_system + readonly_analysis_truthfulness_prompt_section()
+
+        _cont = str(getattr(session, "continuity_injected_block", "") or "").strip() if session else ""
+        if _cont:
+            full_system = full_system + "\n\n# Continuidad de sesión anterior\n\n" + _cont
 
         latest_user_content = next((msg["content"] for msg in reversed(self.history) if msg["role"] == "user"), "")
         history_for_prompt = self.history
@@ -3803,6 +4975,11 @@ Discovery actions this session: {discovery_count}
         use_stream = self._should_use_stream(latest_user_content, prompt_chars_est=tr_prompt_chars)
         if prefer_non_stream:
             use_stream = False
+
+        sess_enforce = self.artifact_manager.current_session
+        defer_analysis_grounding_print = readonly_analysis_grounding_enabled(
+            sess_enforce, getattr(self, "mode", "") or ""
+        )
 
         tr_iso = trace_timestamp_iso()
         tr_mono = time.monotonic()
@@ -3828,7 +5005,8 @@ Discovery actions this session: {discovery_count}
         status = parent_status
         if show_turn_brand:
             self.console.print(
-                f"\n[ghost.brand]GHOST {getattr(self, 'project_name', 'GhostLLM')}[/ghost.brand]"
+                f"\n[ghost.brand]GHOST[/ghost.brand] [dim]·[/dim] "
+                f"[white]{getattr(self, 'project_name', 'GhostLLM')}[/white]"
             )
         if not use_stream and tr_prompt_chars > 50_000:
             self.console.print(
@@ -3874,7 +5052,7 @@ Discovery actions this session: {discovery_count}
                 response_text = msg_data.get("content") or ""
                 if response_text:
                     cleaned = self._strip_tool_calls_for_display(response_text)
-                    if cleaned:
+                    if cleaned and not defer_analysis_grounding_print:
                         self.console.print(f"{escape(cleaned)}")
                 
                 tcs_raw = msg_data.get("tool_calls", [])
@@ -3937,20 +5115,27 @@ Discovery actions this session: {discovery_count}
                                             tr_first_mono = time.monotonic()
                                             tr_first_iso = trace_timestamp_iso()
                                         if status:
-                                            self.renderer.update_status(status, "building")
-                                            status.stop() 
+                                            self.renderer.update_status(
+                                                status, "building", phase=self.session_phase.value
+                                            )
+                                            status.stop()
                                             status = None
                                         response_text += content
                                         if "<tool_call>" in content or re.search(r'\{\s*"name"\s*:', content):
                                             in_xml_tool_call = True
                                         if "</tool_call>" in content:
                                             in_xml_tool_call = False
-                                        if not self._is_tool_call_chunk(content, in_xml_tool_call):
+                                        if not defer_analysis_grounding_print and not self._is_tool_call_chunk(
+                                            content, in_xml_tool_call
+                                        ):
                                             self.console.print(escape(content), end="")
                                     
                                     tcs = delta.get("tool_calls", [])
                                     for tc in tcs:
-                                        if status: self.renderer.update_status(status, "tool_exec")
+                                        if status:
+                                            self.renderer.update_status(
+                                                status, "tool_exec", phase=self.session_phase.value
+                                            )
                                         idx = tc.get("index", 0)
                                         if idx not in tool_calls_buffer: tool_calls_buffer[idx] = {"id": tc.get("id"), "function": {"name": "", "arguments": ""}, "type": "function"}
                                         if tc.get("id"): tool_calls_buffer[idx]["id"] = tc.get("id")
@@ -3962,10 +5147,31 @@ Discovery actions this session: {discovery_count}
                                     pass
                     except (requests.exceptions.ChunkedEncodingError, requests.exceptions.ConnectionError) as e:
                         raise Exception(f"Stream interrupted prematurely: {e}")
-                print("\n")
+                if use_stream and not defer_analysis_grounding_print:
+                    print("\n")
         
             final_tool_calls = [tool_calls_buffer[i] for i in sorted(tool_calls_buffer.keys())]
             safe_content = response_text if response_text else ("" if final_tool_calls else "...")
+            sess_g = self.artifact_manager.current_session
+            if readonly_analysis_grounding_enabled(sess_g, getattr(self, "mode", "") or "") and str(safe_content).strip():
+                _gr = enforce_readonly_assistant_message(str(safe_content), sess_g)
+                safe_content = _gr.text
+                _th = normalize_tool_history(self.history)
+                _ver = getattr(sess_g, "verification", None) or {}
+                _tier_now = compute_findings_evidence_tier(_th, _ver if isinstance(_ver, dict) else {})
+                safe_content = finalize_readonly_editorial_reply(
+                    safe_content,
+                    tier=_tier_now,
+                    grounding=_gr,
+                    cli_mode=getattr(self, "mode", "") or "",
+                )
+                response_text = safe_content
+            if defer_analysis_grounding_print:
+                _cl = self._strip_tool_calls_for_display(safe_content)
+                if _cl:
+                    self.console.print(f"{escape(_cl)}")
+                if use_stream:
+                    print("\n")
             msg = {"role": "assistant", "content": safe_content, "tool_calls": final_tool_calls if final_tool_calls else None}
             
             self.history.append(msg)
@@ -4014,11 +5220,109 @@ Discovery actions this session: {discovery_count}
         v2 = rp.get("profile_v2")
         return v2 if isinstance(v2, dict) else None
 
+    def _should_force_surgical_edit(self, path: str) -> bool:
+        rel = PathComposer.normalize_path_segments(str(path or ""))
+        if not rel:
+            return False
+        full_path = PathComposer.compose(self.cwd, rel)
+        if not os.path.isfile(full_path):
+            return False
+        task = self._primary_user_task_text().lower()
+        structural_markers = (
+            "indent",
+            "indentación",
+            "sintaxis",
+            "syntax",
+            "import",
+            "typo",
+            "structural",
+            "mínim",
+            "minimum",
+            "no cambies",
+            "corrige sólo",
+            "correct only",
+            "repair only",
+        )
+        if not any(marker in task for marker in structural_markers):
+            return False
+        ts = self._session_contract_spec_dict() or {}
+        targets = [str(x).strip() for x in (ts.get("target_files") or []) if str(x).strip()]
+        if targets and rel not in [PathComposer.normalize_path_segments(x) for x in targets]:
+            return False
+        return True
+
+    def _should_force_surgical_edit_v2(self, path: str) -> bool:
+        rel = PathComposer.normalize_path_segments(str(path or ""))
+        if not rel:
+            return False
+        full_path = PathComposer.compose(self.cwd, rel)
+        if not os.path.isfile(full_path):
+            return False
+        task = self._primary_user_task_text().lower()
+        structural_markers = (
+            "indent",
+            "indentacion",
+            "sintaxis",
+            "syntax",
+            "import",
+            "typo",
+            "structural",
+            "minim",
+            "minimum",
+            "minimal",
+            "smallest",
+            "surgical",
+            "quirurg",
+            "exact block",
+            "exact line",
+            "single file",
+            "no cambies",
+            "corrige solo",
+            "cambio minimo",
+            "correct only",
+            "repair only",
+        )
+        ts = self._session_contract_spec_dict() or {}
+        target_files = ts.get("target_files") or []
+        targets = [str(x).strip() for x in target_files if str(x).strip()]
+        normalized_targets = [PathComposer.normalize_path_segments(x) for x in targets]
+        target_match = not normalized_targets or rel in normalized_targets
+        if normalized_targets and not target_match:
+            return False
+        if any(marker in task for marker in structural_markers):
+            return True
+        intent = str(ts.get("intent") or "").strip().lower()
+        rewrite_markers = ("rewrite", "reescribe", "replace whole file", "regenerate file")
+        if (
+            intent == "bugfix"
+            and target_match
+            and len(normalized_targets) <= 3
+            and not any(marker in task for marker in rewrite_markers)
+        ):
+            return True
+        return False
+
     def _contract_spec_allow_tool(self, name: str, args: Dict[str, Any]) -> Tuple[bool, str]:
         """Contract spec budget caps + forbidden layers + should_not_write."""
         sess = self.artifact_manager.current_session
         if not sess or not contract_has_operational_spec(sess):
             return True, ""
+        if name == "run_shell":
+            cmd0 = str(args.get("command") or "").strip()
+            ts0 = contract_spec_dict_from_session(sess) or {}
+            if cmd0 and batch_exec.is_verification_shell_command(cmd0):
+                _ig = str(ts0.get("intent") or "").strip().lower()
+                _ce = str(ts0.get("change_expectation") or "").strip().lower()
+                task_txt = str(getattr(sess, "task", "") or "")
+                if (_ce == "should_not_write" or _ig in ("analysis", "review")) and not user_explicitly_requests_verify_shell(
+                    task_txt
+                ):
+                    return (
+                        False,
+                        "Modo inspección/analysis (solo lectura): lint/typecheck/build/test vía run_shell están "
+                        "desactivados por defecto. Pide explícitamente ejecutar ese comando (p. ej. «ejecuta pytest») "
+                        "o usa una tarea de implementación si quieres verificación automática.",
+                    )
         ok, reason = self.budget_manager.contract_spec_allows_tool(name)
         if not ok:
             return False, reason
@@ -4029,6 +5333,46 @@ Discovery actions this session: {discovery_count}
             blocked, br = write_blocked_by_contract_spec(path, contract_spec_dict_from_session(sess))
             if blocked:
                 return False, br
+        if name == "write_file":
+            path = args.get("path") or ""
+            if path and self._should_force_surgical_edit_v2(path):
+                return (
+                    False,
+                    "Existing file + structural/syntax repair task: use read_file on the exact block and apply edit_file instead of write_file.",
+                )
+        if name == "run_shell":
+            pending = getattr(self, "_pending_edit_recovery", None)
+            cmd = str(args.get("command") or "").strip()
+            if pending and cmd and not batch_exec.is_verification_shell_command(cmd):
+                rec_args = dict(pending.get("arguments") or {})
+                rec_path = rec_args.get("path") or "(unknown)"
+                rec_start = rec_args.get("start_line")
+                rec_max = rec_args.get("max_lines")
+                slice_hint = f"{rec_path}:{rec_start}+{rec_max}" if rec_start and rec_max else rec_path
+                return (
+                    False,
+                    "Pending edit_file recovery: use read_file instead of run_shell "
+                    f"for exact file inspection ({slice_hint}).",
+                )
+            if (
+                sess
+                and getattr(sess, "reverification_pending", False)
+                and verification_integrity_stale(sess)
+                and cmd
+                and batch_exec.is_verification_shell_command(cmd)
+            ):
+                return (
+                    False,
+                    "Re-verification pending after edits: use read_file → edit_file on the failure site; "
+                    "Ghost VERIFY will run the real test command—avoid duplicate shell verification here.",
+                )
+            already_impl = self._detect_already_implemented_fast_path()
+            if already_impl and cmd and batch_exec.is_verification_shell_command(cmd):
+                return (
+                    False,
+                    "Already implemented fast-path: nearby tests already cover this; "
+                    "answer without manual run_shell verification.",
+                )
         ts = contract_spec_dict_from_session(sess)
         if ts and "ui" in (ts.get("forbidden_layers") or []) and name in ("read_file", "ls"):
             rpd = getattr(sess, "repo_profile", None) or {}
@@ -4052,16 +5396,27 @@ Discovery actions this session: {discovery_count}
                     )
         return True, ""
 
+    def _tool_trace_target(self, name: str, args: Dict[str, Any]) -> str:
+        if name == "read_file":
+            path = str(args.get("path") or "")
+            if not path:
+                return ""
+            start_line = _positive_int_or_none(args.get("start_line"))
+            max_lines = _positive_int_or_none(args.get("max_lines"))
+            if start_line is None and max_lines is None:
+                return path
+            start = start_line or 1
+            if max_lines is None:
+                return f"{path}:{start}"
+            end = start + max_lines - 1
+            return f"{path}:{start}" if end <= start else f"{path}:{start}-{end}"
+        return str(args.get("path") or args.get("command") or "")
+
     def _execute_tool(self, call: Dict[str, Any], is_authorized: bool = False) -> Dict[str, Any]:
         """Defensive Tool Execution Engine."""
         name, args = call.get("name"), call.get("arguments", {})
-        target = args.get("path") or args.get("command") or ""
-        self.renderer.append_tool_trace(
-            name,
-            target,
-            auto_approved=bool(self.auto_approve or is_authorized),
-        )
-        
+        target = self._tool_trace_target(name, args)
+
         # Trigger PreToolUse Hook
         self.hook_manager.trigger(HookEvents.PRE_TOOL_USE, name=name, arguments=args)
         
@@ -4076,6 +5431,7 @@ Discovery actions this session: {discovery_count}
         t_tool_mono = time.monotonic()
         try:
             result = self._inner_execute_tool(name, args, metadata, is_authorized=is_authorized)
+            self._update_session_workset_from_tool(name, args, result)
             _sess_tool = self.artifact_manager.current_session
             if _sess_tool and name:
                 record_tool_execution_metrics(_sess_tool, name)
@@ -4088,24 +5444,40 @@ Discovery actions this session: {discovery_count}
                 self._blocked_shell_commands = blocked
             # Trigger PostToolUse Hook
             self.hook_manager.trigger(HookEvents.POST_TOOL_USE, name=name, result=result)
+            dur_ms = (time.monotonic() - t_tool_mono) * 1000.0
             self._record_tool_call_trace(
                 name,
                 target,
                 t_tool_iso,
-                (time.monotonic() - t_tool_mono) * 1000.0,
+                dur_ms,
                 result,
+            )
+            self.renderer.append_tool_trace(
+                name,
+                target,
+                result.get("error") is None,
+                auto_approved=bool(self.auto_approve or is_authorized),
+                duration_ms=dur_ms,
             )
             return result
         except Exception as e:
             self._session_failed = True
             self.hook_manager.trigger(HookEvents.TASK_FAILED, error=str(e))
             err_result = {"error": str(e)}
+            dur_ms = (time.monotonic() - t_tool_mono) * 1000.0
             self._record_tool_call_trace(
                 name,
                 target,
                 t_tool_iso,
-                (time.monotonic() - t_tool_mono) * 1000.0,
+                dur_ms,
                 err_result,
+            )
+            self.renderer.append_tool_trace(
+                name,
+                target,
+                False,
+                auto_approved=bool(self.auto_approve or is_authorized),
+                duration_ms=dur_ms,
             )
             return err_result
 
@@ -4136,7 +5508,25 @@ Discovery actions this session: {discovery_count}
                 listing = "\n".join(files)
                 return {"content": f"[Directory: {path}]\nContents:\n{listing}\n\nUse ls for directories; read_file for files."}
             with open(full_path, "r", encoding="utf-8-sig", newline="") as f: content = f.read()
-            return {"content": content}
+            start_line = _positive_int_or_none(args.get("start_line"))
+            max_lines = _positive_int_or_none(args.get("max_lines"))
+            if start_line is None and max_lines is None:
+                return {"content": content}
+            lines = content.splitlines(keepends=True)
+            total_lines = len(lines) or 1
+            start = start_line or 1
+            start = max(1, min(start, total_lines))
+            span = max_lines or total_lines
+            end = min(total_lines, start + span - 1)
+            slice_content = "".join(lines[start - 1:end])
+            return {
+                "content": slice_content,
+                "path": path,
+                "start_line": start,
+                "end_line": end,
+                "total_lines": total_lines,
+                "sliced": True,
+            }
             
         elif name == "write_file":
             content = args.get("content")
@@ -4157,7 +5547,15 @@ Discovery actions this session: {discovery_count}
             self.artifact_manager.add_diff(
                 path, "Write File", content_sha256=_sha256_utf8(content)
             )
+            sess = self.artifact_manager.current_session
+            if sess:
+                if not int(getattr(sess, "first_edit_turn", 0) or 0):
+                    sess.first_edit_turn = int(getattr(self, "_session_loop_iteration", 0) or 0)
+                if getattr(sess, "fast_path_eligible", False):
+                    sess.fast_path_used = True
+            self._pending_edit_recovery = None
             self.indexer.invalidate_project_tree_cache()
+            self._bump_session_write_epoch()
             return {"status": "success", "bytes": len(content)}
             
         elif name == "edit_file":
@@ -4168,16 +5566,52 @@ Discovery actions this session: {discovery_count}
                 return {"error": "Action denied by user or policy."}
             full_path = PathComposer.compose(self.cwd, path)
             if not os.path.exists(full_path): return {"error": f"File not found: {path}"}
-            with open(full_path, "r", encoding="utf-8", errors="ignore") as f: content = f.read()
-            if old_str not in content: return {"error": "Target string (old_str) not found."}
-            new_content = content.replace(old_str, new_str, 1)
-            with open(full_path, "w", encoding="utf-8") as f: f.write(new_content)
+            with open(full_path, "r", encoding="utf-8-sig", newline="") as f: content = f.read()
+            match_mode = "exact"
+            if old_str in content:
+                replacement = new_str
+                new_content = content.replace(old_str, replacement, 1)
+            else:
+                normalized_content, index_map = _normalize_newlines_with_index_map(content)
+                normalized_old, _ = _normalize_newlines_with_index_map(str(old_str))
+                match_at = normalized_content.find(normalized_old)
+                if match_at >= 0:
+                    raw_start = index_map[match_at]
+                    raw_end = index_map[match_at + len(normalized_old)]
+                    raw_old = content[raw_start:raw_end]
+                    replacement = _coerce_newlines_like_reference(str(new_str), raw_old)
+                    new_content = content[:raw_start] + replacement + content[raw_end:]
+                    match_mode = "normalized_newlines"
+                else:
+                    error = {"error": "Target string (old_str) not found."}
+                    self._pending_edit_recovery = None
+                    recovery = _suggest_recovery_read_window(path, content, str(old_str))
+                    if recovery:
+                        self._pending_edit_recovery = {
+                            "next_tool": "read_file",
+                            "arguments": dict(recovery),
+                        }
+                        error["recovery"] = {
+                            "next_tool": "read_file",
+                            "arguments": recovery,
+                            "hint": "Read the exact slice from disk and retry edit_file with a literal old_str.",
+                        }
+                    return error
+            with open(full_path, "w", encoding="utf-8", newline="") as f: f.write(new_content)
             self.renderer.render_diff(path, "".join(difflib.unified_diff(content.splitlines(keepends=True), new_content.splitlines(keepends=True), fromfile=f"a/{path}", tofile=f"b/{path}")))
             self.artifact_manager.add_diff(
                 path, "Edit File", content_sha256=_sha256_utf8(new_content)
             )
+            sess = self.artifact_manager.current_session
+            if sess:
+                if not int(getattr(sess, "first_edit_turn", 0) or 0):
+                    sess.first_edit_turn = int(getattr(self, "_session_loop_iteration", 0) or 0)
+                if getattr(sess, "fast_path_eligible", False):
+                    sess.fast_path_used = True
+            self._pending_edit_recovery = None
             self.indexer.invalidate_project_tree_cache()
-            return {"status": "success", "file": path}
+            self._bump_session_write_epoch()
+            return {"status": "success", "file": path, "match_mode": match_mode}
             
         elif name == "run_shell":
             cmd = args.get("command")
@@ -4251,6 +5685,13 @@ Discovery actions this session: {discovery_count}
                     "Delete File",
                     content_sha256=_sha256_utf8(f"DELETE:{path}"),
                 )
+                sess = self.artifact_manager.current_session
+                if sess:
+                    if not int(getattr(sess, "first_edit_turn", 0) or 0):
+                        sess.first_edit_turn = int(getattr(self, "_session_loop_iteration", 0) or 0)
+                    if getattr(sess, "fast_path_eligible", False):
+                        sess.fast_path_used = True
+                self._pending_edit_recovery = None
                 self.indexer.invalidate_project_tree_cache()
                 return {"status": "success", "file": path}
             return {"status": "aborted"}

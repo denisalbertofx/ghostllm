@@ -25,6 +25,7 @@ from apps.cli.runtime.outcome_engine import (
     OUTCOME_READ_ONLY,
     OUTCOME_VERIFICATION_FAILED,
     TaskOutcomeResult,
+    verification_integrity_stale,
 )
 from apps.cli.runtime.session_phase import (
     LOOP_ABORT_MAX_ITERATIONS,
@@ -79,10 +80,12 @@ def _collect_signal_flags(
     return out
 
 
-def _verification_success(verification: Dict[str, Any]) -> bool:
+def _verification_success(verification: Dict[str, Any], session: Optional[Any] = None) -> bool:
     if not verification:
         return False
     if verification.get("status") != "success":
+        return False
+    if session is not None and verification_integrity_stale(session):
         return False
     checks = verification.get("checks") or []
     if not checks:
@@ -113,7 +116,7 @@ def compute_task_confidence_closure(
     ev = int(outcome_result.evidence_score or 0)
     made_changes = bool(getattr(session, "diff_summary", None))
 
-    v_ok = _verification_success(verification or {})
+    v_ok = _verification_success(verification or {}, session)
     v_status = str((verification or {}).get("status") or "")
 
     completion = oc

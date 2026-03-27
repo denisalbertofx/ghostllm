@@ -160,6 +160,55 @@ class TestExecutionAgent(unittest.TestCase):
         bundle = build_execution_context_bundle(inp)
         self.assertTrue(any(c.file_path.endswith("route.ts") for c in bundle.chunks))
 
+    def test_focused_target_lock_ignores_planner_and_retrieval_noise(self) -> None:
+        inp = ExecutionAgentInput(
+            taskspec={
+                "change_expectation": "must_write",
+                "intent": "bugfix",
+                "scope": [],
+                "target_files": ["apps/cli/main.py"],
+            },
+            repo_profile_v2={
+                "key_files": ["AGENTS.md", "apps/server/main.py"],
+            },
+            decision_plan={
+                "execution_plan": {
+                    "risk": {"level": "medium"},
+                    "estimated_complexity": "medium",
+                    "expected_files_changed": ["apps/server/main.py", "pyproject.toml"],
+                }
+            },
+            retrieval_result={
+                "top_files": [
+                    {"path": "apps/cli/main.py", "score": 200},
+                    {"path": "apps/server/main.py", "score": 150},
+                ],
+                "hits": [
+                    {
+                        "file_path": "apps/cli/main.py",
+                        "start_line": 1,
+                        "end_line": 5,
+                        "preview": "def doctor(): pass",
+                    },
+                    {
+                        "file_path": "apps/server/main.py",
+                        "start_line": 1,
+                        "end_line": 5,
+                        "preview": "app = FastAPI()",
+                    },
+                ],
+            },
+            likely_edit_targets=["apps/server/main.py"],
+            likely_edit_reasons=["retrieval noise"],
+            merged_candidate_order=[{"path": "pyproject.toml", "source": "planner"}],
+        )
+        bundle = build_execution_context_bundle(inp)
+        self.assertEqual([t.path for t in bundle.targets], ["apps/cli/main.py"])
+        self.assertEqual([c.file_path for c in bundle.chunks], ["apps/cli/main.py"])
+        out = run_execution_agent(inp)
+        self.assertEqual(out.selected_targets, ["apps/cli/main.py"])
+        self.assertTrue(any("focused_target_lock=apps/cli/main.py" in x for x in out.reasoning_lines))
+
     def test_model_default_devstral(self) -> None:
         with mock.patch.dict(os.environ, {ENV_EXECUTION_MODEL: ""}):
             sel = select_execution_model({}, {}, {}, target_file_count=1)

@@ -12,13 +12,18 @@ from apps.cli.runtime.terminal_capability import ghost_ui_uses_ascii
 
 GHOST_RICH_THEME = Theme(
     {
-        "ghost.brand": "#C678DD bold",
-        "ghost.accent": "#9F7AEA",
+        # Tokens semánticos (alias para copy/markup consistente)
+        "ghost.primary": "#B794F6 bold",
+        "ghost.danger": "#F87171 bold",
+        # Violeta frío + cyan: identidad Ghost (legible en temas oscuros)
+        "ghost.brand": "#B794F6 bold",
+        "ghost.accent": "#7DD3FC",
+        "ghost.phase": "#5EEAD4 bold",
         "ghost.success": "#34D399 bold",
         "ghost.error": "#F87171 bold",
         "ghost.warn": "#FBBF24",
         "ghost.info": "#22D3EE",
-        "ghost.dim": "#6B7280",
+        "ghost.dim": "#64748B",
         "ghost.muted": "#94A3B8",
         "ghost.blue": "#60A5FA",
     }
@@ -81,17 +86,17 @@ def ghost_banner_width_slim() -> bool:
 def ghost_banner_markup_full() -> str:
     return (
         "[ghost.brand]  ╭──────────────────────────────────────────╮[/ghost.brand]\n"
-        "[ghost.brand]  │[/ghost.brand] [bold white]👻 GHOST[/bold white]  ·  Engineering Runtime  "
+        "[ghost.brand]  │[/ghost.brand] [bold white]GHOST[/bold white]  ·  coding agent (terminal-first)  "
         "[ghost.brand]│[/ghost.brand]\n"
-        "[ghost.brand]  │[/ghost.brand] [dim]Fast · Verified · Autonomous[/dim]          [ghost.brand]│[/ghost.brand]\n"
+        "[ghost.brand]  │[/ghost.brand] [dim]Rápido · verificable · enfocado[/dim]              [ghost.brand]│[/ghost.brand]\n"
         "[ghost.brand]  ╰──────────────────────────────────────────╯[/ghost.brand]"
     )
 
 
 def ghost_banner_markup_slim() -> str:
     return (
-        "[ghost.brand]👻 GHOST[/ghost.brand] [dim]·[/dim] Engineering Runtime [dim]·[/dim] "
-        "[dim]Verified · Autonomous[/dim]"
+        "[ghost.brand]GHOST[/ghost.brand] [dim]·[/dim] coding agent [dim]·[/dim] "
+        "[dim]verificado · enfocado[/dim]"
     )
 
 
@@ -119,11 +124,11 @@ def ghost_budget_line_wanted(remaining: int, total: int) -> bool:
 
 def ghost_banner_plain_lines() -> List[str]:
     if ghost_banner_width_slim():
-        return ["GHOST · Engineering Runtime · Verified · Autonomous"]
+        return ["GHOST · coding agent · verificado · enfocado"]
     return [
         "  ╭──────────────────────────────────────────╮",
-        "  │ 👻 GHOST  ·  Engineering Runtime          │",
-        "  │ Fast · Verified · Autonomous              │",
+        "  │ GHOST  ·  coding agent (terminal-first)  │",
+        "  │ Rápido · verificable · enfocado            │",
         "  ╰──────────────────────────────────────────╯",
     ]
 
@@ -131,10 +136,10 @@ def ghost_banner_plain_lines() -> List[str]:
 def ghost_banner_ascii_only_lines() -> List[str]:
     """CP1252-safe / ASCII-only banner (NO_COLOR or limited encoding fallback)."""
     if ghost_banner_width_slim():
-        return ["GHOST | Engineering Runtime | Verified | Autonomous"]
+        return ["GHOST | coding agent | verificado | enfocado"]
     return [
         "  +------------------------------------------+",
-        "  | GHOST  |  Engineering Runtime            |",
-        "  | Fast | Verified | Autonomous             |",
+        "  | GHOST  |  coding agent (terminal-first)   |",
+        "  | rapido | verificable | enfocado           |",
         "  +------------------------------------------+",
     ]

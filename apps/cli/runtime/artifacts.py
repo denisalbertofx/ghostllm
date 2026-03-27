@@ -20,6 +20,128 @@ from apps.cli.runtime.task_contract import (
     RUNTIME_CONTRACT_SOURCE_SPEC_ENGINE_LEGACY,
     task_contract_to_jsonable,
 )
+from apps.cli.runtime.harness_bundle import runtime_mode_label
+
+
+def _norm_workset_path(path: Any) -> str:
+    raw = str(path or "").strip().replace("\\", "/")
+    return raw.lstrip("./")
+
+
+def _read_grounding_export_summary(sess: Any) -> Dict[str, Any]:
+    """Compact paths/count only — no file bodies in artifact JSON."""
+    lg = getattr(sess, "read_grounding_ledger", None)
+    if not isinstance(lg, list) or not lg:
+        return {}
+    paths: List[str] = []
+    for e in lg[-12:]:
+        if isinstance(e, dict) and e.get("path"):
+            paths.append(str(e["path"]))
+    return {"entries": len(lg), "paths": paths}
+
+
+def _append_unique_str(items: List[str], value: Any, *, limit: int = 200) -> None:
+    norm = str(value or "").strip()
+    if not norm or norm in items:
+        return
+    items.append(norm)
+    if len(items) > limit:
+        del items[:-limit]
+
+
+def _default_active_workset() -> Dict[str, Any]:
+    return {
+        "read_files": [],
+        "candidate_files": [],
+        "edited_files": [],
+        "written_files": [],
+        "deleted_files": [],
+        "related_tests": [],
+        "search_queries": [],
+        "commands_run": [],
+        "dependency_edges": [],
+        "last_focus_reason": "",
+        "last_updated_at": "",
+    }
+
+
+def _default_incremental_verify_state() -> Dict[str, Any]:
+    return {
+        "batches_run": 0,
+        "last_status": "",
+        "last_scope": "",
+        "last_context_label": "",
+        "last_checks": [],
+        "last_timestamp": "",
+        "files_covered": [],
+        "pending_files": [],
+        "history": [],
+    }
+
+
+def append_compacted_session_event(session: Any, event: Dict[str, Any]) -> None:
+    """
+    Append a session event; coalesce consecutive identical budget_extension_skipped rows (noise reduction).
+    """
+    ev = getattr(session, "events", None)
+    if not isinstance(ev, list):
+        return
+    if event.get("event") != "budget_extension_skipped" or not ev:
+        ev.append(dict(event))
+        return
+    last = ev[-1]
+    if (
+        isinstance(last, dict)
+        and last.get("event") == "budget_extension_skipped"
+        and last.get("reason") == event.get("reason")
+        and last.get("detail") == event.get("detail")
+    ):
+        last["repeat"] = int(last.get("repeat", 1) or 1) + 1
+        return
+    ev.append(dict(event))
+
+
+def trim_session_events_if_needed(session: Any) -> None:
+    """Bound memory for long sessions; keeps the most recent tail (diagnostic detail is in last events)."""
+    ev = getattr(session, "events", None)
+    if not isinstance(ev, list) or len(ev) <= 1:
+        return
+    try:
+        mx = int(os.environ.get("GHOST_SESSION_EVENTS_MAX", "420"))
+    except (TypeError, ValueError):
+        mx = 420
+    mx = max(120, min(2000, mx))
+    if len(ev) > mx:
+        del ev[0 : len(ev) - mx]
+
+
+def build_operator_runtime_digest(session: Any) -> Dict[str, Any]:
+    """Compact operator-facing slice: why budget moved, last causal/structural anchors, last transition."""
+    last_vfd: Optional[Dict[str, Any]] = None
+    ev = getattr(session, "events", None) or []
+    if isinstance(ev, list):
+        for e in reversed(ev[-40:]):
+            if isinstance(e, dict) and e.get("event") == "verify_failure_set_delta":
+                last_vfd = {
+                    "delta": e.get("delta"),
+                    "causal_digest_after": e.get("causal_digest_after"),
+                    "structural_digest_after": e.get("structural_digest_after"),
+                    "budget_extended": e.get("budget_extended"),
+                }
+                break
+    bud = list(getattr(session, "budget_extension_events", None) or [])[-1:]
+    pt = list(getattr(session, "phase_transitions", None) or [])[-1:]
+    lv = getattr(session, "last_verify_failure_snapshot", None) or {}
+    return {
+        "active_causal_digest": str(getattr(session, "last_repair_causal_digest", "") or "")[:32],
+        "verify_failure_structural_digest": str(lv.get("structural_digest") or "")[:32],
+        "last_failure_set_delta_event": last_vfd,
+        "last_budget_extension": bud[0] if bud else {},
+        "last_phase_transition": pt[0] if pt else {},
+        "phase": str(getattr(session, "phase", "") or ""),
+        "closure_reason": str(getattr(session, "closure_reason", "") or ""),
+        "budget_exhausted_reason": str(getattr(session, "budget_exhausted_reason", "") or ""),
+    }
 
 
 def deduplicated_diff_summary(diff_summary: List[Dict[str, Any]]) -> Tuple[List[str], Dict[str, List[str]], int]:
@@ -74,6 +196,9 @@ class ArtifactSession:
         self.phase_history: List[Dict[str, Any]] = []  # {phase, timestamp, detail?, from?, iteration?}
         # Machine-readable phase path (forensic); canonical for reconstructing runtime without logs
         self.phase_transitions: List[Dict[str, Any]] = []
+        self.active_workset: Dict[str, Any] = _default_active_workset()
+        self.phase_checkpoints: List[Dict[str, Any]] = []
+        self.incremental_verify_state: Dict[str, Any] = _default_incremental_verify_state()
         # Structured promotion / branch decisions (EXPLORE→ACT, VERIFY→REPAIR, etc.)
         self.promotion_decisions: List[Dict[str, Any]] = []
         # Each evaluation of verification reuse (finalize or coordinator), auditable
@@ -108,6 +233,20 @@ class ArtifactSession:
         self.intake_timing_ms: Dict[str, Any] = {}
         self.intake_planning_wall_ms: float = 0.0
         self.repair_attempt_count: int = 0
+        # Last failed verification snapshot (names, count, digest) for failure-set deltas across VERIFY cycles
+        self.last_verify_failure_snapshot: Dict[str, Any] = {}
+        # Operational budget grants (repair patch, failure-surface shrink) with reasons
+        self.budget_extension_events: List[Dict[str, Any]] = []
+        # REPAIR non-Python probe memo (write_epoch-scoped; avoids duplicate tsc/ruff in same epoch)
+        self.repair_probe_cache: Dict[str, Any] = {}
+        self.last_repair_extra_causal_attempt: bool = False
+        # Monotonic counter bumped on each successful write_file/edit_file; integrity checkpoint ties verify OK to epoch
+        self.write_epoch: int = 0
+        self.last_integrity_ok_write_epoch: int = -1
+        # Pytest failed-first narrowing (populated after a failed Tests check)
+        self.pytest_focus_targets: List[str] = []
+        # Digest of primary failure when last repair phase ran (cross-repair same_error detection)
+        self.last_repair_causal_digest: str = ""
         self.repair_summary: str = ""
         self.budget_exhausted_reason: str = ""
         self.last_failed_check: str = ""
@@ -194,6 +333,12 @@ class ArtifactSession:
         self.execution_raw_proposal: str = ""
         self.provider_response_snapshot: Dict[str, Any] = {}
         self.benchmark_results: List[Dict[str, Any]] = []
+        self.fast_path_eligible: bool = False
+        self.fast_path_used: bool = False
+        self.first_edit_turn: int = 0
+        self.verification_scope: str = ""
+        self.planned_check_cwds: Dict[str, Any] = {}
+        self.fallback_reason: str = ""
         # CLI session trace (structured telemetry JSON under .ghost/traces/)
         self.trace_path: str = ""
         self.trace_summary_short: str = ""
@@ -213,6 +358,31 @@ class ArtifactSession:
         self.active_feature_flags: Dict[str, Any] = {}
         self.startup_warnings: List[str] = []
         self.effective_repo_root: str = ""
+        # AGENTS.md — project contract snapshot at INTAKE (harness / prompt / tension hints)
+        self.agents_md_path: str = ""
+        self.agents_md_digest: str = ""
+        self.agents_md_sha12: str = ""
+        self.agents_user_tension_note: str = ""
+        # Continuidad entre sesiones (.ghost/plans, .ghost/handoffs)
+        self.persisted_plan_path: str = ""
+        self.persisted_handoff_path: str = ""
+        self.continuity_injected_block: str = ""
+        self.continuity_loaded_handoff: Dict[str, Any] = {}
+        self.review_packet_path: str = ""
+        self.review_packet_pr_body_preview: str = ""
+        self.review_ready_for_review: Optional[bool] = None
+        self.review_readiness_code: str = ""
+        self.review_readiness_detail_es: str = ""
+        self.delegation_envelope_path: str = ""
+        self.role_author: str = "ghost_model"
+        self.role_operator: str = "human_operator"
+        self.role_reviewer: str = ""
+        self.delegation_recipient_role: str = ""
+        self.delegation_recipient_actor_id: str = ""
+        self.findings_evidence_tier: str = ""
+        # Read-only analysis: compact digest after programmatic snippet/claim enforcement
+        self.analysis_grounding_digest: str = ""
+        self.read_grounding_ledger: List[Dict[str, Any]] = []
         self.cli_command_mode: str = ""
         # Gateway LLM (CLI → servidor Ghost / OpenAI-compatible); preflight antes del loop principal
         self.llm_gateway_url: str = ""
@@ -308,6 +478,174 @@ class ArtifactSession:
             row["extra"] = dict(extra)
         self.promotion_decisions.append(row)
 
+    def _touch_workset(self) -> Dict[str, Any]:
+        ws = self.active_workset if isinstance(self.active_workset, dict) else {}
+        if not ws:
+            ws = _default_active_workset()
+            self.active_workset = ws
+        for key, default in _default_active_workset().items():
+            if key not in ws:
+                ws[key] = list(default) if isinstance(default, list) else default
+        ws["last_updated_at"] = datetime.now().isoformat()
+        return ws
+
+    def note_workset_read(self, path: str) -> None:
+        norm = _norm_workset_path(path)
+        if not norm:
+            return
+        ws = self._touch_workset()
+        _append_unique_str(ws["read_files"], norm)
+        _append_unique_str(ws["candidate_files"], norm)
+
+    def note_workset_candidate(self, path: str) -> None:
+        norm = _norm_workset_path(path)
+        if not norm:
+            return
+        ws = self._touch_workset()
+        _append_unique_str(ws["candidate_files"], norm)
+
+    def note_workset_edit(self, path: str, op: str) -> None:
+        norm = _norm_workset_path(path)
+        if not norm:
+            return
+        ws = self._touch_workset()
+        _append_unique_str(ws["edited_files"], norm)
+        _append_unique_str(ws["candidate_files"], norm)
+        if op == "write":
+            _append_unique_str(ws["written_files"], norm)
+        elif op == "delete":
+            _append_unique_str(ws["deleted_files"], norm)
+
+    def note_related_test(self, path: str) -> None:
+        norm = _norm_workset_path(path)
+        if not norm:
+            return
+        ws = self._touch_workset()
+        _append_unique_str(ws["related_tests"], norm)
+        _append_unique_str(ws["candidate_files"], norm)
+
+    def note_search_query(self, mode: str, query: str) -> None:
+        ws = self._touch_workset()
+        _append_unique_str(ws["search_queries"], f"{mode}:{query}".strip(":"), limit=80)
+
+    def note_shell_command(self, command: str) -> None:
+        ws = self._touch_workset()
+        _append_unique_str(ws["commands_run"], str(command or "")[:240], limit=80)
+
+    def note_dependency_edge(self, src: str, dst: str, reason: str = "") -> None:
+        src_n = _norm_workset_path(src)
+        dst_n = _norm_workset_path(dst)
+        if not src_n or not dst_n or src_n == dst_n:
+            return
+        ws = self._touch_workset()
+        edge = {"from": src_n, "to": dst_n, "reason": str(reason or "")[:80]}
+        edges = ws.get("dependency_edges")
+        if not isinstance(edges, list):
+            edges = []
+            ws["dependency_edges"] = edges
+        if edge in edges:
+            return
+        edges.append(edge)
+        if len(edges) > 120:
+            del edges[:-120]
+
+    def set_workset_focus_reason(self, reason: str) -> None:
+        ws = self._touch_workset()
+        ws["last_focus_reason"] = str(reason or "")[:220]
+
+    def workset_focus_files(self, limit: int = 8) -> List[str]:
+        ws = self._touch_workset()
+        ordered: List[str] = []
+        for key in ("edited_files", "written_files", "deleted_files", "candidate_files", "read_files", "related_tests"):
+            for item in ws.get(key, []) or []:
+                norm = _norm_workset_path(item)
+                if norm and norm not in ordered:
+                    ordered.append(norm)
+                if len(ordered) >= limit:
+                    return ordered
+        return ordered
+
+    def append_phase_checkpoint(
+        self,
+        *,
+        phase: str,
+        reason: str = "",
+        iteration: Optional[int] = None,
+        task_summary: str = "",
+        focus_files: Optional[List[str]] = None,
+        open_risks: Optional[List[str]] = None,
+        planned_next_step: str = "",
+    ) -> None:
+        self.phase_checkpoints.append(
+            {
+                "ts": datetime.now().isoformat(),
+                "phase": str(phase or ""),
+                "reason": str(reason or "")[:220],
+                "iteration": iteration,
+                "task_summary": str(task_summary or self.plan or self.task or "")[:400],
+                "focus_files": list(focus_files or self.workset_focus_files()),
+                "open_risks": list(open_risks or []),
+                "planned_next_step": str(planned_next_step or "")[:240],
+            }
+        )
+        if len(self.phase_checkpoints) > 80:
+            self.phase_checkpoints = self.phase_checkpoints[-80:]
+
+    def record_incremental_verification(
+        self,
+        result: Dict[str, Any],
+        *,
+        diff_summary: Optional[List[Dict[str, Any]]] = None,
+        context_label: str = "",
+    ) -> None:
+        state = self.incremental_verify_state if isinstance(self.incremental_verify_state, dict) else {}
+        if not state:
+            state = _default_incremental_verify_state()
+            self.incremental_verify_state = state
+        for key, default in _default_incremental_verify_state().items():
+            if key not in state:
+                state[key] = list(default) if isinstance(default, list) else default
+        checks = list(result.get("checks") or [])
+        check_names = [str(c.get("name") or "") for c in checks if isinstance(c, dict) and c.get("name")]
+        files = [
+            _norm_workset_path(d.get("file"))
+            for d in (diff_summary or [])
+            if isinstance(d, dict) and d.get("file")
+        ]
+        pending = [
+            _norm_workset_path(d.get("file"))
+            for d in (diff_summary or [])
+            if isinstance(d, dict) and d.get("status") != "success" and d.get("file")
+        ]
+        history = state.get("history")
+        if not isinstance(history, list):
+            history = []
+            state["history"] = history
+        batch_no = int(state.get("batches_run") or 0) + 1
+        stamp = datetime.now().isoformat()
+        history.append(
+            {
+                "batch": batch_no,
+                "ts": stamp,
+                "status": str(result.get("status") or ""),
+                "scope": str(result.get("verification_scope") or ""),
+                "context_label": str(context_label or ""),
+                "checks": check_names,
+                "files": [f for f in files if f],
+                "steps_executed_count": int(result.get("steps_executed_count") or 0),
+            }
+        )
+        if len(history) > 40:
+            del history[:-40]
+        state["batches_run"] = batch_no
+        state["last_status"] = str(result.get("status") or "")
+        state["last_scope"] = str(result.get("verification_scope") or "")
+        state["last_context_label"] = str(context_label or "")
+        state["last_checks"] = check_names
+        state["last_timestamp"] = stamp
+        state["files_covered"] = [f for f in files if f]
+        state["pending_files"] = [f for f in pending if f]
+
     def refresh_repair_forensic_summary(self) -> None:
         """Refresh compact repair audit from current specialist + log state."""
         if (
@@ -326,9 +664,12 @@ class ArtifactSession:
             "last_specialist_outcome": self.repair_specialist_outcome or "",
             "outcome_log_len": len(self.repair_outcome_log or []),
             "last_log_outcome": last.get("outcome") if isinstance(last, dict) else None,
+            "pytest_focus_targets": list(getattr(self, "pytest_focus_targets", None) or [])[:16],
+            "last_repair_causal_digest": str(getattr(self, "last_repair_causal_digest", "") or ""),
         }
 
     def to_dict(self) -> Dict[str, Any]:
+        trim_session_events_if_needed(self)
         self.refresh_repair_forensic_summary()
         om = refresh_operational_metrics_snapshot(self)
         rh = compute_runtime_health(self, operational_metrics=om)
@@ -353,6 +694,9 @@ class ArtifactSession:
             "phase": self.phase,
             "phase_history": list(self.phase_history),
             "phase_transitions": list(self.phase_transitions),
+            "active_workset": dict(self.active_workset or {}),
+            "phase_checkpoints": list(self.phase_checkpoints or []),
+            "incremental_verify_state": dict(self.incremental_verify_state or {}),
             "promotion_decisions": list(self.promotion_decisions),
             "verification_reuse_decisions": list(self.verification_reuse_decisions),
             "terminal_resolution_record": dict(self.terminal_resolution_record),
@@ -373,6 +717,7 @@ class ArtifactSession:
             "closure_posture_es": self.closure_posture_es,
             "task_confidence_signals": dict(self.task_confidence_signals or {}),
             "closure_operator_view": build_closure_operator_view(self),
+            "operator_runtime_digest": build_operator_runtime_digest(self),
             "micro_task_kind": self.micro_task_kind,
             "task_mode": str(getattr(self, "task_mode", TASK_MODE_STANDARD) or TASK_MODE_STANDARD),
             "repo_mismatch_detected": bool(getattr(self, "repo_mismatch_detected", False)),
@@ -386,6 +731,12 @@ class ArtifactSession:
             "intake_timing_ms": dict(self.intake_timing_ms or {}),
             "intake_planning_wall_ms": float(self.intake_planning_wall_ms or 0.0),
             "repair_attempt_count": self.repair_attempt_count,
+            "last_verify_failure_snapshot": dict(getattr(self, "last_verify_failure_snapshot", None) or {}),
+            "budget_extension_events": list(getattr(self, "budget_extension_events", None) or [])[-16:],
+            "write_epoch": int(getattr(self, "write_epoch", 0) or 0),
+            "last_integrity_ok_write_epoch": int(getattr(self, "last_integrity_ok_write_epoch", -1) or -1),
+            "pytest_focus_targets": list(getattr(self, "pytest_focus_targets", None) or []),
+            "last_repair_causal_digest": str(getattr(self, "last_repair_causal_digest", "") or ""),
             "repair_summary": self.repair_summary,
             "budget_exhausted_reason": self.budget_exhausted_reason,
             "last_failed_check": self.last_failed_check,
@@ -488,6 +839,12 @@ class ArtifactSession:
             "execution_raw_proposal": self.execution_raw_proposal[:8000] if len(self.execution_raw_proposal) > 8000 else self.execution_raw_proposal,
             "provider_response_snapshot": dict(self.provider_response_snapshot),
             "benchmark_results": list(self.benchmark_results),
+            "fast_path_eligible": bool(self.fast_path_eligible),
+            "fast_path_used": bool(self.fast_path_used),
+            "first_edit_turn": int(self.first_edit_turn or 0),
+            "verification_scope": str(self.verification_scope or ""),
+            "planned_check_cwds": dict(self.planned_check_cwds or {}),
+            "fallback_reason": str(self.fallback_reason or ""),
             "trace_path": self.trace_path,
             "trace_summary_short": self.trace_summary_short,
             "trace_detail_md": self.trace_detail_md,
@@ -504,6 +861,36 @@ class ArtifactSession:
             "active_feature_flags": dict(self.active_feature_flags),
             "startup_warnings": list(self.startup_warnings),
             "effective_repo_root": self.effective_repo_root,
+            "agents_md_path": str(getattr(self, "agents_md_path", "") or ""),
+            "agents_md_digest": (
+                self.agents_md_digest
+                if len(self.agents_md_digest) <= 20000
+                else self.agents_md_digest[:20000] + "…"
+            ),
+            "agents_md_sha12": str(getattr(self, "agents_md_sha12", "") or ""),
+            "agents_user_tension_note": str(getattr(self, "agents_user_tension_note", "") or ""),
+            "persisted_plan_path": str(getattr(self, "persisted_plan_path", "") or ""),
+            "persisted_handoff_path": str(getattr(self, "persisted_handoff_path", "") or ""),
+            "continuity_loaded": bool(str(getattr(self, "continuity_injected_block", "") or "").strip()),
+            "review_packet_path": str(getattr(self, "review_packet_path", "") or ""),
+            "review_packet_pr_body_preview": str(getattr(self, "review_packet_pr_body_preview", "") or ""),
+            "review_ready_for_review": getattr(self, "review_ready_for_review", None),
+            "review_readiness_code": str(getattr(self, "review_readiness_code", "") or ""),
+            "review_readiness_detail_es": str(getattr(self, "review_readiness_detail_es", "") or ""),
+            "delegation_envelope_path": str(getattr(self, "delegation_envelope_path", "") or ""),
+            "role_author": str(getattr(self, "role_author", "") or ""),
+            "role_operator": str(getattr(self, "role_operator", "") or ""),
+            "role_reviewer": str(getattr(self, "role_reviewer", "") or ""),
+            "delegation_recipient_role": str(getattr(self, "delegation_recipient_role", "") or ""),
+            "delegation_recipient_actor_id": str(getattr(self, "delegation_recipient_actor_id", "") or ""),
+            "findings_evidence_tier": str(getattr(self, "findings_evidence_tier", "") or ""),
+            "analysis_grounding_digest": str(getattr(self, "analysis_grounding_digest", "") or ""),
+            "read_grounding_summary": _read_grounding_export_summary(self),
+            "harness_mode_label": runtime_mode_label(
+                str(self.task_intent or ""),
+                str(self.change_expectation or ""),
+                int(self.repair_attempt_count or 0),
+            ),
             "cli_command_mode": self.cli_command_mode,
             "llm_gateway_url": getattr(self, "llm_gateway_url", "") or "",
             "llm_gateway_preflight_ok": getattr(self, "llm_gateway_preflight_ok", None),
@@ -525,6 +912,21 @@ class ArtifactSession:
             md += f" (`micro_task_kind`: `{self.micro_task_kind}`)"
         md += "\n"
         md += f"**Timestamp:** {self.timestamp}\n\n"
+        _pp = str(getattr(self, "persisted_plan_path", "") or "")
+        _hp = str(getattr(self, "persisted_handoff_path", "") or "")
+        if _pp or _hp or getattr(self, "review_packet_path", ""):
+            md += "## 🔗 Continuidad persistida\n\n"
+            _rp = str(getattr(self, "review_packet_path", "") or "")
+            if _rp:
+                md += f"- **Review packet (PR-style):** `{_rp}`\n"
+            if _pp:
+                md += f"- **Plan operativo:** `{_pp}`\n"
+            if _hp:
+                md += f"- **Handoff (versionado):** `{_hp}`\n"
+            _de = str(getattr(self, "delegation_envelope_path", "") or "")
+            if _de:
+                md += f"- **Delegation envelope:** `{_de}`\n"
+            md += "\n"
         md += format_operational_metrics_markdown(om)
         rb = list(getattr(self, "runtime_phase_breakdown", None) or [])
         if rb:
@@ -755,6 +1157,12 @@ class ArtifactSession:
                 md += "**Reasoning:**\n"
                 for line in self.execution_reasoning_lines[:8]:
                     md += f"- {line}\n"
+            md += (
+                f"**Focused fast path:** eligible={self.fast_path_eligible} "
+                f"used={self.fast_path_used} first_edit_turn={int(self.first_edit_turn or 0)}\n"
+            )
+            if self.fallback_reason:
+                md += f"**Fallback reason:** `{self.fallback_reason}`\n"
             md += "\n"
         if self.repo_profile_influence or (self.exploration_plan and any(self.exploration_plan.values())):
             md += "## 🧭 RepoProfile influence (runtime)\n"
@@ -799,6 +1207,8 @@ class ArtifactSession:
             md += "## 🛡️ Verification\n"
             v = self.verification if isinstance(self.verification, dict) else {}
             md += f"**Status:** {v.get('status', 'N/A').upper()}\n"
+            if self.verification_scope:
+                md += f"**verification_scope:** `{self.verification_scope}`\n"
             if self.verification_diff_fingerprint:
                 md += f"**Diff fingerprint (reuse key):** `{self.verification_diff_fingerprint}`\n"
             steps = v.get("steps_executed_count")
@@ -806,10 +1216,18 @@ class ArtifactSession:
                 md += f"**Steps executed:** {steps}\n"
             for check in v.get("checks", []):
                 prov = check.get("provenance", "")
+                cwd = check.get("cwd")
+                cause = check.get("cause")
                 line = f"- {check.get('name')}: {check.get('status')}"
+                if cwd:
+                    line += f" @ {cwd}"
                 if prov:
                     line += f" (provenance: {prov})"
+                if cause:
+                    line += f" cause={cause}"
                 md += line + "\n"
+            if self.planned_check_cwds:
+                md += f"**planned_check_cwds:** `{json.dumps(self.planned_check_cwds, ensure_ascii=False)}`\n"
             notes = v.get("manual_verification_notes", "").strip()
             if notes:
                 md += f"**Manual notes:** {notes}\n"

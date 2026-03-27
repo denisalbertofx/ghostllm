@@ -9,11 +9,15 @@ Ver: docs/GHOST_RENDERER_ASSISTANT_CONTRACT.md
 """
 from __future__ import annotations
 
+import getpass
 import json
 import os
+import re
+from collections import deque
 from typing import Any, Dict, List, Optional, Tuple
 
 from rich.console import Console
+from rich.markdown import Markdown
 from rich.panel import Panel
 from rich.text import Text
 from rich.markup import escape
@@ -21,14 +25,346 @@ from rich.syntax import Syntax
 from rich import box
 from rich.table import Table
 
+from apps.cli.ui import ui_contract as _ui_contract
+from apps.cli.ui.theme import ghost_box_rounded
+from apps.cli.ui.visual_layout import (
+    GhostVisualLayout,
+    artifact_line_marker,
+    build_ghost_visual_layout,
+    default_terminal_width,
+    format_live_phase_rail,
+    layout_for_rail_api,
+    review_packet_plain_fallback,
+    rule_markup,
+    salidas_paths_lines_split,
+    startup_lines,
+    tool_chip_prefix,
+    truncate_visible,
+)
+
+_UNSET = object()
+
+from apps.cli.runtime.closure_artifact_summary import apply_tier_language_guard_es
+from apps.cli.runtime.harness_bundle import (
+    build_workset_tree_lines,
+    format_operator_execution_plan,
+    normalize_change_kind,
+    verification_plan_summary_from_spec,
+    compact_phase_trace_lines_from_list,
+    strip_coverage_tail,
+    truncate_unified_diff,
+)
+
 
 def _tool_ui_mode() -> str:
     return os.getenv("GHOST_TOOL_UI", "compact").strip().lower()
 
 
+def _ui_verbose() -> bool:
+    """GHOST_UI_VERBOSE=1: contract spec, repo profile, traces, phase log, grounding digest, etc."""
+    return os.getenv("GHOST_UI_VERBOSE", "0").strip().lower() in ("1", "true", "yes", "on")
+
+
+def _status_spinner_name() -> str:
+    """GHOST_STATUS_SPINNER: Rich spinner id (dots12, dots2, line, etc.)."""
+    s = os.getenv("GHOST_STATUS_SPINNER", "dots12").strip() or "dots12"
+    return s
+
+
+def format_phase_rail(phase: str) -> str:
+    """API estable: rail de implementación (4 pasos); layout fijo ancho 100 para tests."""
+    return format_live_phase_rail(
+        phase,
+        _ui_contract.LIVE_RAIL_PROFILE_IMPLEMENT,
+        layout=layout_for_rail_api(),
+    )
+
+
+def _default_live_detail_line(state: str) -> str:
+    return {
+        "thinking": _ui_contract.LIVE_STATE_THINKING,
+        "waiting": _ui_contract.LIVE_STATE_WAITING_MODEL,
+        "tool_exec": _ui_contract.LIVE_STATE_TOOL_GENERIC,
+        "tool_result": _ui_contract.LIVE_STATE_TOOL_RESULT,
+        "building": _ui_contract.LIVE_STATE_STREAMING,
+        "closing": _ui_contract.LIVE_STATE_CLOSING,
+        "ready": _ui_contract.LIVE_STATE_READY,
+    }.get(state, _ui_contract.LIVE_STATE_WORKING)
+
+
+_STATUS_HINT: Dict[str, str] = {
+    "thinking": "El modelo sigue activo; prompts muy largos alargan este tramo.",
+    "tool_exec": "read · patch · shell según política del gate",
+    "building": "Stream de tokens o bloque final",
+    "closing": "Síntesis sin nuevas herramientas",
+}
+
+
+def _tool_chip_label(name: str) -> str:
+    m = {
+        "read_file": "read",
+        "edit_file": "patch",
+        "write_file": "write",
+        "delete_file": "del",
+        "run_shell": "shell",
+        "ls": "ls",
+        "summarize_repo": "map",
+        "search_code": "find",
+    }
+    return m.get(str(name or ""), str(name or "?")[:14])
+
+
+def format_tool_live_hint_from_prepared(prepared_calls: List[Dict[str, Any]]) -> str:
+    """Una línea corta para el spinner (primera herramienta del lote + sufijo si hay más)."""
+    if not prepared_calls:
+        return _ui_contract.LIVE_STATE_TOOL_GENERIC
+    names = [str(pc.get("name") or "").strip() for pc in prepared_calls if pc.get("name")]
+    if not names:
+        return _ui_contract.LIVE_STATE_TOOL_GENERIC
+    first = names[0]
+    args = prepared_calls[0].get("args")
+    if not isinstance(args, dict):
+        args = {}
+    path = str(args.get("path") or args.get("file") or "").strip()
+    cmd = str(args.get("command") or "").strip().replace("\n", " ")
+    short_p = escape(_short_tool_target(path, 50)) if path else ""
+    short_c = escape(_short_tool_target(cmd, 42)) if cmd else ""
+    extra = f" (+{len(names) - 1} más)" if len(names) > 1 else ""
+    n = first.lower()
+    if n == "read_file":
+        return (
+            f"{_ui_contract.LIVE_ACTION_READING} {short_p}{extra}"
+            if short_p
+            else f"{_ui_contract.LIVE_ACTION_READING}…{extra}"
+        )
+    if n == "edit_file":
+        return (
+            f"{_ui_contract.LIVE_ACTION_PATCHING} {short_p}{extra}"
+            if short_p
+            else f"{_ui_contract.LIVE_ACTION_PATCHING}…{extra}"
+        )
+    if n == "write_file":
+        return (
+            f"{_ui_contract.LIVE_ACTION_WRITING} {short_p}{extra}"
+            if short_p
+            else f"{_ui_contract.LIVE_ACTION_WRITING}…{extra}"
+        )
+    if n == "delete_file":
+        return (
+            f"{_ui_contract.LIVE_ACTION_DELETING} {short_p}{extra}"
+            if short_p
+            else f"{_ui_contract.LIVE_ACTION_DELETING}…{extra}"
+        )
+    if n == "run_shell":
+        return (
+            f"{_ui_contract.LIVE_ACTION_SHELL} {short_c}{extra}"
+            if short_c
+            else f"{_ui_contract.LIVE_ACTION_SHELL} comando{extra}"
+        )
+    if n == "ls":
+        return (
+            f"{_ui_contract.LIVE_ACTION_LISTING} {short_p}{extra}"
+            if short_p
+            else f"{_ui_contract.LIVE_ACTION_LISTING}…{extra}"
+        )
+    if n == "search_code":
+        return _ui_contract.LIVE_ACTION_SEARCH + extra
+    if n == "summarize_repo":
+        return _ui_contract.LIVE_ACTION_MAP + extra
+    return f"{escape(_tool_chip_label(first))}…{extra}"
+
+
+def _short_tool_target(detail: str, max_len: int = 44) -> str:
+    d = (detail or "").strip().replace("\n", " ")
+    if len(d) <= max_len:
+        return d
+    return d[: max_len - 1] + "…"
+
+
 def _feature_flag_visible(value: Any) -> bool:
     raw = str(value or "").strip().lower()
     return bool(raw) and raw not in ("0", "false", "off", "no")
+
+
+def _artifact_readonly_intent(artifact: Dict[str, Any]) -> bool:
+    spec = artifact.get("taskspec") or artifact.get("contract_spec")
+    if not isinstance(spec, dict):
+        return False
+    intent = str(spec.get("intent") or "").strip().lower()
+    ce = str(spec.get("change_expectation") or "").strip().lower()
+    return intent in ("analysis", "review") or ce == "should_not_write"
+
+
+def _evidence_lines_without_tier_banner(ev: Any, *, max_items: int = 8) -> List[str]:
+    if not isinstance(ev, list):
+        return []
+    out: List[str] = []
+    for x in ev[:max_items]:
+        s = str(x).strip()
+        if s.lower().startswith("findings tier:"):
+            continue
+        out.append(str(x))
+    return out
+
+
+def _readonly_tier_operator_copy(tier: str) -> Tuple[str, str]:
+    """(badge Rich, nota breve) — /plan editorial, sin alarmismo."""
+    t = (tier or "").strip().lower()
+    if t == "confirmed":
+        return (
+            "[green]Alta · confirmada[/green]",
+            "Checks ejecutados en disco; un fallo cuenta como señal dura.",
+        )
+    if t == "suspected":
+        return (
+            "[ghost.warn]Media · suspected[/ghost.warn]",
+            "Lecturas amplias, sin prueba cerrada: calibra el lenguaje y confirma con cita literal o test.",
+        )
+    if t == "unverified":
+        return (
+            "[ghost.muted]Baja · sin verificar[/ghost.muted]",
+            "Inspección ligera: trata afirmaciones fuertes como pendientes de evidencia.",
+        )
+    return ("[dim]—[/dim]", "Nivel de evidencia no clasificado.")
+
+
+def _readonly_operator_review_body(
+    artifact: Dict[str, Any],
+    *,
+    headline_raw: str,
+    tier: str,
+    ev_filtered: List[str],
+    max_ev: int,
+    max_chars: int,
+) -> str:
+    primary = (headline_raw or str(artifact.get("task_outcome") or "—")).strip()
+    lab, expl = _readonly_tier_operator_copy(tier)
+    parts: List[str] = [
+        f"[ghost.brand]{escape(_ui_contract.BRAND_WORDMARK)}[/ghost.brand] [dim]· revisión read-only[/dim]",
+        "",
+        "[bold white]Conclusión[/bold white]",
+        escape(primary) if primary else "—",
+        "",
+        "[bold white]Confianza[/bold white]",
+        lab,
+        f"[dim]{escape(expl)}[/dim]",
+        "",
+        "[bold white]Evidencia[/bold white]",
+    ]
+    if ev_filtered:
+        for x in ev_filtered[:max_ev]:
+            parts.append(f"  [ghost.muted]·[/ghost.muted] {escape(str(x)[:max_chars])}")
+    else:
+        parts.append("  [dim]Sin extractos de herramientas en este bloque.[/dim]")
+    na = str(artifact.get("next_action") or "").strip()
+    parts.extend(["", "[bold white]Siguiente paso[/bold white]"])
+    if na:
+        parts.append(f"  {escape(na[:420])}")
+    else:
+        parts.append("  [dim]Ver el .md de sesión para el detalle.[/dim]")
+    return "\n".join(parts)
+
+
+def _artifact_salidas_rows(artifact: Dict[str, Any]) -> List[Tuple[str, str]]:
+    rows: List[Tuple[str, str]] = []
+    rp = str(artifact.get("review_packet_path") or "").strip()
+    if rp:
+        rows.append((_ui_contract.ARTIFACT_SALIDA_REVIEW_PACKET, rp))
+    sid = str(artifact.get("session_id") or "").strip()
+    if sid and sid != "?":
+        rows.append((_ui_contract.ARTIFACT_SALIDA_RESUMEN_MD, f".ghost/artifacts/{sid}.md"))
+    else:
+        rows.append((_ui_contract.ARTIFACT_SALIDA_CARPETA, ".ghost/artifacts/"))
+    for key, label in (
+        ("persisted_plan_path", _ui_contract.ARTIFACT_SALIDA_PLAN),
+        ("persisted_handoff_path", _ui_contract.ARTIFACT_SALIDA_HANDOFF),
+        ("delegation_envelope_path", _ui_contract.ARTIFACT_SALIDA_ENVELOPE),
+    ):
+        p = str(artifact.get(key) or "").strip()
+        if p:
+            rows.append((label, p))
+    tp = str(artifact.get("trace_path") or "").strip()
+    if tp:
+        rows.append((_ui_contract.ARTIFACT_SALIDA_TRACE, tp))
+    return rows
+
+
+def _artifact_interactive_compact(artifact: Dict[str, Any]) -> bool:
+    """
+    Sesiones read-only sin diff: resumen compacto en consola; el detalle completo queda en .json/.md del artefacto.
+    Desactivar con GHOST_ARTIFACT_INTERACTIVE_COMPACT=0.
+    """
+    v = os.getenv("GHOST_ARTIFACT_INTERACTIVE_COMPACT", "1").strip().lower()
+    if v in ("0", "false", "no", "off"):
+        return False
+    if artifact.get("diff_summary"):
+        return False
+    return _artifact_readonly_intent(artifact)
+
+
+def summarize_test_runner_output(blob: str, max_lines: int = 28) -> Optional[str]:
+    """
+    Resumen tipo suite (pytest / jest / vitest) a partir de stdout/stderr.
+    Devuelve None si no reconoce el patrón (el caller usa el blob completo).
+    """
+    if not blob or not isinstance(blob, str):
+        return None
+    if len(blob) > 400_000:
+        return None
+    sample = blob[:12000]
+    low = sample.lower()
+    looks_pytest = "pytest" in low or re.search(
+        r"^=+ .+ (passed|failed|error|skipped)", sample, re.I | re.M
+    )
+    looks_jest = bool(
+        re.search(r"^(PASS|FAIL)\s+\S+\.(?:test|spec)\.(?:[jt]sx?|[cm]?js)", sample, re.I | re.M)
+    )
+    looks_vitest = "vitest" in low or re.search(r"vitest.*\b(pass|fail)\b", low)
+    if not (looks_pytest or looks_jest or looks_vitest):
+        return None
+
+    py_node = re.compile(
+        r"^(\S+(?:[/\\]\S+)*::\S+)\s+(PASSED|FAILED|SKIPPED|ERROR)(?:\s+\[([\d.]+)s\])?",
+        re.I | re.M,
+    )
+    jv_line = re.compile(r"^(PASS|FAIL)\s+(\S+)", re.I)
+    summary_line = re.compile(r"^=+\s*.+\s*=+\s*$", re.M)
+    dur_tail = re.compile(
+        r"(?:in\s+)(\d+(?:\.\d+)?)\s*s(?:ec(?:onds)?)?\b|\((\d+(?:\.\d+)?)\s*s\)",
+        re.I,
+    )
+
+    picked: List[str] = []
+    duration_s = ""
+    for m in py_node.finditer(sample):
+        node, st, secs = m.group(1), m.group(2).upper(), m.group(3) or ""
+        frag = f"{node} · {st}"
+        if secs:
+            frag += f" · {secs}s"
+        picked.append(frag)
+    for line in sample.splitlines():
+        jm = jv_line.match(line.strip())
+        if jm:
+            picked.append(f"{jm.group(2)} · {jm.group(1).upper()}")
+        if not duration_s:
+            dm = dur_tail.search(line)
+            if dm:
+                duration_s = dm.group(1) or dm.group(2) or ""
+    for line in sample.splitlines():
+        if summary_line.match(line.strip()) and re.search(r"passed|failed|error|skipped", line, re.I):
+            s = line.strip()
+            if s not in picked:
+                picked.append(s)
+
+    if not picked:
+        return None
+    header = _ui_contract.VERIFY_PYTEST_SUMMARY_HEADER_EXTRACTO
+    if duration_s:
+        header += f" · duración ~{duration_s}s"
+    body = "\n".join(picked[:max_lines])
+    if len(picked) > max_lines:
+        body += f"\n… (+{len(picked) - max_lines} entradas)"
+    return header + "\n" + body
 
 
 def _verification_normalize_row(check: Dict[str, Any]) -> Tuple[str, str, str, bool]:
@@ -43,12 +379,13 @@ def _verification_normalize_row(check: Dict[str, Any]) -> Tuple[str, str, str, b
     executed = prov == "executed"
 
     if not executed:
+        nr = _ui_contract.VERIFY_CHECK_DISPLAY_NOT_RUN
         if st in ("passed", "success"):
-            return name, "NOT RUN", "yellow", False
+            return name, nr, "yellow", False
         if st in ("not_run", "skipped") or "not_run" in prov.lower():
-            return name, "NOT RUN", "yellow", False
+            return name, nr, "yellow", False
         if not st:
-            return name, "NOT RUN", "yellow", False
+            return name, nr, "yellow", False
         return name, st.upper().replace("_", " "), "yellow", False
 
     exit_code = check.get("exit_code")
@@ -68,29 +405,115 @@ def _verification_normalize_row(check: Dict[str, Any]) -> Tuple[str, str, str, b
     return name, st.upper().replace("_", " "), "red", True
 
 
+def _ghost_rule_markup(label: str, *, layout: GhostVisualLayout) -> str:
+    """Regla visual — respeta ASCII / ancho vía ``GhostVisualLayout``."""
+    return rule_markup(label, layout)
+
+
+def _approval_purpose_for_action(name: str, detail: str, args: Any) -> str:
+    if not isinstance(args, dict):
+        args = {}
+    n = (name or "").lower()
+    path = str(args.get("path") or detail or "").strip()
+    cmd = str(args.get("command") or detail or "").strip()
+    if n == "run_shell":
+        c = cmd.replace("\n", " ")
+        return (c[:88] + "…") if len(c) > 89 else (c or "Ejecutar comando shell")
+    if n == "write_file":
+        return f"Crear o sobrescribir `{path or '—'}`"
+    if n == "edit_file":
+        return f"Modificar `{path or '—'}`"
+    if n == "delete_file":
+        return f"Eliminar `{path or '—'}`"
+    if n == "read_file":
+        return f"Leer `{path or '—'}`"
+    if n == "apply_patch":
+        return "Aplicar parche al repo"
+    d = str(detail or "").replace("\n", " ").strip()
+    if d:
+        return (d[:100] + "…") if len(d) > 101 else d
+    return f"Herramienta `{name or '?'}`"
+
+
+def _approval_impact_for_action(name: str) -> str:
+    n = (name or "").lower()
+    if n == "run_shell":
+        return "Shell local · mismo usuario que esta consola"
+    if n in ("write_file", "edit_file", "delete_file", "apply_patch"):
+        return "Cambia archivos en el workspace (revisar antes de commit)"
+    if n in ("read_file", "ls", "search_code", "summarize_repo"):
+        return "Solo lectura / mapa del repo"
+    return "Efectos según política del gate"
+
+
+def _verify_pair_sort_key(pr: Tuple[Dict[str, Any], Tuple[str, str, str, bool]]) -> Tuple[int, str]:
+    c, r = pr
+    name, label, _style, _xf = r
+    ex = str(c.get("provenance") or "") == "executed"
+    if ex and label == "FAILED":
+        return (0, name)
+    if ex and label == "PASSED":
+        return (1, name)
+    return (2, name)
+
+
+def _markdown_tty_cap(text: str, *, max_lines: int) -> str:
+    lines = (text or "").splitlines()
+    if len(lines) <= max_lines:
+        return text or ""
+    return "\n".join(lines[:max_lines]) + "\n\n…"
+
+
+def _operator_input_handle() -> str:
+    try:
+        u = (getpass.getuser() or "").strip()
+    except Exception:
+        u = ""
+    if not u:
+        return "you"
+    return u[:14] if len(u) > 14 else u
+
+
 class GhostRenderer:
     def __init__(self, console: Console):
         self.console = console
         self._tool_segment_active: bool = False
         self._tool_segment_buffer: List[Dict[str, Any]] = []
+        self._last_status_phase: str = "EXPLORE"
+        self._tool_activity: deque = deque(maxlen=12)
+        self._last_tool_flush_signature: Optional[str] = None
+        self._live_rail_profile: str = _ui_contract.LIVE_RAIL_PROFILE_IMPLEMENT
+        self._live_detail: Optional[str] = None
+        self._last_status_render_sig: Optional[str] = None
+
+    def _tty_layout(self) -> GhostVisualLayout:
+        w = self.console.width
+        if w is None or w <= 0:
+            w = default_terminal_width()
+        return build_ghost_visual_layout(width=w, verbose=_ui_verbose())
 
     def print_header(self, product_name: str, mode: str, profile: str, model: str):
-        """Display the professional product header."""
-        header_text = Text()
-        header_text.append(" GHOST | ", style="bold magenta")
-        header_text.append(f"{product_name}", style="bold white")
-        header_text.append(f" {' ' * 20} Mode: ", style="dim")
-        header_text.append(f"{mode}", style="bold cyan")
-        header_text.append(" | Profile: ", style="dim")
-        header_text.append(f"{profile}", style="bold green")
-        header_text.append(f"\n Model: ", style="dim")
-        header_text.append(f"{model}", style="white")
-        header_text.append(" " * 27 + " Tools: ", style="dim")
-        header_text.append("Ready", style="bold green")
-        header_text.append(" | Context: ", style="dim")
-        header_text.append("Live", style="bold blue")
-
-        self.console.print(Panel(header_text, box=box.ROUNDED, padding=(0, 1)))
+        """Cabecera compacta alineada con la marca Ghost (legacy / herramientas auxiliares)."""
+        line1 = (
+            f"[ghost.brand]{escape(_ui_contract.BRAND_WORDMARK.upper())}[/ghost.brand] "
+            f"[dim]·[/dim] [white]{escape(product_name)}[/white]  "
+            f"[ghost.dim]│[/ghost.dim]  [cyan]{escape(mode)}[/cyan]  "
+            f"[ghost.dim]│[/ghost.dim]  [green]{escape(profile)}[/green]"
+        )
+        line2 = (
+            f"[dim]modelo[/dim] [white]{escape(model)}[/white]  "
+            f"[ghost.dim]│[/ghost.dim]  [dim]herramientas[/dim] [green]listas[/green]  "
+            f"[ghost.dim]│[/ghost.dim]  [dim]contexto[/dim] [blue]vivo[/blue]"
+        )
+        self.console.print(
+            Panel(
+                f"{line1}\n{line2}",
+                border_style="ghost.brand",
+                box=ghost_box_rounded(),
+                padding=(0, 1),
+                expand=False,
+            )
+        )
 
     def print_tool_trace(self, name: str, target: str):
         """Log a tool execution in a professional, dimmed style."""
@@ -102,16 +525,41 @@ class GhostRenderer:
     def print_error(self, message: str):
         self.console.print(f" [bold red]✘[/bold red] {message}")
 
-    def render_diff(self, path: str, diff_text: str):
-        """Display code changes in a syntax-highlighted panel."""
-        if diff_text:
-            self.console.print(
-                Panel(
-                    Syntax(diff_text, "diff", theme="monokai", line_numbers=True),
-                    title=f"Δ {path}",
-                    border_style="cyan",
-                )
+    def render_diff(self, path: str, diff_text: str, *, max_lines: int = 48):
+        """Display code changes: capped unified diff + syntax highlight (full diff en artefacto)."""
+        if not (diff_text or "").strip():
+            return
+        ly = self._tty_layout()
+        try:
+            ml = int(os.getenv("GHOST_DIFF_VIEW_MAX_LINES", str(max_lines)))
+        except ValueError:
+            ml = max_lines
+        ml = max(12, min(ml, 200))
+        if ly.density == "compact":
+            ml = max(12, int(ml * 0.88))
+        elif ly.density == "comfortable":
+            ml = min(200, int(ml * 1.08))
+        if ly.ultra_narrow:
+            ml = max(12, int(ml * 0.82))
+        body, truncated = truncate_unified_diff(diff_text, max_lines=ml)
+        title = f"Δ {path}"
+        if truncated:
+            title += " · recortado"
+        if truncated:
+            sub = f"[dim]{_ui_contract.CLOSURE_DIFF_REVIEW_CAPTION} · íntegro en artefacto .md[/dim]"
+        else:
+            sub = f"[dim]{_ui_contract.CLOSURE_DIFF_REVIEW_CAPTION}[/dim]"
+        self.console.print(
+            Panel(
+                Syntax(body, "diff", theme="monokai", line_numbers=True, background_color="default"),
+                title=title,
+                subtitle=sub,
+                border_style="ghost.accent",
+                box=ghost_box_rounded(),
+                padding=ly.panel_padding,
+                expand=False,
             )
+        )
 
     def render_local_inspection(self, stats: Dict[str, Any]):
         """Special UI for structural local inspection results."""
@@ -127,53 +575,158 @@ class GhostRenderer:
         res += f"\n[dim]Nota: Datos extraídos mediante el Extractor Local (By-passing LLM).[/dim]\n"
         self.console.print(res)
 
-    def status_context(self, initial_state: str = "thinking"):
-        """Context manager for professional status management."""
-        messages = {
-            "thinking": "[bold magenta]Thinking...[/bold magenta]",
-            "waiting": "[bold magenta]Waiting for model...[/bold magenta]",
-            "tool_exec": "[bold cyan]Executing tool...[/bold cyan]",
-            "tool_result": "[bold blue]Processing result...[/bold blue]",
-            "building": "[bold green]Building response...[/bold green]",
-            "ready": "[bold green]Ready[/bold green]",
-        }
-        initial_msg = messages.get(initial_state, initial_state)
-        return self.console.status(initial_msg, spinner="dots9")
+    def _status_full_message(self, phase: str, state: str) -> str:
+        ly = self._tty_layout()
+        rail = format_live_phase_rail(phase, self._live_rail_profile, layout=ly)
+        detail = (self._live_detail or "").strip()
+        if not detail:
+            detail = _default_live_detail_line(state)
+        detail_disp = truncate_visible(detail, ly.live_detail_max_chars)
+        if ly.merge_status_single_line:
+            one = f"{rail} [ghost.dim]::[/ghost.dim] [bold white]{detail_disp}[/bold white]"
+            if _ui_verbose() and state in _STATUS_HINT and ly.show_status_hints_under_spinner:
+                one += f"\n[dim]{escape(_STATUS_HINT[state])}[/dim]"
+            return one
+        line2 = f"[ghost.muted]›[/ghost.muted] [bold white]{detail_disp}[/bold white]"
+        out = f"{rail}\n{line2}"
+        if _ui_verbose() and state in _STATUS_HINT and ly.show_status_hints_under_spinner:
+            out += f"\n[dim]{escape(_STATUS_HINT[state])}[/dim]"
+        return out
 
-    def update_status(self, status_obj, state: str):
-        """Update the message of an active status spinner."""
-        messages = {
-            "thinking": "[bold magenta]Thinking...[/bold magenta]",
-            "waiting": "[bold magenta]Waiting for model...[/bold magenta]",
-            "tool_exec": "[bold cyan]Executing tool...[/bold cyan]",
-            "tool_result": "[bold blue]Processing result...[/bold blue]",
-            "building": "[bold green]Building response...[/bold green]",
-            "ready": "[bold green]Ready[/bold green]",
-        }
-        msg = messages.get(state, state)
-        status_obj.update(msg)
+    def session_status(
+        self,
+        phase: str,
+        *,
+        initial: str = "thinking",
+        rail_profile: str = _ui_contract.LIVE_RAIL_PROFILE_IMPLEMENT,
+    ):
+        """
+        Spinner con rail vivo (implementación o /plan) + línea de acción.
+        Use: ``with renderer.session_status(phase, rail_profile=...) as status:``
+        """
+        rp = str(rail_profile or _ui_contract.LIVE_RAIL_PROFILE_IMPLEMENT).strip().lower()
+        if rp not in (
+            _ui_contract.LIVE_RAIL_PROFILE_READONLY,
+            _ui_contract.LIVE_RAIL_PROFILE_IMPLEMENT,
+        ):
+            rp = _ui_contract.LIVE_RAIL_PROFILE_IMPLEMENT
+        self._live_rail_profile = rp
+        self._last_status_render_sig = None
+        self._live_detail = None
+        self._last_status_phase = str(phase or "EXPLORE").strip().upper() or "EXPLORE"
+        return self.console.status(
+            self._status_full_message(self._last_status_phase, initial),
+            spinner=_status_spinner_name(),
+            spinner_style="ghost.accent",
+            refresh_per_second=14,
+        )
+
+    def status_context(self, initial_state: str = "thinking"):
+        """Context manager for professional status management (legacy API)."""
+        return self.session_status(
+            self._last_status_phase,
+            initial=initial_state,
+            rail_profile=self._live_rail_profile,
+        )
+
+    def update_status(
+        self,
+        status_obj,
+        state: str,
+        *,
+        phase: Optional[str] = None,
+        live_detail: Any = _UNSET,
+        rail_profile: Any = _UNSET,
+    ) -> None:
+        """Actualiza el spinner; evita ``update`` redundante si el mensaje no cambió."""
+        if rail_profile is not _UNSET:
+            rp = str(rail_profile or "").strip().lower()
+            if rp in (
+                _ui_contract.LIVE_RAIL_PROFILE_READONLY,
+                _ui_contract.LIVE_RAIL_PROFILE_IMPLEMENT,
+            ):
+                self._live_rail_profile = rp
+        if phase is not None:
+            new_ph = str(phase).strip().upper() or self._last_status_phase
+            if new_ph != self._last_status_phase:
+                self._last_status_render_sig = None
+            self._last_status_phase = new_ph
+        if live_detail is not _UNSET:
+            self._live_detail = (str(live_detail).strip() or None) if live_detail else None
+        elif state in ("building", "thinking", "closing", "waiting", "tool_result", "ready"):
+            self._live_detail = None
+        if status_obj is None:
+            return
+        msg = self._status_full_message(self._last_status_phase, state)
+        if msg == self._last_status_render_sig:
+            return
+        self._last_status_render_sig = msg
+        try:
+            status_obj.update(msg)
+        except Exception:
+            pass
+
+    def _format_tool_chip_row(self, row: Dict[str, Any], ly: GhostVisualLayout) -> str:
+        label = _tool_chip_label(str(row.get("name") or "?"))
+        tgt = escape(_short_tool_target(str(row.get("detail") or ""), ly.tool_detail_max_chars))
+        st = str(row.get("estado") or "")
+        if st == "ok":
+            st_s = "[ghost.success]ok[/ghost.success]" if not ly.ascii_ui else "[ghost.success]+[/ghost.success]"
+        elif st == "error":
+            st_s = "[ghost.error]fail[/ghost.error]" if not ly.ascii_ui else "[ghost.error]x[/ghost.error]"
+        elif st == "pending":
+            st_s = "[ghost.warn]…[/ghost.warn]" if not ly.ascii_ui else "[ghost.warn]..[/ghost.warn]"
+        elif st == "auto":
+            st_s = "[dim]auto[/dim]"
+        else:
+            st_s = f"[dim]{escape(st)}[/dim]"
+        dur = row.get("duration_ms")
+        dur_s = ""
+        if dur is not None:
+            try:
+                ms = float(dur)
+                if ms >= 1000:
+                    dur_s = f" [dim]{ms/1000.0:.1f}s[/dim]"
+                else:
+                    dur_s = f" [dim]{ms:.0f}ms[/dim]"
+            except (TypeError, ValueError):
+                dur_s = ""
+        ap = row.get("auto_approved")
+        tag = ""
+        if ap is True:
+            tag = " [dim]· auto[/dim]"
+        elif ap is False:
+            tag = " [dim]· aprobación[/dim]"
+        prefix = tool_chip_prefix(ly)
+        return f"{prefix}[ghost.accent]{escape(label)}[/ghost.accent]  {tgt}  {st_s}{dur_s}{tag}"
 
     def render_mode_change(self, new_mode: str):
         """Display a banner for mode transitions."""
         self.console.print(f"\n[bold green]✓ Modo cambiado a: {new_mode}[/bold green]")
 
     def render_help(self):
-        """Display the professional help menu."""
-        help_table = Table(title="👻 Ghost Dev Commands", box=box.SIMPLE, header_style="bold magenta")
-        help_table.add_column("Command", style="cyan")
-        help_table.add_column("Description", style="white")
+        """Comandos esenciales — densidad alta, sin ruido."""
+        help_table = Table(
+            title=f"[ghost.brand]{escape(_ui_contract.BRAND_WORDMARK)}[/ghost.brand] [dim]· comandos[/dim]",
+            box=box.SIMPLE_HEAD,
+            header_style="ghost.accent",
+            show_lines=False,
+            padding=(0, 1),
+        )
+        help_table.add_column("Comando", style="cyan", no_wrap=True)
+        help_table.add_column("Qué hace", style="white")
 
-        help_table.add_row("/plan <task>", "Architectural analysis & strategy (Read-only)")
-        help_table.add_row("/do <task>", "Autonomous implementation & execution")
-        help_table.add_row("/edit <file>", "Direct surgical patching mode")
-        help_table.add_row("/mode <mode>", "Switch between: Chat, Plan, Execute, Review, Fix")
-        help_table.add_row("/debug [on|off]", "Toggle diagnostic trace output")
-        help_table.add_row("/clear", "Reset session conversation history")
-        help_table.add_row("/help", "Show this mastery menu")
+        help_table.add_row("/plan …", "Estrategia y análisis en solo lectura")
+        help_table.add_row("/do …", "Implementación autónoma con verify y artefactos")
+        help_table.add_row("/edit …", "Parche directo sobre un archivo")
+        help_table.add_row("/mode …", "Chat · Plan · Execute · Review · Fix")
+        help_table.add_row("/debug", "Traza diagnóstica on/off")
+        help_table.add_row("/clear", "Limpia el hilo de conversación")
+        help_table.add_row("/help", "Esta referencia")
 
-        self.console.print("\n")
+        self.console.print("")
         self.console.print(help_table)
-        self.console.print("[dim]Use 'exit' or 'quit' to shutdown the runtime safely.[/dim]\n")
+        self.console.print("[dim]Salir:[/dim] [white]exit[/white] [dim]o[/dim] [white]quit[/white]\n")
 
     def render_task_list(self, tasks: List[Dict[str, Any]]):
         """Display a table of persistent tasks."""
@@ -234,26 +787,41 @@ class GhostRenderer:
             self.console.print("\n")
 
     def read_input(self) -> str:
-        """Read user input with a professional prompt."""
+        """Prompt del operador — identidad Ghost, sin nombres hardcodeados."""
+        h = escape(_operator_input_handle())
         try:
-            return self.console.input("[bold magenta]👤 denis:[/bold magenta] ").strip()
+            return self.console.input(
+                f"[ghost.brand]›[/ghost.brand] [bold white]{h}[/bold white] [ghost.dim]·[/ghost.dim] "
+            ).strip()
         except (KeyboardInterrupt, EOFError):
             return "exit"
 
-    def render_verification_results(self, results: Dict[str, Any]):
+    def render_verification_results(
+        self,
+        results: Dict[str, Any],
+        *,
+        contract_spec: Optional[Dict[str, Any]] = None,
+    ):
         """
         Verification summary with provenance-aware labels.
 
         No muestra ALL SYSTEMS CLEAR si ningún check tuvo provenance=executed.
+        Fallos ejecutados primero; salida de error antes de la tabla en modo operador.
         """
         if results.get("status") == "skipped":
             return
 
-        checks: List[Dict[str, Any]] = list(results.get("checks") or [])
-        if not checks:
+        checks_raw: List[Dict[str, Any]] = list(results.get("checks") or [])
+        if not checks_raw:
             return
 
-        rows = [_verification_normalize_row(c) for c in checks]
+        verbose = _ui_verbose()
+        ly = self._tty_layout()
+        pairs = list(zip(checks_raw, [_verification_normalize_row(c) for c in checks_raw]))
+        pairs.sort(key=_verify_pair_sort_key)
+        checks = [p[0] for p in pairs]
+        rows = [p[1] for p in pairs]
+
         any_executed_failed = any(r[3] for r in rows)
         any_executed = any(str(c.get("provenance") or "") == "executed" for c in checks)
 
@@ -263,34 +831,15 @@ class GhostRenderer:
 
         global_failed = str(results.get("status") or "").lower() == "failed" or any_executed_failed
 
-        table = Table(box=box.MINIMAL, show_header=True, header_style="bold magenta", padding=(0, 2))
-        table.add_column("Integrity Check", style="cyan")
-        table.add_column("Status", style="bold")
-
-        for (_name, label, style, _xf) in rows:
-            icon = "✓" if label == "PASSED" else "✘"
-            table.add_row(_name, f"[{style}]{icon} {label}[/{style}]")
-
-        self.console.print("\n")
-        self.console.print(
-            Panel(
-                table,
-                title="🛡️ [bold magenta]GHOST INTEGRITY[/bold magenta]",
-                border_style="magenta",
-                expand=False,
-            )
-        )
-
-        if global_failed:
-            self.console.print("[bold red]System status: FAILED[/bold red]")
+        dur_ms = results.get("total_duration_ms") or results.get("duration_ms")
+        dur_s = ""
+        if dur_ms is not None:
+            try:
+                dur_s = f" · {float(dur_ms) / 1000.0:.1f}s"
+            except (TypeError, ValueError):
+                dur_s = ""
 
         status_lower = str(results.get("status") or "").lower()
-        if steps_executed == 0 and not any_executed and status_lower == "incomplete":
-            self.console.print(
-                "[bold yellow]No verification checks were actually executed[/bold yellow] "
-                "(steps_executed_count=0; none ran on disk).\n"
-            )
-
         show_stderr_for: List[Dict[str, Any]] = [
             c
             for c in checks
@@ -298,82 +847,703 @@ class GhostRenderer:
             and str(c.get("status") or "").lower() not in ("passed", "success")
         ]
 
-        if show_stderr_for:
+        self.console.print("")
+        self.console.print(_ghost_rule_markup(_ui_contract.RULE_LABEL_VERIFY, layout=ly))
+        if verbose:
+            self.console.print("[bold dim]1 · plan (contrato)[/bold dim]")
             self.console.print(
-                "[bold red]⚠ SYSTEM INTEGRITY ALERT:[/bold red] Some checks failed. Reviewing logs...\n"
+                escape(verification_plan_summary_from_spec(contract_spec if isinstance(contract_spec, dict) else None))
+            )
+            self.console.print(f"\n[bold dim]2 · ejecución{escape(dur_s)}[/bold dim]")
+        else:
+            self.console.print(
+                f"[ghost.brand]{escape(_ui_contract.LABEL_VERIFY_LINE)}[/ghost.brand][dim]{escape(dur_s)}[/dim]"
+            )
+            plan_one = verification_plan_summary_from_spec(
+                contract_spec if isinstance(contract_spec, dict) else None
+            )
+            if plan_one:
+                self.console.print(
+                    f"[dim]{escape(truncate_visible(plan_one, ly.verify_plan_one_max_chars))}[/dim]"
+                )
+
+        cwds = {str(c.get("cwd") or ".") for c in checks}
+        show_cwd_col = verbose or len(cwds) > 1
+
+        if show_stderr_for:
+            names = ", ".join(str(c.get("name") or "?") for c in show_stderr_for)
+            alert_title = "Verify · fallos en disco" if not verbose else "Verify · detalle de fallos (auditoría)"
+            self.console.print(
+                Panel(
+                    f"[bold red]{len(show_stderr_for)} check(s) con error en disco[/bold red]\n[white]{escape(names)}[/white]",
+                    title=alert_title,
+                    border_style="red",
+                    box=ghost_box_rounded(),
+                    expand=False,
+                    padding=ly.panel_padding,
+                )
             )
             for check in show_stderr_for:
-                self.console.print(f"[red]>>> {check.get('name', '?')} Output:[/red]")
+                cwd = str(check.get("cwd") or ".")
+                cause = str(check.get("cause") or "")
+                header = f"[red]{check.get('name', '?')}[/red] [dim]({cwd}"
+                if cause:
+                    header += f" · {cause}"
+                header += ")[/dim]"
+                self.console.print(header)
+                blob_raw = check.get("stderr") or check.get("stdout") or "No output"
+                blob_str = str(blob_raw)
+                suite_blob = summarize_test_runner_output(blob_str)
+                blob = suite_blob if suite_blob else blob_str
+                max_lines = ly.verify_stderr_lines if not verbose else ly.verify_stderr_lines_verbose
+                blob = strip_coverage_tail(blob, max_lines=max_lines)
                 self.console.print(
-                    Panel(
-                        check.get("stderr") or check.get("stdout") or "No output",
-                        style="dim red",
-                    )
+                    Panel(blob, style="dim red", expand=False, padding=ly.panel_padding)
                 )
+
+        if verbose:
+            self.console.print("\n[bold dim]3 · detalle de checks[/bold dim]")
+
+        table = Table(
+            box=box.SIMPLE_HEAD if not verbose else box.MINIMAL,
+            show_header=True,
+            header_style="bold magenta" if verbose else "dim",
+            padding=(0, 1) if not verbose else (0, 2),
+        )
+        table.add_column("Check", style="cyan")
+        if show_cwd_col:
+            table.add_column("cwd", style="dim")
+        table.add_column("Estado", style="bold")
+
+        for check, (_name, label, style, _xf) in zip(checks, rows):
+            icon = "✓" if label == "PASSED" else "✘"
+            cwd_cell = str(check.get("cwd") or ".")
+            if show_cwd_col and not verbose and len(cwd_cell) > 28:
+                cwd_cell = cwd_cell[:25] + "…"
+            estado_cell = f"[{style}]{icon} {label}[/{style}]"
+            if show_cwd_col:
+                table.add_row(_name, cwd_cell, estado_cell)
+            else:
+                table.add_row(_name, estado_cell)
+
+        self.console.print("")
+        if verbose:
+            panel_title = f"{_ui_contract.BRAND_WORDMARK} · matriz de checks"
+            self.console.print(
+                Panel(
+                    table,
+                    title=panel_title,
+                    border_style="ghost.brand",
+                    box=ghost_box_rounded(),
+                    expand=False,
+                    padding=ly.panel_padding,
+                )
+            )
+        else:
+            self.console.print(table)
+
+        if steps_executed == 0 and not any_executed and status_lower == "incomplete":
+            self.console.print(
+                "[bold yellow]Ningún check se ejecutó en disco[/bold yellow] "
+                + ("[dim](steps_executed_count=0)[/dim]\n" if verbose else "\n")
+            )
 
         can_all_systems_clear = (
             not global_failed
             and any_executed
             and not (steps_executed == 0 and not any_executed and status_lower == "incomplete")
         )
+
+        if verbose:
+            self.console.print("\n[bold dim]4 · resultado[/bold dim]")
+        else:
+            self.console.print(_ghost_rule_markup(_ui_contract.RULE_LABEL_RESULTADO, layout=ly))
+        if global_failed:
+            self.console.print(f"[bold red]{escape(_ui_contract.RESULTADO_LINE_FAILED)}[/bold red]")
+        elif can_all_systems_clear:
+            self.console.print(f"[bold green]{escape(_ui_contract.RESULTADO_LINE_OK)}[/bold green]")
+        else:
+            self.console.print(f"[bold yellow]{escape(_ui_contract.RESULTADO_LINE_INCOMPLETO)}[/bold yellow]")
+
         if can_all_systems_clear:
-            self.console.print(" [bold green]✓ ALL SYSTEMS CLEAR[/bold green]\n")
+            cp = _ui_contract.VERIFY_MSG_CHECKS_PASSED
+            asc = _ui_contract.VERIFY_MSG_ALL_SYSTEMS_CLEAR
+            self.console.print(
+                f"[bold green]✓ {escape(cp)}[/bold green]\n"
+                if not verbose
+                else f" [bold green]✓ {escape(asc)}[/bold green]\n"
+            )
+
+    def _section_kicker(self, title: str, *, verbose: bool = False) -> None:
+        """Título de bloque: verbose = auditoría; operador = una línea con viñeta Ghost."""
+        ly = self._tty_layout()
+        for _ in range(1 + ly.section_extra_blanks):
+            self.console.print("")
+        if verbose:
+            self.console.print(f"[bold cyan]{escape(title)}[/bold cyan]")
+        else:
+            self.console.print(f"  [ghost.muted]·[/ghost.muted] [bold white]{escape(title)}[/bold white]")
+
+    def _render_salidas_generadas(self, rows: List[Tuple[str, str]], *, verbose: bool) -> None:
+        if not rows:
+            return
+        ly = self._tty_layout()
+        mark = artifact_line_marker(ly)
+        if not verbose:
+            paths_raw = [p for _lab, p in rows]
+            lines_out = salidas_paths_lines_split(paths_raw, ly)
+            head = (
+                f"[ghost.brand]{mark}[/ghost.brand] [dim]{escape(_ui_contract.ARTIFACT_LINE_MARKER)}[/dim]  "
+                f"[cyan]{lines_out[0]}[/cyan]"
+            )
+            self.console.print(head)
+            cont = "  [dim]+[/dim] " if ly.ascii_ui else "  [dim]·[/dim] "
+            for extra in lines_out[1:]:
+                self.console.print(f"{cont}[cyan]{extra}[/cyan]")
+            return
+        inner = "\n".join(
+            f"  [bold]{escape(lab)}[/bold]  [dim]·[/dim]  [cyan]{escape(p)}[/cyan]" for lab, p in rows
+        )
+        self.console.print(
+            Panel(
+                inner,
+                title=f"{_ui_contract.BRAND_WORDMARK} · salidas persistidas",
+                subtitle="Continuidad — mismo contenido en .md / JSON del artefacto",
+                border_style="ghost.brand",
+                box=ghost_box_rounded(),
+                expand=False,
+                padding=ly.panel_padding,
+            )
+        )
+
+    def _render_review_packet_console(
+        self, artifact: Dict[str, Any], *, readonly: bool, verbose: bool
+    ) -> bool:
+        """
+        Review packet en consola (markdown derivado del JSON). True si pintó UI
+        que ya incluye estado de review (evita duplicar líneas abajo).
+        """
+        ly = self._tty_layout()
+        rp = str(artifact.get("review_packet_path") or "").strip()
+        prev = str(artifact.get("review_packet_pr_body_preview") or "").strip()
+        if readonly or not rp:
+            return False
+        rfr = artifact.get("review_ready_for_review")
+        rdetail = str(artifact.get("review_readiness_detail_es") or "").strip()
+        title = f"[ghost.brand]{escape(_ui_contract.PANEL_TITLE_REVIEW_PACKET_TTY)}[/ghost.brand]"
+        sub = (
+            _ui_contract.PANEL_SUBTITLE_REVIEW_PACKET_TTY
+            if not ly.ultra_narrow
+            else "[dim]JSON en .ghost/review_packets/[/dim]"
+        )
+        pad = ly.panel_padding
+
+        if verbose:
+            if prev:
+                self.console.print("")
+                if ly.review_use_plain_fallback:
+                    plain = review_packet_plain_fallback(
+                        prev, max_lines=max(ly.review_plain_max_lines, ly.review_md_lines_verbose // 2)
+                    )
+                    self.console.print(
+                        Panel(
+                            escape(plain),
+                            title=f"{title} [dim]· auditoría[/dim]",
+                            subtitle=sub,
+                            border_style="ghost.accent",
+                            box=ghost_box_rounded(),
+                            padding=pad,
+                            expand=False,
+                        )
+                    )
+                else:
+                    self.console.print(
+                        Panel(
+                            Markdown(_markdown_tty_cap(prev, max_lines=ly.review_md_lines_verbose)),
+                            title=f"{title} [dim]· auditoría[/dim]",
+                            subtitle=sub,
+                            border_style="ghost.accent",
+                            box=ghost_box_rounded(),
+                            padding=pad,
+                            expand=False,
+                        )
+                    )
+                return True
+            self.console.print("")
+            self.console.print(
+                Panel(
+                    escape(rp),
+                    title=title,
+                    subtitle=sub,
+                    border_style="ghost.accent",
+                    box=ghost_box_rounded(),
+                    padding=pad,
+                    expand=False,
+                )
+            )
+            return True
+
+        if prev:
+            self.console.print("")
+            if ly.review_use_plain_fallback:
+                plain = review_packet_plain_fallback(prev, max_lines=ly.review_plain_max_lines)
+                sub_body = f"[dim]{escape(rp)}[/dim]\n{escape(plain)}"
+                self.console.print(
+                    Panel(
+                        sub_body,
+                        title=title,
+                        border_style="ghost.accent",
+                        box=ghost_box_rounded(),
+                        padding=pad,
+                        expand=False,
+                    )
+                )
+            else:
+                st = f"[dim]{escape(rp)}[/dim]" if not ly.ultra_narrow else ""
+                self.console.print(
+                    Panel(
+                        Markdown(_markdown_tty_cap(prev, max_lines=ly.review_md_lines_normal)),
+                        title=title,
+                        subtitle=st if st else None,
+                        border_style="ghost.accent",
+                        box=ghost_box_rounded(),
+                        padding=pad,
+                        expand=False,
+                    )
+                )
+            return True
+
+        meta: List[str] = []
+        if rfr is True:
+            meta.append(f"[bold green]{escape(_ui_contract.CLOSURE_REVIEW_STATUS_READY)}[/bold green]")
+        elif rfr is False:
+            meta.append(f"[bold yellow]{escape(_ui_contract.CLOSURE_REVIEW_STATUS_PENDING)}[/bold yellow]")
+        if rdetail:
+            lim = 220 if ly.ultra_narrow else 300
+            meta.append(f"[dim]{escape(truncate_visible(rdetail, lim))}[/dim]")
+        body_tail = "\n".join(meta) if meta else "[dim]Contenido completo en el JSON del packet.[/dim]"
+        self.console.print("")
+        self.console.print(
+            Panel(
+                f"[cyan]{escape(rp)}[/cyan]\n{body_tail}",
+                title=title,
+                subtitle=sub,
+                border_style="ghost.accent",
+                box=ghost_box_rounded(),
+                padding=pad,
+                expand=False,
+            )
+        )
+        return True
 
     def render_artifact_summary(self, artifact: Dict[str, Any]):
-        """Render a full task outcome bundle."""
-        self.console.print("\n" + "─" * 40)
-        self.console.print("[bold magenta]👻 GHOST ARTIFACT BUNDLE[/bold magenta]")
+        """Cierre: modo operador (limpio) por defecto; GHOST_UI_VERBOSE=1 expone auditoría."""
+        verbose = _ui_verbose()
+        ly = self._tty_layout()
         sid = artifact.get("session_id", "?")
         ts = artifact.get("timestamp", "")
-        self.console.print(f"[dim]Session: {sid} | {ts}[/dim]\n")
+        compact = _artifact_interactive_compact(artifact)
+        spec_body = artifact.get("taskspec") or artifact.get("contract_spec") or {}
+        intent = str(spec_body.get("intent") or "") if isinstance(spec_body, dict) else ""
+        ce = str(spec_body.get("change_expectation") or "") if isinstance(spec_body, dict) else ""
+        readonly = _artifact_readonly_intent(artifact)
+        mode = escape(str(artifact.get("harness_mode_label") or "—"))
+        outcome = escape(str(artifact.get("task_outcome") or "—"))
+        cov = artifact.get("closure_operator_view") if isinstance(artifact.get("closure_operator_view"), dict) else {}
+        headline_raw = str(cov.get("primary_headline_es") or "").strip()
+        if readonly:
+            _tier_g = str(artifact.get("findings_evidence_tier") or "").strip().lower()
+            headline_raw = apply_tier_language_guard_es(headline_raw, _tier_g)
+        headline = escape(headline_raw or "—")
+        task_one = escape(str(artifact.get("task") or "").strip()[:220])
+        agents_p = escape(str(artifact.get("agents_md_path") or "").strip())
+
+        if verbose:
+            self.console.print("\n" + "─" * 40)
+            self.console.print(
+                f"[ghost.brand]{escape(_ui_contract.BRAND_WORDMARK.upper())}[/ghost.brand] "
+                f"[dim]· cierre de sesión[/dim]"
+            )
+            self.console.print(f"[dim]session {sid} · {ts}[/dim]\n")
+            exec_body = (
+                f"[cyan]Modo[/cyan]: {mode}\n"
+                f"[cyan]Outcome[/cyan]: {outcome}\n"
+                f"[cyan]Cierre[/cyan]: {headline}\n"
+            )
+            if task_one:
+                exec_body += f"[cyan]Tarea[/cyan]: {task_one}\n"
+            if agents_p:
+                exec_body += f"[dim]AGENTS.md[/dim]: {agents_p}\n"
+            rfr_v = artifact.get("review_ready_for_review")
+            if rfr_v is not None and not readonly:
+                rs = (
+                    _ui_contract.CLOSURE_REVIEW_STATUS_READY
+                    if rfr_v
+                    else _ui_contract.CLOSURE_REVIEW_STATUS_PENDING
+                )
+                exec_body += f"[cyan]Review[/cyan]: {escape(rs)}\n"
+                rdv = str(artifact.get("review_readiness_detail_es") or "").strip()
+                if rdv:
+                    exec_body += f"[dim]{escape(rdv[:420])}[/dim]\n"
+            self.console.print(
+                Panel(
+                    exec_body,
+                    title=f"{_ui_contract.BRAND_WORDMARK} · resumen",
+                    border_style="ghost.brand",
+                    box=ghost_box_rounded(),
+                    expand=False,
+                    padding=ly.panel_padding,
+                )
+            )
+            self._render_review_packet_console(artifact, readonly=readonly, verbose=True)
+        elif readonly:
+            tier = str(artifact.get("findings_evidence_tier") or "").strip().lower()
+            ev_filtered = _evidence_lines_without_tier_banner(artifact.get("evidence_lines") or [], max_items=10)
+            max_ev = 6
+            max_chars = 400
+            body = _readonly_operator_review_body(
+                artifact,
+                headline_raw=headline_raw,
+                tier=tier,
+                ev_filtered=ev_filtered,
+                max_ev=max_ev,
+                max_chars=max_chars,
+            )
+            self.console.print("")
+            self.console.print(
+                Panel(
+                    body,
+                    title=f"[ghost.brand]{escape(_ui_contract.PANEL_TITLE_REVIEW)}[/ghost.brand]",
+                    subtitle=_ui_contract.PANEL_SUBTITLE_REVIEW,
+                    border_style="ghost.accent",
+                    box=ghost_box_rounded(),
+                    expand=False,
+                    padding=ly.panel_padding,
+                )
+            )
+        else:
+            bar_w = min(max(self.console.width or 72, 40), ly.closure_bar_max)
+            self.console.print("")
+            self.console.print(f"[ghost.dim]{'─' * bar_w}[/ghost.dim]")
+            self._section_kicker(_ui_contract.KICKER_SESION_CERRADA, verbose=False)
+            hl_short = headline_raw[:100] + ("…" if len(headline_raw) > 100 else "") if headline_raw else str(artifact.get("task_outcome") or "—")
+            self.console.print(f"  [bold white]{escape(hl_short)}[/bold white]")
+            self.console.print(f"  [dim]{outcome} · {mode}[/dim]")
+            rfr = artifact.get("review_ready_for_review")
+            rdetail = str(artifact.get("review_readiness_detail_es") or "").strip()
+            implish = str(artifact.get("harness_mode_label") or "") in (
+                "implementation",
+                "repair",
+                "bugfix",
+            )
+            packet_ui = (
+                self._render_review_packet_console(artifact, readonly=False, verbose=False)
+                if implish
+                else False
+            )
+            if (rfr is not None or rdetail) and not readonly and implish and not packet_ui:
+                if rfr is True:
+                    self.console.print(
+                        f"  [bold green]{escape(_ui_contract.CLOSURE_REVIEW_STATUS_READY)}[/bold green]"
+                    )
+                else:
+                    self.console.print(
+                        f"  [bold yellow]{escape(_ui_contract.CLOSURE_REVIEW_STATUS_PENDING)}[/bold yellow]"
+                    )
+                if rdetail:
+                    self.console.print(f"  [dim]{escape(rdetail[:360])}[/dim]")
+            self.console.print("")
+
+        tension = str(artifact.get("agents_user_tension_note") or "").strip()
+        if tension:
+            self.console.print(
+                Panel(
+                    escape(tension),
+                    title="[yellow]AGENTS.md[/yellow] [dim]· tensión con el pedido[/dim]",
+                    border_style="yellow",
+                    box=ghost_box_rounded(),
+                    expand=False,
+                    padding=ly.panel_padding,
+                )
+            )
+
+        if readonly and verbose:
+            tier = str(artifact.get("findings_evidence_tier") or "").strip().lower()
+            ev_filtered = _evidence_lines_without_tier_banner(artifact.get("evidence_lines") or [], max_items=10)
+            max_ev = 6
+            max_chars = 520
+            agd = str(artifact.get("analysis_grounding_digest") or "").strip()
+
+            if tier:
+                tier_style = "green" if tier == "confirmed" else "yellow" if tier == "suspected" else "dim"
+                tier_note = {
+                    "confirmed": "Hallazgos: evidencia confirmada (checks ejecutados).",
+                    "suspected": "Hallazgos: hipótesis — sin prueba dura salvo cita literal de read_file.",
+                    "unverified": "Hallazgos: no verificada — inspección superficial.",
+                }.get(tier, tier)
+                self.console.print(
+                    Panel(
+                        escape(tier_note),
+                        title=_ui_contract.PANEL_TITLE_EVIDENCIA_TIER,
+                        border_style=tier_style,
+                        expand=False,
+                    )
+                )
+            if agd:
+                self.console.print(
+                    Panel(
+                        escape(f"Grounding: {agd}"),
+                        title="Debug",
+                        border_style="dim",
+                        expand=False,
+                    )
+                )
+            if ev_filtered:
+                lines = "\n".join(f"• {escape(str(x)[:max_chars])}" for x in ev_filtered[:max_ev])
+                self.console.print(
+                    Panel(
+                        lines,
+                        title=_ui_contract.PANEL_TITLE_EVIDENCIA_HERRAMIENTAS,
+                        border_style="cyan",
+                        expand=False,
+                    )
+                )
+
+        tree_lines = build_workset_tree_lines(
+            list(artifact.get("diff_summary") or []),
+            artifact.get("active_workset") if isinstance(artifact.get("active_workset"), dict) else None,
+            ascii_safe=ly.ascii_ui,
+        )
+        ds = artifact.get("diff_summary") or []
+        has_diff = bool(ds)
+
+        if tree_lines and (verbose or (not has_diff)):
+            cap_lines = ly.workset_lines_verbose if verbose else ly.workset_lines
+            slice_lines = tree_lines[:cap_lines]
+            if verbose:
+                tree_txt = "\n".join(slice_lines)
+                if len(tree_lines) > cap_lines:
+                    tree_txt += f"\n… (+{len(tree_lines) - cap_lines} líneas en artefacto)"
+                self.console.print(
+                    Panel(escape(tree_txt), title="Árbol de trabajo", border_style="blue", expand=False)
+                )
+            else:
+                self._section_kicker(_ui_contract.KICKER_WORKSET, verbose=False)
+                for tl in slice_lines:
+                    self.console.print(f"  [dim]{escape(tl)}[/dim]")
+                if len(tree_lines) > cap_lines:
+                    self.console.print(f"  [dim]… (+{len(tree_lines) - cap_lines} en artefacto)[/dim]")
+
+        plan_raw = str(artifact.get("plan") or "").strip()
+        dp = artifact.get("decision_plan") if isinstance(artifact.get("decision_plan"), dict) else {}
+        plan_fmt = format_operator_execution_plan(plan_raw, dp)
+        show_plan = bool(plan_fmt) and (verbose or not readonly)
+        if show_plan:
+            if not compact:
+                cap = ly.plan_body_cap_verbose if verbose else ly.plan_body_cap_interactive
+            elif verbose:
+                cap = int(ly.plan_body_cap_verbose * 0.82)
+            else:
+                cap = int(ly.plan_body_cap_interactive * 0.72)
+            body = plan_fmt if len(plan_fmt) <= cap else plan_fmt[:cap] + "\n… [ver .md]"
+            if verbose:
+                self.console.print(Panel(escape(body), title="Plan", border_style="cyan", expand=False))
+            else:
+                self._section_kicker(_ui_contract.KICKER_PLAN, verbose=False)
+                self.console.print(escape(body))
+
+        if artifact.get("root_cause"):
+            rc = escape(str(artifact["root_cause"])[:6000 if verbose else 4000])
+            if verbose:
+                self.console.print(Panel(rc, title="Diagnóstico", border_style="yellow", expand=False))
+            else:
+                self._section_kicker(_ui_contract.KICKER_DIAGNOSTICO, verbose=False)
+                self.console.print(f"  {rc}")
+
+        if ds:
+            if verbose:
+                self._section_kicker("Cambios en el repo", verbose=True)
+                table = Table(
+                    box=box.SIMPLE_HEAD,
+                    show_header=True,
+                    header_style="bold cyan",
+                    padding=(0, 1),
+                )
+                table.add_column("Archivo", style="cyan", overflow="fold", max_width=None)
+                table.add_column("Herramienta", style="dim", max_width=14)
+                table.add_column("Tipo", style="white")
+                for item in ds:
+                    if not isinstance(item, dict):
+                        continue
+                    raw_t = str(item.get("type") or "")
+                    fp = str(item.get("file") or "")
+                    short_op = raw_t.replace(" File", "").strip() or "—"
+                    if len(short_op) > 12:
+                        short_op = short_op[:11] + "…"
+                    table.add_row(fp, short_op, normalize_change_kind(raw_t))
+                self.console.print(
+                    Panel(
+                        table,
+                        title="Archivos tocados",
+                        border_style="blue",
+                        expand=False,
+                        padding=(0, 0),
+                    )
+                )
+            else:
+                self._section_kicker(_ui_contract.CLOSURE_DIFF_REVIEW_CAPTION, verbose=False)
+                self.console.print(
+                    f"  [dim]{len(ds)} archivo(s) · vista rápida "
+                    f"(tabla completa con GHOST_UI_VERBOSE=1)[/dim]"
+                )
+                fp_budget = max(36, min(72, ly.width - 22))
+                for item in ds[: ly.diff_files_max]:
+                    if not isinstance(item, dict):
+                        continue
+                    raw_t = str(item.get("type") or "")
+                    fp = str(item.get("file") or "")
+                    if len(fp) > fp_budget:
+                        fp = fp[: max(12, fp_budget - 3)] + "…"
+                    kind = normalize_change_kind(raw_t)
+                    self.console.print(
+                        f"  [ghost.muted]·[/ghost.muted] [cyan]{escape(fp)}[/cyan]  "
+                        f"[dim]{escape(kind)}[/dim]"
+                    )
+                if len(ds) > ly.diff_files_max:
+                    self.console.print(
+                        f"  [dim]… +{len(ds) - ly.diff_files_max} más en el artefacto[/dim]"
+                    )
+                self.console.print("")
+
+        ver = artifact.get("verification") if isinstance(artifact.get("verification"), dict) else {}
+        vchecks = ver.get("checks") or []
+        if vchecks:
+            st = str(ver.get("status") or "")
+            n = len(vchecks)
+            prov = sum(1 for c in vchecks if str(c.get("provenance") or "") == "executed")
+            if verbose:
+                self.console.print(
+                    Panel(
+                        escape(f"status={st} · checks={n} · ejecutados={prov}"),
+                        title="Verificación (snapshot de cierre)",
+                        border_style="green",
+                        expand=False,
+                        padding=(0, 1),
+                    )
+                )
+            elif prov > 0:
+                self._section_kicker(_ui_contract.KICKER_VERIFY, verbose=False)
+                self.console.print(
+                    f"  [green]{escape(st)}[/green] [dim]· {prov}/{n} ejecutados en disco[/dim]"
+                )
+            elif st.lower() in ("failed", "error"):
+                self._section_kicker(_ui_contract.KICKER_VERIFY, verbose=False)
+                self.console.print(
+                    f"  [yellow]{escape(st)}[/yellow] [dim]· {n} checks registrados[/dim]"
+                )
+
+        pt = compact_phase_trace_lines_from_list(list(artifact.get("phase_transitions") or []))
+        if pt and verbose:
+            self.console.print(
+                Panel(
+                    escape("\n".join(pt)),
+                    title="Fases",
+                    border_style="dim",
+                    expand=False,
+                )
+            )
 
         trace_md = (artifact.get("trace_detail_md") or "").strip()
         trace_short = (artifact.get("trace_summary_short") or "").strip()
         trace_path = (artifact.get("trace_path") or "").strip()
-        if trace_md:
-            self.console.print(
-                Panel(trace_md, title="SESSION TRACE", border_style="dim", expand=False)
-            )
-        elif trace_short or trace_path:
-            blob = trace_short or trace_path
-            self.console.print(
-                Panel(escape(str(blob)), title="SESSION TRACE", border_style="dim", expand=False)
-            )
+        if verbose:
+            if trace_md:
+                if compact and len(trace_md) > 4500:
+                    stub = (trace_short or "Trace largo → artefacto JSON.").strip()
+                    if trace_path:
+                        stub = f"{stub}\n{trace_path}"
+                    self.console.print(Panel(escape(stub), title="Trace", border_style="dim", expand=False))
+                else:
+                    self.console.print(Panel(trace_md, title="Trace", border_style="dim", expand=False))
+            elif trace_short or trace_path:
+                self.console.print(
+                    Panel(escape(str(trace_short or trace_path)), title="Trace", border_style="dim", expand=False)
+                )
+        elif trace_path and verbose:
+            self.console.print(f"[dim]Trazas:[/dim] {escape(trace_path)}\n")
 
-        spec_body = artifact.get("taskspec") or artifact.get("contract_spec")
-        if isinstance(spec_body, dict) and spec_body:
-            try:
-                spec_txt = json.dumps(spec_body, indent=2, ensure_ascii=False)
-            except (TypeError, ValueError):
-                spec_txt = str(spec_body)
-            self.console.print(Panel(spec_txt, title="CONTRACT SPEC", border_style="blue", expand=False))
+        if isinstance(spec_body, dict) and spec_body and verbose:
+            vp = spec_body.get("verification_policy") or {}
+            spec_line = (
+                f"intent={spec_body.get('intent')} "
+                f"change_expectation={spec_body.get('change_expectation')} "
+                f"verify_required={vp.get('required')} "
+                f"scope={spec_body.get('scope')}"
+            )
+            if compact:
+                self.console.print(
+                    Panel(
+                        escape(spec_line),
+                        title=_ui_contract.PANEL_TITLE_CONTRACT_RESUMEN,
+                        border_style="blue",
+                        expand=False,
+                    )
+                )
+            else:
+                try:
+                    spec_txt = json.dumps(spec_body, indent=2, ensure_ascii=False)
+                except (TypeError, ValueError):
+                    spec_txt = str(spec_body)
+                self.console.print(
+                    Panel(
+                        spec_txt,
+                        title=_ui_contract.PANEL_TITLE_CONTRACT_SPEC,
+                        border_style="blue",
+                        expand=False,
+                    )
+                )
 
         rp = artifact.get("repo_profile")
-        if isinstance(rp, dict) and rp:
-            try:
-                rp_txt = json.dumps(rp, indent=2, ensure_ascii=False)
-            except (TypeError, ValueError):
-                rp_txt = str(rp)
-            self.console.print(Panel(rp_txt, title="REPO PROFILE", border_style="green", expand=False))
-
-        if artifact.get("plan"):
-            self.console.print(Panel(artifact["plan"], title="🎯 PLAN", border_style="cyan"))
-        if artifact.get("root_cause"):
-            self.console.print(Panel(artifact["root_cause"], title="🔍 DIAGNOSTIC", border_style="yellow"))
-
-        if artifact.get("diff_summary"):
-            table = Table(box=box.SIMPLE, show_header=True, header_style="bold")
-            table.add_column("File", style="cyan")
-            table.add_column("Change", style="dim")
-            for item in artifact["diff_summary"]:
-                table.add_row(item["file"], item["type"])
-            self.console.print(Panel(table, title="🛠️ CHANGES", border_style="blue"))
+        if isinstance(rp, dict) and rp and verbose:
+            if compact:
+                v2 = rp.get("profile_v2") if isinstance(rp.get("profile_v2"), dict) else {}
+                stack = v2.get("stack") or rp.get("stack") or ""
+                layers = v2.get("layers_detected") or rp.get("layers_detected") or []
+                mini = json.dumps({"stack": stack, "layers_detected": layers}, ensure_ascii=False)
+                self.console.print(Panel(escape(mini), title="Repo profile", border_style="green", expand=False))
+            else:
+                try:
+                    rp_txt = json.dumps(rp, indent=2, ensure_ascii=False)
+                except (TypeError, ValueError):
+                    rp_txt = str(rp)
+                self.console.print(Panel(rp_txt, title="Repo profile", border_style="green", expand=False))
 
         if artifact.get("next_action"):
-            self.console.print(Panel(artifact["next_action"], title="🚀 NEXT ACTION", border_style="green"))
+            na = str(artifact["next_action"])[:4000 if verbose else 2800]
+            skip_footer_next = readonly and not verbose
+            if not skip_footer_next:
+                if verbose:
+                    self._section_kicker("Próximo paso", verbose=True)
+                    self.console.print(
+                        Panel(
+                            escape(na),
+                            title="Siguiente acción",
+                            subtitle="Un paso concreto para el operador",
+                            border_style="green",
+                            box=ghost_box_rounded(),
+                            expand=False,
+                            padding=(0, 1),
+                        )
+                    )
+                else:
+                    self._section_kicker(_ui_contract.KICKER_SIGUIENTE_PASO, verbose=False)
+                    self.console.print(f"  {escape(na)}")
 
-        self.console.print(f"[dim]Saved to: .ghost/artifacts/{sid}.md[/dim]")
-        self.console.print("─" * 40 + "\n")
+        self._render_salidas_generadas(_artifact_salidas_rows(artifact), verbose=verbose)
+        if verbose:
+            self.console.print("─" * 40 + "\n")
+        else:
+            self.console.print("")
 
     # ─── CodexAssistant contract ─────────────────────────────────────────────
 
@@ -394,19 +1564,32 @@ class GhostRenderer:
     ):
         """Render startup banner showing active mode, model, gateway URL and feature flags."""
         _ = kwargs
+        verbose = _ui_verbose()
+        ly = self._tty_layout()
         flags = []
         if prep and hasattr(prep, "active_feature_flags"):
             for k, v in (prep.active_feature_flags or {}).items():
                 if _feature_flag_visible(v):
                     flags.append(k)
         flags_line = "  ".join(flags) if flags else "—"
-        self.console.print(
-            f"\n[bold magenta]👻 Ghost[/bold magenta] "
-            f"[dim]{command_mode}[/dim]  "
-            f"[cyan]{assistant_mode}[/cyan]  "
-            f"[dim]model:[/dim] [white]{model}[/white]  "
-            f"[dim]flags:[/dim] [dim]{flags_line}[/dim]\n"
-        )
+        if verbose:
+            self.console.print(
+                f"\n[ghost.brand]{escape(_ui_contract.BRAND_WORDMARK)}[/ghost.brand] "
+                f"[dim]{escape(command_mode)}[/dim]  "
+                f"[cyan]{escape(assistant_mode)}[/cyan]  "
+                f"[dim]modelo[/dim] [white]{escape(model)}[/white]  "
+                f"[dim]flags[/dim] [dim]{escape(truncate_visible(flags_line, max(ly.width - 24, 40)))}[/dim]\n"
+            )
+            self.console.print(f"[dim]{escape(_ui_contract.BRAND_RUNNER_SUBTITLE)}[/dim]\n")
+        else:
+            line1, line2 = startup_lines(
+                assistant_mode=assistant_mode,
+                model=model,
+                command_mode=command_mode,
+                subtitle=_ui_contract.BRAND_RUNNER_SUBTITLE,
+                layout=ly,
+            )
+            self.console.print(f"\n{line1}\n{line2}\n")
         if llm_gateway_url:
             if llm_gateway_reachable is True:
                 gw_line = (
@@ -427,7 +1610,7 @@ class GhostRenderer:
             self.console.print(
                 f"[dim]provider (transporte):[/dim] [white]{escape(provider_backend_label)}[/white]"
             )
-        if role_models and isinstance(role_models, dict) and role_models:
+        if verbose and role_models and isinstance(role_models, dict) and role_models:
             rm = ", ".join(f"{k}={v}" for k, v in list(role_models.items())[:6])
             self.console.print(f"[dim]role_models:[/dim] [dim]{escape(rm)}[/dim]")
         self.console.print("")
@@ -437,29 +1620,110 @@ class GhostRenderer:
         self._tool_segment_active = True
         self._tool_segment_buffer = []
 
+    def _record_tool_activity_from_payload(self, row: Dict[str, Any]) -> None:
+        ly = self._tty_layout()
+        nm = str(row.get("name") or "")
+        detail = str(row.get("detail") or "").replace("\n", " ").strip()
+        detail = _short_tool_target(detail, ly.tool_detail_max_chars)
+        st = str(row.get("estado") or "")
+        self._tool_activity.append((_tool_chip_label(nm), detail, st))
+
+    def _format_tool_activity_rail(self) -> Optional[str]:
+        if not self._tool_activity:
+            return None
+        ly = self._tty_layout()
+        parts: List[str] = []
+        tail = list(self._tool_activity)[-ly.tool_activity_max_visible :]
+        for label, detail, st in tail:
+            det = escape(truncate_visible(detail, ly.tool_detail_max_chars + 8))
+            if ly.ascii_ui:
+                if st == "ok":
+                    sym = "[ghost.success]+[/ghost.success]"
+                elif st == "error":
+                    sym = "[ghost.error]x[/ghost.error]"
+                elif st == "pending":
+                    sym = "[ghost.warn]..[/ghost.warn]"
+                else:
+                    sym = "[dim].[/dim]"
+            else:
+                if st == "ok":
+                    sym = "[ghost.success]✓[/ghost.success]"
+                elif st == "error":
+                    sym = "[ghost.error]✗[/ghost.error]"
+                elif st == "pending":
+                    sym = "[ghost.warn]…[/ghost.warn]"
+                else:
+                    sym = "[dim]·[/dim]"
+            parts.append(f"[cyan]{escape(label)}[/cyan] [dim]{det}[/dim] {sym}")
+        if ly.merge_tool_rule_and_rail:
+            return " ".join(parts)
+        joiner = " [ghost.muted]|[/ghost.muted] " if ly.ascii_ui else " [ghost.muted]›[/ghost.muted] "
+        return joiner.join(parts)
+
     def flush_tool_segment(self) -> None:
-        """Flush buffered tool traces (panel or compact)."""
+        """Flush buffered tool traces: panel tabla, o filas tipo chip (compact/chips)."""
         self._tool_segment_active = False
         if not self._tool_segment_buffer:
             return
+        ly = self._tty_layout()
+        for row in self._tool_segment_buffer:
+            self._record_tool_activity_from_payload(row)
+        rail = self._format_tool_activity_rail()
         mode = _tool_ui_mode()
+        sig = json.dumps(
+            [
+                (str(r.get("name")), str(r.get("detail")), str(r.get("estado")))
+                for r in self._tool_segment_buffer
+            ],
+            ensure_ascii=True,
+        )
+        repeat_batch = sig == self._last_tool_flush_signature
+        self._last_tool_flush_signature = sig
+
+        self.console.print("")
+        rule = _ghost_rule_markup(_ui_contract.RULE_LABEL_HERRAMIENTAS, layout=ly)
+        if ly.merge_tool_rule_and_rail and rail and mode != "panel":
+            self.console.print(f"{rule}  [dim]::[/dim]  [dim]últimas[/dim] {rail}")
+        elif not repeat_batch:
+            self.console.print(rule)
+            if rail:
+                self.console.print(f"  [dim]últimas[/dim]  {rail}")
+        elif rail:
+            self.console.print(f"  [dim]últimas[/dim]  {rail}")
         if mode == "panel":
             t = Table(
-                title="Herramientas (lote del modelo)",
-                box=box.SIMPLE,
+                title=f"[ghost.brand]Ghost[/ghost.brand] [dim]· {escape(_ui_contract.TOOL_TABLE_TITLE_MARKER)}[/dim]",
+                box=box.SIMPLE_HEAD,
                 header_style="bold cyan",
+                padding=(0, 1),
             )
-            t.add_column("Herramienta", style="cyan")
-            t.add_column("Objetivo", style="white", overflow="fold")
+            t.add_column("Tool", style="cyan")
+            t.add_column("Target", style="white", overflow="fold")
             t.add_column("Estado", style="dim")
+            t.add_column("Tiempo", style="dim", justify="right")
             for row in self._tool_segment_buffer:
-                t.add_row(row["name"], row.get("detail") or "", row.get("estado") or "")
-            self.console.print("\n")
+                dur = row.get("duration_ms")
+                dur_cell = ""
+                if dur is not None:
+                    try:
+                        ms = float(dur)
+                        dur_cell = f"{ms/1000.0:.1f}s" if ms >= 1000 else f"{ms:.0f}ms"
+                    except (TypeError, ValueError):
+                        dur_cell = ""
+                t.add_row(
+                    _tool_chip_label(str(row.get("name") or "")),
+                    str(row.get("detail") or ""),
+                    str(row.get("estado") or ""),
+                    dur_cell,
+                )
             self.console.print(t)
             self.console.print("")
         else:
+            if not repeat_batch:
+                self.console.print(f"[dim]{escape(_ui_contract.BRAND_WORDMARK)} · operaciones[/dim]")
             for row in self._tool_segment_buffer:
-                self.console.print(row.get("line") or "")
+                self.console.print(self._format_tool_chip_row(row, ly))
+            self.console.print("")
         self._tool_segment_buffer = []
 
     def append_tool_trace(
@@ -478,29 +1742,30 @@ class GhostRenderer:
         - Pre-exec (assistant ``_execute_tool``): solo ``auto_approved=...`` → línea neutra.
         - ``**kwargs`` absorbe argumentos futuros sin romper el runtime.
         """
-        _ = kwargs  # extensión futura / compat
+        duration_ms = kwargs.get("duration_ms")
 
         if ok is not None:
-            icon = "[green]✓[/green]" if ok else "[red]✘[/red]"
             estado = "ok" if ok else "error"
-            line = f" [dim]⚙ {escape(str(name))}[/dim] · {icon} {escape(str(detail))}"
+            line = ""
         else:
-            tag = (
-                "[dim](auto-approved)[/dim]"
-                if auto_approved
-                else "[dim](approval required)[/dim]"
-                if auto_approved is False
-                else ""
-            )
             estado = "auto" if auto_approved else "pending"
-            line = f" [dim]⚙ {escape(str(name))}[/dim] · [cyan]⋯[/cyan] {escape(str(detail))} {tag}".strip()
+            line = ""
 
-        payload = {"name": name, "detail": detail, "estado": estado, "line": line}
+        payload: Dict[str, Any] = {
+            "name": name,
+            "detail": detail,
+            "estado": estado,
+            "line": line,
+            "duration_ms": duration_ms,
+            "auto_approved": auto_approved,
+        }
 
         if self._tool_segment_active:
             self._tool_segment_buffer.append(payload)
         else:
-            self.console.print(line)
+            if ok is not None:
+                self._record_tool_activity_from_payload(payload)
+            self.console.print(self._format_tool_chip_row(payload, self._tty_layout()))
 
     def render_budget_status(self, remaining: int, total: int):
         """Show autonomy budget bar (compact)."""
@@ -522,22 +1787,87 @@ class GhostRenderer:
 
     def render_bundled_approval_request(self, actions) -> bool:
         """Ask user to approve a bundle of write/shell actions. Returns True if approved."""
-        self.console.print("\n[bold yellow]⚠ Approval required for:[/bold yellow]")
-        for a in actions:
-            self.console.print(f"  • [cyan]{a['name']}[/cyan] {a.get('detail', '')}")
+        self.console.print("")
+        ly = self._tty_layout()
+        self.console.print(_ghost_rule_markup("aprobación", layout=ly))
+        tbl = Table(
+            box=box.SIMPLE_HEAD,
+            show_header=True,
+            header_style="bold cyan",
+            padding=(0, 1),
+        )
+        tbl.add_column("Tool", style="cyan", max_width=12, overflow="fold")
+        tbl.add_column("Objetivo", style="white", overflow="fold")
+        tbl.add_column("Impacto", style="dim", overflow="fold")
+        for raw in actions or []:
+            a = raw if isinstance(raw, dict) else {}
+            nm = str(a.get("name") or "?")
+            detail = str(a.get("detail") or "")
+            args = a.get("args")
+            if not isinstance(args, dict):
+                args = {}
+            tool_lab = _tool_chip_label(nm)
+            purpose = _approval_purpose_for_action(nm, detail, args)
+            impact = _approval_impact_for_action(nm)
+            tbl.add_row(tool_lab, escape(purpose), escape(impact))
+        self.console.print(
+            Panel(
+                tbl,
+                title=f"[ghost.brand]{escape(_ui_contract.BRAND_WORDMARK)}[/ghost.brand] [dim]· aprobar lote[/dim]",
+                subtitle="[dim]Solo lo confirmado se ejecuta · Esc cancela[/dim]",
+                border_style="yellow",
+                box=ghost_box_rounded(),
+                expand=False,
+                padding=ly.panel_padding,
+            )
+        )
         try:
-            ans = self.console.input("[bold]Approve all? (y/n): [/bold]").strip().lower()
+            ans = (
+                self.console.input(
+                    "[ghost.brand]›[/ghost.brand] [bold]¿Autorizar todo el lote?[/bold] [dim](y/n)[/dim] "
+                )
+                .strip()
+                .lower()
+            )
         except (EOFError, KeyboardInterrupt):
             return False
         return ans == "y"
 
     def render_verify_batch_approval_request(self, shell_commands) -> bool:
         """Ask user to approve a batch of verification shell commands."""
-        self.console.print("\n[bold yellow]⚠ Run verification commands?[/bold yellow]")
-        for cmd in shell_commands:
-            self.console.print(f"  [dim]$ {cmd}[/dim]")
+        cmds = [str(c) for c in (shell_commands or [])]
+        n = len(cmds)
+        self.console.print("")
+        ly_v = self._tty_layout()
+        self.console.print(_ghost_rule_markup("verificación · shell", layout=ly_v))
+        body_lines: List[str] = []
+        for i, c in enumerate(cmds[:14], 1):
+            line = c.replace("\n", " ")
+            if len(line) > 90:
+                line = line[:89] + "…"
+            body_lines.append(f"[dim]{i:>2}.[/dim]  [white]{escape(line)}[/white]")
+        if n > 14:
+            body_lines.append(f"[dim]… +{n - 14} más en el plan de verify[/dim]")
+        body = "\n".join(body_lines) if body_lines else "[dim](sin comandos listados)[/dim]"
+        self.console.print(
+            Panel(
+                body,
+                title=f"[ghost.brand]{escape(_ui_contract.BRAND_WORDMARK)}[/ghost.brand] [dim]· verify en shell[/dim]",
+                subtitle=f"[dim]{n} comando(s) · local · mismo usuario que esta consola[/dim]",
+                border_style="ghost.accent",
+                box=ghost_box_rounded(),
+                expand=False,
+                padding=ly_v.panel_padding,
+            )
+        )
         try:
-            ans = self.console.input("[bold]Approve? (y/n): [/bold]").strip().lower()
+            ans = (
+                self.console.input(
+                    "[ghost.brand]›[/ghost.brand] [bold]¿Ejecutar en tu máquina?[/bold] [dim](y/n)[/dim] "
+                )
+                .strip()
+                .lower()
+            )
         except (EOFError, KeyboardInterrupt):
             return False
         return ans == "y"

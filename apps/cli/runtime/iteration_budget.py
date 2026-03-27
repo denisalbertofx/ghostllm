@@ -15,6 +15,7 @@ from apps.cli.runtime.answer_now_policy import (
     bounded_code_task_kind,
     is_high_ambiguity_or_broad_task,
 )
+from apps.cli.runtime.intent_classifier import detect_code_inspection_readonly_prompt
 from apps.cli.runtime.task_contract import Intent, infer_work_task_type
 
 
@@ -123,6 +124,7 @@ _RECOMMENDED_RANGES: Dict[str, tuple[int, int]] = {
     "micro_task": (3, 7),
     "small_read_only": (5, 11),
     "factual_code_question": (5, 12),
+    "code_inspection_focused": (3, 7),
     "simple_write": (5, 11),
     "write_verify": (8, 18),
     "complex_multi_file": (10, 99),
@@ -162,10 +164,22 @@ def classify_iteration_budget_category(
     if ti == "refactor" or infer_work_task_type(task_text) == "refactor":
         return "refactor_multi_step", "refactor_intent_or_work_type"
 
-    if ti in ("analysis", "research") or (intent.mode or "").strip() == "Analyze" or (
+    if ti == "research" or (intent.mode or "").strip() == "Analyze" or (
         intent.task_type or ""
     ).strip().lower() == "architect":
-        return "complex_multi_file", "analysis_research_or_architect"
+        return "complex_multi_file", "research_or_architect_mode"
+
+    if ti == "review":
+        if detect_code_inspection_readonly_prompt(task_text):
+            return "code_inspection_focused", "review_inspection_prompt"
+        return "small_read_only", "review_default_bounded"
+
+    if ti == "analysis":
+        if is_high_ambiguity_or_broad_task(task_text):
+            return "complex_multi_file", "broad_analysis_heuristic"
+        if detect_code_inspection_readonly_prompt(task_text):
+            return "code_inspection_focused", "single_finding_inspection_prompt"
+        return "small_read_only", "analysis_default_bounded"
 
     ce = (change_expectation or "").strip().lower()
     im = (intent.mode or "").strip().lower()
@@ -194,6 +208,7 @@ def _raw_cap_for_category(category: str, global_cap: int) -> int:
         "micro_task": 8,
         "small_read_only": 10,
         "factual_code_question": 11,
+        "code_inspection_focused": 7,
         "simple_write": 10,
         "write_verify": 14,
     }
@@ -201,6 +216,7 @@ def _raw_cap_for_category(category: str, global_cap: int) -> int:
         "micro_task": "GHOST_ITER_BUDGET_MICRO_MAX",
         "small_read_only": "GHOST_ITER_BUDGET_SMALL_READONLY_MAX",
         "factual_code_question": "GHOST_ITER_BUDGET_FACTUAL_MAX",
+        "code_inspection_focused": "GHOST_ITER_BUDGET_CODE_INSPECTION_MAX",
         "simple_write": "GHOST_ITER_BUDGET_SIMPLE_WRITE_MAX",
         "write_verify": "GHOST_ITER_BUDGET_WRITE_VERIFY_MAX",
     }

@@ -13,6 +13,7 @@ import logging
 import os
 import re
 from collections.abc import Mapping
+from datetime import datetime
 from dataclasses import asdict, dataclass, field
 from types import MappingProxyType
 from typing import Any, Dict, List, Optional
@@ -370,6 +371,31 @@ def task_contract_to_jsonable(obj: Any) -> Any:
     if isinstance(obj, list):
         return [task_contract_to_jsonable(x) for x in obj]
     return obj
+
+
+def append_budget_extension_record(session: Any, record: Dict[str, Any]) -> None:
+    """Append compact budget extension audit (operational grants, not verify-only)."""
+    row = dict(record)
+    row.setdefault("ts", datetime.now().isoformat())
+    ev = getattr(session, "budget_extension_events", None)
+    if not isinstance(ev, list):
+        ev = []
+        session.budget_extension_events = ev
+    ev.append(row)
+    if len(ev) > 32:
+        del ev[:-32]
+    events = getattr(session, "events", None)
+    if isinstance(events, list):
+        bev: Dict[str, Any] = {
+            "event": "budget_extension",
+            "points": row.get("points", 0),
+            "reason": row.get("reason", ""),
+            "detail": (row.get("detail") or "")[:240],
+            "skipped": row.get("skipped") or "",
+        }
+        if row.get("confidence"):
+            bev["confidence"] = str(row.get("confidence"))[:32]
+        events.append(bev)
 
 
 def append_repair_run_record(session: Any, record: Dict[str, Any]) -> None:

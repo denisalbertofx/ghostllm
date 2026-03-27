@@ -10,11 +10,15 @@ Este módulo fija la lista de métodos esperados y valida la firma crítica de
 from __future__ import annotations
 
 import inspect
+import os
 from io import StringIO
 from types import SimpleNamespace
+from unittest.mock import patch
 
 import pytest
 
+from apps.cli.ui import renderer as ghost_renderer_mod
+from apps.cli.ui import ui_contract
 from apps.cli.ui.renderer import GhostRenderer
 from apps.cli.ui.theme import make_ghost_console
 
@@ -40,7 +44,14 @@ _ASSISTANT_RENDERER_METHODS = (
     "render_budget_status",
     "render_verification_results",
     "render_diff",
+    "session_status",
 )
+
+
+def test_ui_contract_stable_strings_for_assistant_flows() -> None:
+    assert ui_contract.MSG_APPROVAL_SAME_BUNDLE.strip()
+    assert ui_contract.MSG_ACTIVE_WORKSET_PLAIN_PREFIX.endswith(":")
+    assert ui_contract.output_contains_review_panel(f"…{ui_contract.PANEL_TITLE_REVIEW}…")
 
 
 def test_renderer_exposes_all_methods_used_by_assistant() -> None:
@@ -55,6 +66,14 @@ def test_append_tool_trace_accepts_ok_and_auto_approved() -> None:
     assert "name" in p and "detail" in p and "ok" in p and "auto_approved" in p
     assert p["auto_approved"].kind == inspect.Parameter.KEYWORD_ONLY
     assert p["kwargs"].kind == inspect.Parameter.VAR_KEYWORD
+
+
+def test_session_status_and_update_status_live_status_kwargs() -> None:
+    ss = inspect.signature(GhostRenderer.session_status)
+    assert "rail_profile" in ss.parameters
+    us = inspect.signature(GhostRenderer.update_status)
+    assert "live_detail" in us.parameters
+    assert "rail_profile" in us.parameters
 
 
 def test_append_tool_trace_call_variants() -> None:
@@ -72,6 +91,21 @@ def test_append_tool_trace_call_variants() -> None:
     assert "ls" in out or "apps" in out
 
 
+def test_artifact_interactive_compact_for_readonly_without_diff() -> None:
+    assert ghost_renderer_mod._artifact_interactive_compact(
+        {
+            "taskspec": {"intent": "analysis", "change_expectation": "should_not_write"},
+            "diff_summary": [],
+        }
+    )
+    assert not ghost_renderer_mod._artifact_interactive_compact(
+        {
+            "taskspec": {"intent": "analysis", "change_expectation": "should_not_write"},
+            "diff_summary": [{"file": "a.py", "type": "Edit"}],
+        }
+    )
+
+
 def test_startup_summary_ignores_disabled_flags() -> None:
     buf = StringIO()
     renderer = GhostRenderer(make_ghost_console(file=buf, force_terminal=False))
@@ -82,12 +116,13 @@ def test_startup_summary_ignores_disabled_flags() -> None:
             "GHOST_PARALLEL_PIPELINE": "partial",
         }
     )
-    renderer.render_cli_startup_summary(
-        command_mode="dev",
-        assistant_mode="Chat",
-        model="kimi",
-        prep=prep,
-    )
+    with patch.dict(os.environ, {"GHOST_UI_VERBOSE": "1"}, clear=False):
+        renderer.render_cli_startup_summary(
+            command_mode="dev",
+            assistant_mode="Chat",
+            model="kimi",
+            prep=prep,
+        )
     out = buf.getvalue()
     assert "GHOST_USE_TASKSPEC" in out
     assert "GHOST_PARALLEL_PIPELINE" in out

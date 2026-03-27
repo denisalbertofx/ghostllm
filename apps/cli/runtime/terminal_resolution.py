@@ -123,6 +123,7 @@ class TerminalResolution:
     closure_reason_summary_es: str = ""
     closure_posture_es: str = ""
     task_confidence_signals: Dict[str, Any] = field(default_factory=dict)
+    findings_evidence_tier: Optional[str] = None
 
 
 def terminal_phase_from_signals(
@@ -258,4 +259,5 @@ def resolve_terminal_result(
         closure_reason_summary_es=tc_snap.closure_reason_summary_es,
         closure_posture_es=tc_snap.recommended_runtime_posture_es,
         task_confidence_signals=dict(tc_snap.signals),
+        findings_evidence_tier=getattr(outcome_result, "findings_evidence_tier", None),
     )

@@ -1,4 +1,3 @@
-import os
 import re
 import typer
 from dataclasses import dataclass
@@ -6,7 +5,7 @@ from enum import Enum
 from rich.console import Console
 from rich.panel import Panel
 from rich.text import Text
-from typing import Dict, Any, Optional, List
+from typing import Any, Dict, Optional
 
 
 class ApprovalLevel(Enum):
@@ -26,76 +25,117 @@ class PolicyResult:
     is_allowed: bool
     reason: str
     requires_confirmation: bool = True
-    severity: str = "low" # low, medium, high, critical
+    severity: str = "low"  # low, medium, high, critical
+
 
 class PolicyGate:
     """
     Enforces safety policies before execution.
     GEP-2: Policy Gate implementation.
     """
+
     def __init__(self, console: Console, auto_approve: bool = False):
         self.console = console
         self.auto_approve = auto_approve
-        
+
         # Robust Unix-isms patterns (Regex with word boundaries)
         self.unsafe_unix_patterns = [
-            r"\bsed\b", r"\bgrep\b", r"\btouch\b", r"\bhead\b", r"\btail\b",
-            r"\brm\b", r"\bcp\b", r"\bmv\b", r"\bcat\b", r"\bsh\b", r"\bbash\b"
-        ]
-        
-        # Destructive patterns
-        self.destructive_patterns = [
-            r"rm\s+-rf", r"del\s+/s\s+/q", r"rd\s+/s\s+/q", r"format\s+"
+            r"\bsed\b",
+            r"\bgrep\b",
+            r"\btouch\b",
+            r"\bhead\b",
+            r"\btail\b",
+            r"\brm\b",
+            r"\bcp\b",
+            r"\bmv\b",
+            r"\bcat\b",
+            r"\bsh\b",
+            r"\bbash\b",
         ]
 
-    def check_permission(self, action_type: str, detail: str, current_mode: str, metadata: Optional[Dict[str, Any]] = None) -> bool:
+        # Destructive patterns
+        self.destructive_patterns = [
+            r"rm\s+-rf",
+            r"del\s+/s\s+/q",
+            r"rd\s+/s\s+/q",
+            r"format\s+",
+        ]
+
+    def check_permission(
+        self,
+        action_type: str,
+        detail: str,
+        current_mode: str,
+        metadata: Optional[Dict[str, Any]] = None,
+        *,
+        original_command: Optional[str] = None,
+        batch_preapproved: bool = False,
+    ) -> bool:
         """
-        Main entry point for security checks. 
+        Main entry point for security checks.
         Returns True if allowed, False if denied.
         """
-        metadata = metadata or {}
+        metadata = dict(metadata or {})
+        if original_command:
+            metadata.setdefault("original_command", original_command)
         task_type = metadata.get("task_type", "ask")
-        
+
         # 1. Mode Protections
-        if current_mode in ["Plan", "Review"] and action_type in ["Write File", "Patch File", "Execute Shell", "Delete File"]:
+        if current_mode in ["Plan", "Review"] and action_type in [
+            "Write File",
+            "Patch File",
+            "Execute Shell",
+            "Delete File",
+        ]:
             self._deny(action_type, f"Action forbidden in {current_mode} mode.")
             return False
-        
+
         # 1.1 Swarm Worker Protections (v0)
         if metadata.get("is_swarm_worker") and action_type == "Execute Shell":
             self._deny(action_type, "Shell execution is prohibited for Swarm Workers v0.")
             return False
 
         # 2. Deletion Protection (GEP-2.1) - Evidence Based
-        if action_type == "Delete File" or (action_type == "Execute Shell" and any(re.search(r"\b(rm|del|rd)\b", x) for x in detail.split())):
-            # Evidence must be structured: either explicit 'fix' intent or specific safety flag
+        delete_shell = action_type == "Execute Shell" and any(
+            re.search(r"\b(rm|del|rd)\b", x) for x in detail.split()
+        )
+        if action_type == "Delete File" or delete_shell:
             is_fixing = task_type in ["fix", "debug"]
             has_safety_flag = metadata.get("safety_override", False)
-            
+
             if not (is_fixing or has_safety_flag):
-                self._deny(action_type, "Deletion denied: Not in a fix/debug context and no safety override provided.")
+                self._deny(
+                    action_type,
+                    "Deletion denied: Not in a fix/debug context and no safety override provided.",
+                )
                 return False
 
         # 3. Installation Protection (GEP-2.2)
         if action_type == "Execute Shell" and "npm install" in detail.lower():
-            # Must be a research or debug task resolving a missing dependency
-            is_authorized_install = task_type in ["research", "debug"] and metadata.get("missing_dependency", False)
+            is_authorized_install = (
+                task_type in ["research", "debug"] and metadata.get("missing_dependency", False)
+            )
             if not is_authorized_install:
-                self._deny(action_type, "Automatic 'npm install' blocked. Use a targeted /debug session or manual install.")
+                self._deny(
+                    action_type,
+                    "Automatic 'npm install' blocked. Use a targeted /debug session or manual install.",
+                )
                 return False
 
         # 4. Windows Compatibility (GEP-3) - Using word boundaries
         if action_type == "Execute Shell":
+            lowered = detail.lower()
             for pattern in self.unsafe_unix_patterns:
-                if re.search(pattern, detail.lower()):
-                    # Special check: is it inside a string or path? 
-                    # We look for the command at the start of the line or after a pipe/ampersand
-                    if re.search(fr"(^|[|&;])\s*{pattern}", detail.lower()):
-                        self._deny(action_type, f"Shell command uses Unix-ism '{pattern}'. Use PowerShell native equivalents.")
+                if re.search(pattern, lowered):
+                    if re.search(fr"(^|[|&;])\s*{pattern}", lowered):
+                        self._deny(
+                            action_type,
+                            f"Shell command uses Unix-ism '{pattern}'. Use PowerShell native equivalents.",
+                        )
                         return False
-            
+
             for pattern in self.destructive_patterns:
-                if re.search(pattern, detail.lower()):
+                if re.search(pattern, lowered):
                     self._deny(action_type, "Shell command contains forbidden destructive patterns.")
                     return False
 
@@ -103,15 +143,26 @@ class PolicyGate:
         if action_type in ["Write File", "Patch File"]:
             files_changed = metadata.get("files_in_batch", 0)
             if files_changed > 3:
-                self._warn(action_type, f"Mass modification detected ({files_changed} files). Risks include breaking context limits.")
+                self._warn(
+                    action_type,
+                    f"Mass modification detected ({files_changed} files). Risks include breaking context limits.",
+                )
 
         # 6. User Authorization (Final Gate)
+        if batch_preapproved:
+            self.console.print(
+                f" [bold green]✓[/bold green] [dim]Batch-preapproved ({current_mode}): {action_type}[/dim]"
+            )
+            return True
+
         if self.auto_approve:
-            self.console.print(f" [bold green]✓[/bold green] [dim]Auto-authorized ({current_mode}): {action_type}[/dim]")
+            self.console.print(
+                f" [bold green]✓[/bold green] [dim]Auto-authorized ({current_mode}): {action_type}[/dim]"
+            )
             return True
 
         # 7. Manual Confirmation Prompt
-        return self._manual_confirm(action_type, detail)
+        return self._manual_confirm(action_type, detail, original_command=original_command)
 
     def get_approval_level(self, tool_name: str, detail: str = "") -> ApprovalLevel:
         """
@@ -119,7 +170,7 @@ class PolicyGate:
 
         ``detail`` is reserved for future heuristics (e.g. riskier shell commands).
         """
-        _ = detail  # noqa: ARG002 — kept for API stability with assistant / scripts
+        _ = detail
         name = (tool_name or "").strip()
         if name in _APPROVAL_AUTO_TOOLS:
             return ApprovalLevel.AUTO
@@ -130,25 +181,40 @@ class PolicyGate:
         return ApprovalLevel.MANUAL
 
     def _deny(self, action: str, reason: str):
-        self.console.print(f"\n [bold red]✘ POLICY VIOLATION:[/bold red]\n [red]Action:[/red] {action}\n [red]Reason:[/red] {reason}\n")
+        self.console.print(
+            f"\n [bold red]✘ POLICY VIOLATION:[/bold red]\n [red]Action:[/red] {action}\n [red]Reason:[/red] {reason}\n"
+        )
 
     def _warn(self, action: str, message: str):
         self.console.print(f" [bold yellow]⚠ WARNING:[/bold yellow] {message}")
 
-    def _manual_confirm(self, action: str, detail: str) -> bool:
+    def _manual_confirm(
+        self,
+        action: str,
+        detail: str,
+        original_command: Optional[str] = None,
+    ) -> bool:
+        original_block = ""
+        if original_command and original_command != detail:
+            original_block = f"\n[dim]Original:[/dim] {original_command}"
         auth_panel = Panel(
             Text.from_markup(
                 f"[bold white]Ghost solicita autorización para:[/bold white]\n"
-                f"[cyan]{action}[/cyan]: [dim]{detail}[/dim]\n\n"
+                f"[cyan]{action}[/cyan]: [dim]{detail}[/dim]{original_block}\n\n"
                 f"[bold green]Enter[/bold green] Aprobar | [bold red]n[/bold red] Denegar"
             ),
             title="[bold yellow]Δ Autorización Requerida[/bold yellow]",
             border_style="yellow",
-            expand=False
+            expand=False,
         )
         self.console.print(auth_panel)
         confirm = typer.prompt("¿Proceder?", default="y")
         return confirm.lower() in ["y", "yes", ""]
+
+    def confirm_action(self, action: str, detail: str) -> bool:
+        if self.auto_approve:
+            return True
+        return self._manual_confirm(action, detail)
 
     def set_auto_approve(self, value: bool):
         self.auto_approve = value

@@ -24,6 +24,8 @@ from apps.cli.runtime.intent_classifier import (
     SCOPE_FULLSTACK,
     SCOPE_UNKNOWN,
     classify_task_intent,
+    prompt_locks_taskspec_as_inspection_readonly,
+    user_explicitly_requests_verify_shell,
 )
 from apps.cli.runtime.planning_task import detect_strategy_plan_request
 from apps.cli.runtime.repo_profile import RepoProfile
@@ -185,7 +187,7 @@ def _repo_verification_hints(repo: RepoProfile) -> Dict[str, bool]:
         hints["typecheck"] = bool(vc.typecheck)
         hints["build"] = bool(vc.build)
         hints["lint"] = bool(vc.lint)
-        hints["tests"] = bool(vc.tests)
+        hints["tests"] = bool(vc.tests) or ("pytest" in (v2.stack.test_runner or []))
         return hints
     if repo.has_package_json:
         hints["typecheck"] = True
@@ -195,11 +197,49 @@ def _repo_verification_hints(repo: RepoProfile) -> Dict[str, bool]:
     return hints
 
 
+def _targets_node_layer(target_files: Optional[List[str]]) -> bool:
+    for raw in target_files or []:
+        path = str(raw or "").replace("\\", "/").strip().lower()
+        if not path:
+            continue
+        if path.startswith(("apps/web/", "web/")):
+            return True
+        if path.endswith((".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs")) and not path.startswith(
+            ("apps/cli/", "apps/server/", "packages/py-core/")
+        ):
+            return True
+    return False
+
+
+def _targets_python_layer(target_files: Optional[List[str]]) -> bool:
+    for raw in target_files or []:
+        path = str(raw or "").replace("\\", "/").strip().lower()
+        if not path:
+            continue
+        if path.startswith(("apps/cli/", "apps/server/", "packages/py-core/")):
+            return True
+        if path.endswith(".py") or path in ("pyproject.toml", "requirements.txt", "setup.py"):
+            return True
+        if path.startswith("configs/"):
+            return True
+    return False
+
+
 def _build_verification_policy(
     scope: List[str],
     repo: RepoProfile,
     intent: str,
+    *,
+    target_files: Optional[List[str]] = None,
 ) -> Dict[str, Any]:
+    if intent in (INTENT_REVIEW, INTENT_ANALYSIS):
+        return {
+            "required": False,
+            "typecheck": False,
+            "build": False,
+            "lint": False,
+            "tests": False,
+        }
     vp: Dict[str, Any] = {
         "required": True,
         "typecheck": False,
@@ -209,24 +249,40 @@ def _build_verification_policy(
     }
     scope_set = set(scope)
     vhints = _repo_verification_hints(repo)
-    if "api" in scope_set or "data" in scope_set:
-        vp["typecheck"] = bool(vhints.get("typecheck", True))
-    if "ui" in scope_set:
-        vp["lint"] = bool(vhints.get("lint", True))
-    if repo.has_package_json and intent in (
-        INTENT_IMPLEMENTATION,
-        INTENT_MODIFICATION,
-        INTENT_BUGFIX,
-        INTENT_REFACTOR,
-    ):
-        vp["build"] = bool(vhints.get("build", True))
+    node_targeted = _targets_node_layer(target_files)
+    python_targeted = _targets_python_layer(target_files)
+
+    if node_targeted:
+        vp["typecheck"] = bool(vhints.get("typecheck", False))
+        vp["build"] = bool(vhints.get("build", False))
+        vp["lint"] = bool(vhints.get("lint", False))
+        vp["tests"] = bool(vhints.get("tests", False))
+    if python_targeted:
+        vp["tests"] = bool(vhints.get("tests", False))
+
+    if not (node_targeted or python_targeted):
+        if "api" in scope_set or "data" in scope_set:
+            vp["typecheck"] = bool(vhints.get("typecheck", False))
+            vp["tests"] = bool(vhints.get("tests", False))
+        if "ui" in scope_set:
+            vp["typecheck"] = bool(vhints.get("typecheck", False))
+            vp["build"] = bool(vhints.get("build", False))
+            vp["lint"] = bool(vhints.get("lint", False))
+            vp["tests"] = bool(vhints.get("tests", False))
+        if repo.has_package_json and intent in (
+            INTENT_IMPLEMENTATION,
+            INTENT_MODIFICATION,
+            INTENT_BUGFIX,
+            INTENT_REFACTOR,
+        ) and not scope_set:
+            vp["build"] = bool(vhints.get("build", False))
     if intent == INTENT_BUGFIX:
         if not any(vp[k] for k in ("typecheck", "build", "lint", "tests")):
-            vp["typecheck"] = bool(vhints.get("typecheck", True))
-    if intent in (INTENT_REVIEW, INTENT_ANALYSIS) and not any(
-        vp[k] for k in ("typecheck", "build", "lint", "tests")
-    ):
-        vp["required"] = False
+            vp["tests"] = bool(vhints.get("tests", False))
+            if not vp["tests"]:
+                vp["typecheck"] = bool(vhints.get("typecheck", False))
+            if not any(vp[k] for k in ("typecheck", "build", "lint", "tests")):
+                vp["build"] = bool(vhints.get("build", False))
     return vp
 
 
@@ -236,8 +292,13 @@ def _default_repair_policy() -> Dict[str, Any]:
 
 def _default_budget_policy(*, intent: Optional[str] = None, change_expectation: Optional[str] = None) -> Dict[str, Any]:
     if change_expectation == "should_not_write" or intent in (INTENT_REVIEW, INTENT_ANALYSIS):
-        return {"max_shell_calls": 1, "max_tool_calls": 8}
-    return {"max_shell_calls": 2, "max_tool_calls": 12}
+        return {"max_shell_calls": 0, "max_tool_calls": 12, "soft_read_only_tool_calls": 8}
+    return {
+        "max_shell_calls": 4,
+        "max_tool_calls": 24,
+        "reserved_write_tool_calls": 4,
+        "soft_read_only_tool_calls": 12,
+    }
 
 
 def validate_taskspec(ts: TaskSpec) -> ValidationResult:
@@ -265,8 +326,11 @@ def validate_taskspec(ts: TaskSpec) -> ValidationResult:
             suspicious = True
             suspicious_reasons.append("must_write without scope or target_files")
 
-    if "api" in (ts.scope or []) and not (ts.verification_policy or {}).get("typecheck"):
-        errors.append("api scope requires verification_policy.typecheck=true")
+    if ts.intent not in (INTENT_ANALYSIS, INTENT_REVIEW):
+        if "api" in (ts.scope or []) and not any(
+            (ts.verification_policy or {}).get(k) for k in ("typecheck", "tests")
+        ):
+            errors.append("api scope requires verification_policy.typecheck=true or tests=true")
 
     is_valid = len(errors) == 0
     return ValidationResult(
@@ -297,8 +361,9 @@ def _repair_taskspec_deterministic(ts: TaskSpec, errors: List[str]) -> TaskSpec:
             vp.setdefault("typecheck", True)
             reasoning.append("auto-repair: bugfix -> verification enabled")
         if "api scope requires verification_policy.typecheck" in err:
-            vp["typecheck"] = True
-            reasoning.append("auto-repair: api scope -> typecheck=true")
+            if not vp.get("typecheck") and not vp.get("tests"):
+                vp["tests"] = True
+                reasoning.append("auto-repair: api scope -> tests=true")
 
     ce = data.get("change_expectation")
     intent = data.get("intent")
@@ -415,13 +480,20 @@ def _draft_from_classifier(
         draft.setdefault("reasoning_lines", []).append(
             "Strategic planning request detected -> broader read-only planning budget"
         )
+    if pre.intent in (INTENT_REVIEW, INTENT_ANALYSIS) and user_explicitly_requests_verify_shell(user_prompt):
+        bp = dict(draft.get("budget_policy") or {})
+        bp["max_shell_calls"] = max(int(bp.get("max_shell_calls") or 0), 3)
+        draft["budget_policy"] = bp
+        draft.setdefault("reasoning_lines", []).append(
+            "User explicitly requested verification commands -> shell budget raised"
+        )
     return draft
 
 
 def _apply_policy_defaults(data: Dict[str, Any], repo: RepoProfile) -> TaskSpec:
     intent = str(data["intent"])
     scope = list(data.get("scope") or [])
-    vp = _build_verification_policy(scope, repo, intent)
+    vp = _build_verification_policy(scope, repo, intent, target_files=data.get("target_files"))
     user_vp = data.get("verification_policy") or {}
     if isinstance(user_vp, dict):
         vp = {**vp, **user_vp}
@@ -484,6 +556,21 @@ def build_taskspec(
         except Exception as e:
             logger.warning("TaskSpec LLM merge failed: %s", e)
             draft.setdefault("reasoning_lines", []).append(f"LLM merge skipped: {type(e).__name__}")
+
+    if prompt_locks_taskspec_as_inspection_readonly(user_prompt):
+        locked_pre = classify_task_intent(user_prompt)
+        draft["intent"] = INTENT_ANALYSIS
+        draft["change_expectation"] = _enforce_intent_change_expectation(
+            INTENT_ANALYSIS, str(draft.get("change_expectation") or "")
+        )
+        draft["scope"] = _scope_string_to_list(locked_pre.scope, repo_profile, INTENT_ANALYSIS)
+        draft.setdefault("reasoning_lines", []).append(
+            "Inspection-style user prompt locks intent=analysis (post-merge safeguard)"
+        )
+        if user_explicitly_requests_verify_shell(user_prompt):
+            bp = dict(draft.get("budget_policy") or {})
+            bp["max_shell_calls"] = max(int(bp.get("max_shell_calls") or 0), 3)
+            draft["budget_policy"] = bp
 
     draft["_user_prompt"] = user_prompt
     taskspec = _apply_policy_defaults(draft, repo_profile)

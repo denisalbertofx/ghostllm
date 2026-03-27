@@ -8,8 +8,9 @@ import tempfile
 import time
 import unittest
 from pathlib import Path
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
+from apps.cli.runtime.artifacts import ArtifactSession
 from apps.cli.runtime.session_trace import (
     ApprovalTrace,
     ModelCallTrace,
@@ -342,9 +343,10 @@ class SessionTracePersistenceTests(unittest.TestCase):
             "outcome_confidence": 0.5,
             "evidence_score": 0,
         }
-        r.render_artifact_summary(artifact)
+        with patch.dict(os.environ, {"GHOST_UI_VERBOSE": "1"}, clear=False):
+            r.render_artifact_summary(artifact)
         out = buf.getvalue()
-        self.assertIn("SESSION TRACE", out)
+        self.assertIn("Trace", out)
         self.assertIn("Total (wall)", out)
 
     def test_verification_trace_from_result_counts(self) -> None:
@@ -398,6 +400,64 @@ class SessionTracePersistenceTests(unittest.TestCase):
         self.assertEqual(summarize_model_time(m), 10.0)
         self.assertEqual(summarize_tool_time(t), 5.0)
         self.assertEqual(summarize_approval_wait(a), 7.0)
+
+    def test_sync_from_artifact_session_carries_long_run_context(self) -> None:
+        mgr = SessionTraceManager("s4", os.getcwd(), "dev")
+        session = ArtifactSession("s4", "task")
+        session.active_workset["candidate_files"] = ["apps/cli/main.py"]
+        session.active_workset["related_tests"] = ["tests/test_provider_initialization.py"]
+        session.append_phase_checkpoint(
+            phase="explore",
+            reason="focused exploration",
+            focus_files=["apps/cli/main.py"],
+            planned_next_step="edit target file",
+        )
+        session.record_incremental_verification(
+            {
+                "status": "success",
+                "verification_scope": "python_targeted",
+                "checks": [{"name": "Tests", "status": "passed"}],
+                "steps_executed_count": 1,
+            },
+            diff_summary=[{"file": "apps/cli/main.py", "status": "success"}],
+            context_label="iter_1",
+        )
+
+        mgr.sync_from_artifact_session(session)
+        trace = mgr.build_session_trace()
+
+        self.assertEqual(trace.active_workset["candidate_files"], ["apps/cli/main.py"])
+        self.assertEqual(trace.phase_checkpoints[-1]["phase"], "explore")
+        self.assertEqual(trace.incremental_verify_state["batches_run"], 1)
+
+    def test_finish_session_trace_markdown_includes_long_run_context(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            mgr = SessionTraceManager("s5", tmp, "dev")
+            session = ArtifactSession("s5", "task")
+            session.active_workset["candidate_files"] = ["apps/cli/main.py"]
+            session.append_phase_checkpoint(
+                phase="act",
+                reason="batch 1",
+                focus_files=["apps/cli/main.py"],
+                planned_next_step="verify batch 1",
+            )
+            session.record_incremental_verification(
+                {
+                    "status": "success",
+                    "verification_scope": "python_targeted",
+                    "checks": [{"name": "Tests", "status": "passed"}],
+                    "steps_executed_count": 1,
+                },
+                diff_summary=[{"file": "apps/cli/main.py", "status": "success"}],
+                context_label="iter_2",
+            )
+
+            path, short, detail = finish_session_trace(mgr, tmp, session)
+
+            self.assertTrue(path)
+            self.assertIsInstance(short, str)
+            self.assertIn("LONG-RUN CONTEXT", detail)
+            self.assertIn("INCREMENTAL VERIFY", detail)
 
 
 class PhaseCoverageParallelTests(unittest.TestCase):

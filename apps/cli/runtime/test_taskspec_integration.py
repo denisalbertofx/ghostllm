@@ -14,6 +14,7 @@ from apps.cli.runtime.task_contract import Intent, ensure_task_contract_foundati
 from apps.cli.runtime.taskspec_adapter import (
     apply_spec_engine_build_to_session,
     build_contract_prompt_blocks,
+    effective_max_repair_attempts,
     is_taskspec_primary,
     legacy_fill_session,
     max_repair_attempts,
@@ -92,6 +93,29 @@ class TestTaskSpecIntegration(unittest.TestCase):
         ts = {"repair_policy": {"max_attempts": 2}}
         self.assertEqual(max_repair_attempts(ts, default=1), 2)
 
+    def test_effective_max_repair_second_attempt_on_structural_failure(self):
+        ts = {"repair_policy": {"max_attempts": 1}}
+        self.assertEqual(
+            effective_max_repair_attempts(ts, failed_checks_blob="IndentationError: expected an indented block"),
+            2,
+        )
+        self.assertEqual(effective_max_repair_attempts(ts, failed_checks_blob="assert 0"), 1)
+
+    def test_effective_max_extra_causal_attempt_adds_one(self):
+        ts = {"repair_policy": {"max_attempts": 1}}
+        self.assertEqual(
+            effective_max_repair_attempts(
+                ts, failed_checks_blob="clean", extra_causal_attempt=False, default=1
+            ),
+            1,
+        )
+        self.assertEqual(
+            effective_max_repair_attempts(
+                ts, failed_checks_blob="clean", extra_causal_attempt=True, default=1
+            ),
+            2,
+        )
+
     def test_forbidden_ui_blocks_component_path(self):
         ts = {
             "change_expectation": "must_write",
@@ -154,10 +178,11 @@ class TestTaskSpecIntegration(unittest.TestCase):
             "diff_summary": [],
             "next_action": "",
         }
-        renderer.render_artifact_summary(artifact)
+        with mock.patch.dict(os.environ, {"GHOST_UI_VERBOSE": "1"}, clear=False):
+            renderer.render_artifact_summary(artifact)
         text = out.getvalue()
-        self.assertIn("CONTRACT SPEC", text)
-        self.assertIn("REPO PROFILE", text)
+        self.assertIn("Contract", text)
+        self.assertIn("Repo profile", text)
         self.assertIn("implementation", text.lower())
 
     def test_scan_repo_profile_ghost_repo(self):
