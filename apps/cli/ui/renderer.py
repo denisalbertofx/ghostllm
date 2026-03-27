@@ -251,8 +251,6 @@ def _readonly_operator_review_body(
     primary = (headline_raw or str(artifact.get("task_outcome") or "—")).strip()
     lab, expl = _readonly_tier_operator_copy(tier)
     parts: List[str] = [
-        f"[ghost.brand]{escape(_ui_contract.BRAND_WORDMARK)}[/ghost.brand] [dim]· revisión read-only[/dim]",
-        "",
         "[bold white]Conclusión[/bold white]",
         escape(primary) if primary else "—",
         "",
@@ -599,11 +597,11 @@ class GhostRenderer:
             detail = _default_live_detail_line(state)
         detail_disp = truncate_visible(detail, ly.live_detail_max_chars)
         if ly.merge_status_single_line:
-            one = f"{rail} [ghost.dim]::[/ghost.dim] [bold white]{detail_disp}[/bold white]"
+            one = f"{rail} [ghost.dim]·[/ghost.dim] [white]{detail_disp}[/white]"
             if _ui_verbose() and state in _STATUS_HINT and ly.show_status_hints_under_spinner:
                 one += f"\n[dim]{escape(_STATUS_HINT[state])}[/dim]"
             return one
-        line2 = f"[ghost.muted]›[/ghost.muted] [bold white]{detail_disp}[/bold white]"
+        line2 = f"[ghost.muted]·[/ghost.muted] [white]{detail_disp}[/white]"
         out = f"{rail}\n{line2}"
         if _ui_verbose() and state in _STATUS_HINT and ly.show_status_hints_under_spinner:
             out += f"\n[dim]{escape(_STATUS_HINT[state])}[/dim]"
@@ -897,7 +895,7 @@ class GhostRenderer:
 
         style = Style.from_dict(
             {
-                "bottom-toolbar": "#64748B",
+                "bottom-toolbar": "bg:#0F172A #94A3B8",
                 "completion-menu": "bg:#111827 #E5E7EB",
                 "completion-menu.completion.current": "bg:#7C3AED #FFFFFF bold",
                 "completion-menu.meta.completion.current": "bg:#7C3AED #E9D5FF",
@@ -923,14 +921,11 @@ class GhostRenderer:
         recent = list(self._slash_recent)[:2]
         recent_text = ""
         if recent:
-            recent_text = "  ·  recientes: " + "  ".join(recent)
+            recent_text = "  ·  recientes: " + " ".join(recent)
         rec = " ".join(self._recommended_actions()[:2])
         phase = self._last_status_phase.lower()
         multiline = "multiline on" if self._composer_multiline else "multiline off"
-        return (
-            f"{phase}  ·  {rec}  ·  F2 {multiline}"
-            + recent_text
-        )
+        return f"fase: {phase}  ·  recomienda: {rec}  ·  F2 {multiline}{recent_text}"
 
     def _supports_windows_slash_menu(self) -> bool:
         if os.name != "nt":
@@ -2138,10 +2133,12 @@ class GhostRenderer:
         rule = _ghost_rule_markup(_ui_contract.RULE_LABEL_HERRAMIENTAS, layout=ly)
         if not self._tool_section_live:
             self.console.print("")
+        show_rule = not self._tool_section_live or mode == "panel" or ly.merge_tool_rule_and_rail
         if ly.merge_tool_rule_and_rail and rail and mode != "panel":
             self.console.print(f"{rule}  [dim]::[/dim]  [dim]últimas[/dim] {rail}")
         elif not repeat_batch:
-            self.console.print(rule)
+            if show_rule:
+                self.console.print(rule)
             if rail:
                 self.console.print(f"  [dim]últimas[/dim]  {rail}")
         elif rail:

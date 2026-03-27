@@ -437,7 +437,8 @@ class TestRendererVerificationProvenance(unittest.TestCase):
             self.renderer.append_tool_trace("read_file", "b.py", auto_approved=False)
             self.renderer.flush_tool_segment()
         out = self.output.getvalue()
-        self.assertEqual(out.count(ui_contract.RULE_LABEL_HERRAMIENTAS), 2)
+        self.assertEqual(out.count(ui_contract.RULE_LABEL_HERRAMIENTAS), 1)
+        self.assertGreaterEqual(out.count("últimas"), 2)
         self.assertNotIn("\n\n\n", out)
 
     def test_summarize_pytest_extracts_nodes_and_duration(self):
@@ -476,7 +477,7 @@ class TestVisualLayoutAdaptive(unittest.TestCase):
         renderer = GhostRenderer(console)
         with patch.dict(os.environ, {"GHOST_UI_VERBOSE": "0"}, clear=False):
             msg = renderer._status_full_message("ACT", "thinking")
-        self.assertIn("::", msg)
+        self.assertIn("·", msg)
         self.assertEqual(msg.count("\n"), 0)
 
 

@@ -38,13 +38,13 @@ LIVE_RAIL_PROFILE_IMPLEMENT = "implement"
 LIVE_RAIL_PROFILE_READONLY = "readonly"
 
 # ── Línea viva: estado por defecto (sin herramienta concreta) ───────────────
-LIVE_STATE_THINKING = "Modelo en curso — diseñando el siguiente movimiento"
-LIVE_STATE_WAITING_MODEL = "Enlace con el modelo — cola o red"
-LIVE_STATE_TOOL_GENERIC = "Herramientas sobre el workspace"
-LIVE_STATE_TOOL_RESULT = "Integrando salida de herramientas"
-LIVE_STATE_STREAMING = "Ensamblando respuesta (stream)"
-LIVE_STATE_CLOSING = "Cerrando sesión con síntesis"
-LIVE_STATE_READY = "Listo para input"
+LIVE_STATE_THINKING = "Diseñando el siguiente movimiento"
+LIVE_STATE_WAITING_MODEL = "Esperando respuesta del modelo"
+LIVE_STATE_TOOL_GENERIC = "Explorando el workspace"
+LIVE_STATE_TOOL_RESULT = "Integrando resultados"
+LIVE_STATE_STREAMING = "Ensamblando respuesta"
+LIVE_STATE_CLOSING = "Cerrando con síntesis"
+LIVE_STATE_READY = "Listo"
 LIVE_STATE_WORKING = "En progreso"
 
 # ── Línea viva: acciones con contexto corto ─────────────────────────────────
