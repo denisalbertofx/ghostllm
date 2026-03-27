@@ -13,6 +13,7 @@ import getpass
 import json
 import os
 import re
+import sys
 from collections import deque
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -27,6 +28,12 @@ from rich.table import Table
 
 from apps.cli.ui import ui_contract as _ui_contract
 from apps.cli.ui.theme import ghost_box_rounded
+from apps.cli.ui.slash_menu import (
+    SlashMenuState,
+    slash_menu_apply_selection,
+    slash_menu_quick_actions,
+    slash_menu_state,
+)
 from apps.cli.ui.visual_layout import (
     GhostVisualLayout,
     artifact_line_marker,
@@ -789,12 +796,144 @@ class GhostRenderer:
     def read_input(self) -> str:
         """Prompt del operador — identidad Ghost, sin nombres hardcodeados."""
         h = escape(_operator_input_handle())
+        if self._supports_windows_slash_menu():
+            try:
+                return self._read_input_windows_slash_menu().strip()
+            except (KeyboardInterrupt, EOFError):
+                return "exit"
         try:
             return self.console.input(
                 f"[ghost.brand]›[/ghost.brand] [bold white]{h}[/bold white] [ghost.dim]·[/ghost.dim] "
             ).strip()
         except (KeyboardInterrupt, EOFError):
             return "exit"
+
+    def _supports_windows_slash_menu(self) -> bool:
+        if os.name != "nt":
+            return False
+        if os.getenv("GHOST_INPUT_MENU", "1").strip().lower() in ("0", "false", "off", "no"):
+            return False
+        out = getattr(sys, "stdout", None)
+        return bool(getattr(out, "isatty", lambda: False)())
+
+    def _read_input_windows_slash_menu(self) -> str:
+        import msvcrt
+
+        handle = _operator_input_handle()
+        ly = self._tty_layout()
+        ascii_ui = ly.ascii_ui
+        prompt_mark = ">" if ascii_ui else "›"
+        prompt_prefix = f"{prompt_mark} {handle} · "
+        buffer = ""
+        cursor = 0
+        selected = 0
+        menu_lines = 0
+        out = getattr(self.console, "file", sys.stdout)
+
+        def render() -> None:
+            nonlocal menu_lines, selected
+            state = slash_menu_state(buffer, selected=selected)
+            selected = state.selected
+            lines = self._format_slash_menu_lines(state, width=max(ly.width, 40), ascii_ui=ascii_ui)
+            menu_lines = len(lines)
+            out.write("\r\x1b[2K\x1b[J")
+            out.write(prompt_prefix + buffer + "\n")
+            for line in lines:
+                out.write(line + "\n")
+            if menu_lines:
+                out.write(f"\x1b[{menu_lines}A")
+            out.write("\r")
+            prompt_cols = len(prompt_prefix) + cursor
+            if prompt_cols > 0:
+                out.write(f"\x1b[{prompt_cols}C")
+            out.flush()
+
+        render()
+        while True:
+            ch = msvcrt.getwch()
+            if ch in ("\r", "\n"):
+                state = slash_menu_state(buffer, selected=selected)
+                if state.active and state.items:
+                    chosen = state.items[selected]
+                    stripped = buffer.lstrip()
+                    if stripped.startswith("/") and " " not in stripped:
+                        buffer = slash_menu_apply_selection(buffer, chosen)
+                        cursor = len(buffer)
+                        render()
+                        continue
+                out.write("\r\x1b[2K\x1b[J")
+                out.write(prompt_prefix + buffer + "\n")
+                out.flush()
+                return buffer
+            if ch == "\x03":
+                raise KeyboardInterrupt
+            if ch == "\x08":
+                if cursor > 0:
+                    buffer = buffer[: cursor - 1] + buffer[cursor:]
+                    cursor -= 1
+                render()
+                continue
+            if ch in ("\x00", "\xe0"):
+                key = msvcrt.getwch()
+                state = slash_menu_state(buffer, selected=selected)
+                if key == "H" and state.items:
+                    selected = (selected - 1) % len(state.items)
+                elif key == "P" and state.items:
+                    selected = (selected + 1) % len(state.items)
+                elif key == "K" and cursor > 0:
+                    cursor -= 1
+                elif key == "M" and cursor < len(buffer):
+                    cursor += 1
+                elif key == "G":
+                    cursor = 0
+                elif key == "O":
+                    cursor = len(buffer)
+                elif key == "S" and cursor < len(buffer):
+                    buffer = buffer[:cursor] + buffer[cursor + 1 :]
+                render()
+                continue
+            if ch == "\x1b":
+                selected = 0
+                if buffer.startswith("/"):
+                    buffer = ""
+                    cursor = 0
+                render()
+                continue
+            if ch == "\t":
+                state = slash_menu_state(buffer, selected=selected)
+                if state.active and state.items:
+                    buffer = slash_menu_apply_selection(buffer, state.items[selected])
+                    cursor = len(buffer)
+                render()
+                continue
+            if ch and ch >= " ":
+                buffer = buffer[:cursor] + ch + buffer[cursor:]
+                cursor += 1
+                selected = 0
+                render()
+
+    def _format_slash_menu_lines(
+        self,
+        state: SlashMenuState,
+        *,
+        width: int,
+        ascii_ui: bool,
+    ) -> List[str]:
+        if not state.active:
+            return []
+        hint = "Type / to browse commands" if ascii_ui else "Type / para ver comandos"
+        if not state.items:
+            return [truncate_visible(f"  {hint}", max(width - 2, 20))]
+        lines: List[str] = []
+        footer = "↑↓ mover · Enter elegir" if not ascii_ui else "up/down move · Enter choose"
+        for idx, item in enumerate(state.items[:6]):
+            mark = ">" if ascii_ui else "›"
+            prefix = f"{mark} " if idx == state.selected else "  "
+            cmd = item.command.ljust(12)
+            line = f"{prefix}{cmd} {item.label} · {item.hint}"
+            lines.append(truncate_visible(line, max(width - 2, 24)))
+        lines.append(truncate_visible(f"  {footer}", max(width - 2, 24)))
+        return lines
 
     def render_verification_results(
         self,
@@ -1610,6 +1749,10 @@ class GhostRenderer:
             self.console.print(
                 f"[dim]provider (transporte):[/dim] [white]{escape(provider_backend_label)}[/white]"
             )
+        quick = "  ".join(slash_menu_quick_actions())
+        self.console.print(
+            f"[dim]atajos:[/dim] [white]{escape(quick)}[/white] [dim]· escribe `/` para navegar comandos[/dim]"
+        )
         if verbose and role_models and isinstance(role_models, dict) and role_models:
             rm = ", ".join(f"{k}={v}" for k, v in list(role_models.items())[:6])
             self.console.print(f"[dim]role_models:[/dim] [dim]{escape(rm)}[/dim]")

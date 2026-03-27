@@ -12,11 +12,38 @@ from apps.cli.ui.renderer import (
     format_tool_live_hint_from_prepared,
     summarize_test_runner_output,
 )
+from apps.cli.ui.slash_menu import (
+    slash_menu_apply_selection,
+    slash_menu_quick_actions,
+    slash_menu_state,
+)
 from apps.cli.ui.theme import make_ghost_console
 from apps.cli.ui.visual_layout import build_ghost_visual_layout, format_live_phase_rail
 
 
 class TestPhaseRailAndChips(unittest.TestCase):
+    def test_slash_menu_root_shows_core_commands(self):
+        state = slash_menu_state("/")
+        cmds = [it.command for it in state.items]
+        self.assertTrue(state.active)
+        self.assertIn("/plan", cmds)
+        self.assertIn("/do", cmds)
+        self.assertIn("/fix", cmds)
+
+    def test_slash_menu_filters_fix(self):
+        state = slash_menu_state("/fi")
+        self.assertTrue(state.active)
+        self.assertTrue(state.items)
+        self.assertEqual(state.items[0].command, "/fix")
+
+    def test_slash_menu_apply_selection_adds_space_for_argument_commands(self):
+        state = slash_menu_state("/pl")
+        updated = slash_menu_apply_selection("/pl", state.items[0])
+        self.assertEqual(updated, "/plan ")
+
+    def test_slash_menu_quick_actions_contract(self):
+        self.assertEqual(slash_menu_quick_actions(), ["/plan", "/do", "/fix", "/doctor"])
+
     def test_phase_rail_marks_verify_bucket(self):
         r = format_phase_rail("VERIFY")
         self.assertIn(ui_contract.PHASE_RAIL_LABEL_VERIFICAR, r)
@@ -142,6 +169,21 @@ class TestArtifactSummaryFindingsTier(unittest.TestCase):
             self.renderer.render_artifact_summary(art)
         out = self.output.getvalue()
         self.assertTrue(ui_contract.output_contains_artifact_footer_line(out))
+
+    def test_startup_summary_shows_quick_actions_hint(self):
+        self.renderer.render_cli_startup_summary(
+            command_mode="dev",
+            assistant_mode="Chat",
+            model="kimi",
+            prep=None,
+            llm_gateway_url="http://127.0.0.1:8000",
+            llm_gateway_reachable=True,
+            provider_backend_label="openai_compatible",
+        )
+        out = self.output.getvalue()
+        self.assertIn("atajos:", out.lower())
+        self.assertIn("/plan", out)
+        self.assertIn("escribe `/`", out)
 
     def test_implementation_closure_ready_for_review_banner(self):
         art = {
