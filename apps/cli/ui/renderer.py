@@ -620,6 +620,7 @@ class GhostRenderer:
         self._tool_segment_active: bool = False
         self._tool_segment_buffer: List[Dict[str, Any]] = []
         self._last_status_phase: str = "EXPLORE"
+        self._last_status_state: str = "ready"
         self._tool_activity: deque = deque(maxlen=12)
         self._last_tool_flush_signature: Optional[str] = None
         self._live_rail_profile: str = _ui_contract.LIVE_RAIL_PROFILE_IMPLEMENT
@@ -753,6 +754,8 @@ class GhostRenderer:
                 if self._auto_approve_shell
                 else _ui_contract.PERMISSION_SHELL_APPROVAL
             )
+        if self._tty_layout().ascii_ui:
+            bits = [b.replace("↗", "^") for b in bits]
         return " ".join(bits)
 
     def _display_phase_for_rail(self, phase: str, state: str) -> str:
@@ -873,7 +876,8 @@ class GhostRenderer:
     def _workspace_context(self, root: Path, ly: GhostVisualLayout) -> Tuple[str, str]:
         snap = self._workspace_snapshot(root)
         max_chars = min(max(40, ly.width - 24), 62)
-        bits = [truncate_visible(str(snap.get("name") or root.name or root), 20)]
+        workspace_name = truncate_visible(str(snap.get("name") or root.name or root), 20)
+        bits = [workspace_name]
         candidates: List[str] = []
         branch = truncate_visible(str(snap.get("branch") or ""), 22)
         if branch:
@@ -889,8 +893,7 @@ class GhostRenderer:
             if len(proposal) <= max_chars or len(bits) == 1:
                 bits.append(piece)
         context_line = " · ".join(bits)
-        path_line = truncate_visible(str(snap.get("path") or root), max(ly.width - 18, 28))
-        return context_line, path_line
+        return context_line, workspace_name
 
     def _ghost_prompt_plain(self) -> str:
         mark = ">" if self._tty_layout().ascii_ui else "›"
@@ -921,6 +924,7 @@ class GhostRenderer:
         self._last_status_render_sig = None
         self._live_detail = None
         self._last_status_phase = str(phase or "EXPLORE").strip().upper() or "EXPLORE"
+        self._last_status_state = str(initial or "thinking").strip().lower() or "thinking"
         return self.console.status(
             self._status_full_message(self._last_status_phase, initial),
             spinner=_status_spinner_name(),
@@ -958,6 +962,7 @@ class GhostRenderer:
             if new_ph != self._last_status_phase:
                 self._last_status_render_sig = None
             self._last_status_phase = new_ph
+        self._last_status_state = str(state or "working").strip().lower() or "working"
         if live_detail is not _UNSET:
             self._live_detail = (str(live_detail).strip() or None) if live_detail else None
         elif state in ("building", "thinking", "closing", "waiting", "tool_result", "ready"):
@@ -1063,35 +1068,48 @@ class GhostRenderer:
 
     def render_swarm_board(self, workers: List[Any]):
         """Display a professional dashboard for active swarm workers."""
+        active = sum(1 for w in workers if getattr(w, "status", "") == "active")
+        terminated = sum(1 for w in workers if getattr(w, "status", "") == "terminated")
         table = Table(
-            title="[bold yellow]Ghost Swarm Board (v0)[/bold yellow]",
-            box=box.DOUBLE,
-            header_style="bold yellow",
+            title=(
+                f"[ghost.brand]SWARM[/ghost.brand] [ghost.dim]·[/ghost.dim] "
+                f"[white]{active} active[/white]"
+                + (f" [ghost.dim]·[/ghost.dim] [dim]{terminated} terminated[/dim]" if terminated else "")
+            ),
+            box=box.SIMPLE_HEAVY,
+            header_style="bold white",
         )
-        table.add_column("Worker ID", style="cyan")
+        table.add_column("Worker", style="cyan")
         table.add_column("Role", style="magenta")
-        table.add_column("Task ID", style="dim")
+        table.add_column("Task", style="dim")
         table.add_column("Status", style="bold")
-        table.add_column("Worktree Path", style="dim", overflow="fold")
+        table.add_column("Worktree", style="dim")
 
         for w in workers:
             status = getattr(w, "status", "unknown")
             style = "green" if status == "active" else "red" if status == "terminated" else "white"
             icon = "●" if status == "active" else "○"
+            worktree_name = ""
+            raw_worktree = str(getattr(w, "worktree_path", "") or "").strip()
+            if raw_worktree:
+                try:
+                    worktree_name = Path(raw_worktree).name or raw_worktree
+                except Exception:
+                    worktree_name = raw_worktree
             table.add_row(
                 w.worker_id,
                 w.role.upper(),
                 w.task_id,
                 f"[{style}]{icon} {status}[/{style}]",
-                w.worktree_path or "N/A",
+                worktree_name or "N/A",
             )
 
         if not workers:
-            self.console.print("\n[dim]No active workers in swarm.[/dim]\n")
+            self.console.print("\n[dim]SWARM · no active workers.[/dim]\n")
         else:
             self.console.print("\n")
             self.console.print(table)
-            self.console.print("\n")
+            self.console.print("[dim]Use /board to refresh this view or /swarm cleanup to prune terminated workers.[/dim]\n")
 
     def read_input(self) -> str:
         """Prompt del operador — identidad Ghost, sin nombres hardcodeados."""
@@ -1209,12 +1227,12 @@ class GhostRenderer:
         recent = list(self._slash_recent)[:2]
         recent_text = ""
         if recent:
-            recent_text = "  ·  recientes: " + " ".join(recent)
+            recent_text = "  ·  recientes " + " ".join(recent)
         rec = " ".join(self._recommended_actions()[:2])
-        phase = self._display_phase_for_rail(self._last_status_phase, "thinking").lower()
+        mode_label = "plan mode" if self._live_rail_profile == _ui_contract.LIVE_RAIL_PROFILE_READONLY else "dev mode"
         multiline = "multiline on" if self._composer_multiline else "multiline off"
         perms = self._permission_display()
-        return f"{phase}  ·  {perms}  ·  next {rec}  ·  F2 {multiline}{recent_text}"
+        return f"{mode_label}  ·  {perms}  ·  next {rec}  ·  F2 {multiline}{recent_text}"
 
     def _supports_windows_slash_menu(self) -> bool:
         if os.name != "nt":
@@ -2296,7 +2314,7 @@ class GhostRenderer:
         flags_line = "  ".join(flags) if flags else "—"
         cwd = os.getcwd()
         root = Path(cwd)
-        workspace_context, workspace_path = self._workspace_context(root, ly)
+        workspace_context, workspace_name = self._workspace_context(root, ly)
         runtime_bits: List[str] = [
             truncate_visible(model or "sin modelo", 24),
             truncate_visible(command_mode or "dev", 12),
@@ -2311,11 +2329,10 @@ class GhostRenderer:
             if verbose:
                 self.console.print(
                     f"\n[ghost.brand]{escape(_ui_contract.BRAND_WORDMARK)}[/ghost.brand] "
-                    f"[dim]{escape(command_mode)}[/dim]  "
-                    f"[cyan]{escape(assistant_mode)}[/cyan]  "
+                    f"[dim]mode:[/dim] [white]{escape(command_mode)}[/white]  "
+                    f"[dim]model:[/dim] [white]{escape(model)}[/white]  "
                     f"[dim]{escape(truncate_visible(workspace_context, max(ly.width - 40, 18)))}[/dim]  "
                     f"[dim]permissions[/dim] [white]{escape(permission_line)}[/white]  "
-                    f"[dim]modelo[/dim] [white]{escape(model)}[/white]  "
                     f"[dim]flags[/dim] [dim]{escape(truncate_visible(flags_line, max(ly.width - 24, 40)))}[/dim]\n"
                 )
             else:
@@ -2329,17 +2346,14 @@ class GhostRenderer:
                 self.console.print(f"\n{line1}\n{line2}\n")
         else:
             wordmark = Text("\n".join(ghost_wordmark_lines(compact=False)), style="ghost.brand")
-            title_line = (
-                f"[white]{escape(assistant_mode)}[/white] "
-                f"[ghost.dim]│[/ghost.dim] [white]{escape(model)}[/white] "
-                f"[ghost.dim]│[/ghost.dim] [dim]{escape(command_mode)}[/dim]"
-            )
             meta = Table.grid(padding=(0, 0))
-            meta.add_row(title_line)
-            meta.add_row(f"[ghost.muted]{escape(workspace_context)}[/ghost.muted]")
-            meta.add_row("")
             meta.add_row(
-                f"[dim]{escape(_ui_contract.STARTUP_LABEL_WORKSPACE)}:[/dim] [white]{escape(workspace_path)}[/white]"
+                f"[dim]mode:[/dim] [white]{escape(command_mode)}[/white] "
+                f"[ghost.dim]·[/ghost.dim] [dim]model:[/dim] [white]{escape(model)}[/white]"
+            )
+            meta.add_row(f"[white]{escape(workspace_context)}[/white]")
+            meta.add_row(
+                f"[dim]{escape(_ui_contract.STARTUP_LABEL_WORKSPACE)}:[/dim] [white]{escape(workspace_name)}[/white]"
             )
             meta.add_row(
                 f"[dim]{escape(_ui_contract.STARTUP_LABEL_RUNTIME)}:[/dim] [white]{escape(runtime_line)}[/white]"
@@ -2365,20 +2379,12 @@ class GhostRenderer:
                 meta.add_row(
                     f"[dim]flags:[/dim] [dim]{escape(truncate_visible(flags_line, max(ly.width - 28, 32)))}[/dim]"
                 )
-            header = Table.grid(padding=(0, 0))
-            header.add_row(wordmark)
-            header.add_row("")
-            header.add_row(meta)
+            header = Table.grid(padding=(0, 2))
+            header.add_column(no_wrap=True)
+            header.add_column()
+            header.add_row(wordmark, meta)
             self.console.print("")
-            self.console.print(
-                Panel(
-                    header,
-                    border_style="ghost.brand",
-                    box=ghost_box_rounded(),
-                    padding=(0, 2),
-                    expand=False,
-                )
-            )
+            self.console.print(header)
         if llm_gateway_url and ly.ultra_narrow:
             if llm_gateway_reachable is True:
                 gw_line = (
@@ -2399,29 +2405,16 @@ class GhostRenderer:
             self.console.print(
                 f"[dim]provider (transporte):[/dim] [white]{escape(provider_backend_label)}[/white]"
             )
-        quick = "  ".join(slash_menu_quick_actions())
-        self.console.print(
-            f"[dim]acciones:[/dim] [white]{escape(quick)}[/white] [dim]· {escape(_ui_contract.STARTUP_HINT_SLASH)}[/dim]"
-        )
         start_rows = slash_menu_start_suggestions()
-        if ly.ultra_narrow:
-            first_cmd, first_tail = start_rows[0]
-            first_line = first_cmd if not first_tail else f"{first_cmd} {first_tail}"
-            self.console.print(
-                f"[dim]siguiente:[/dim] [white]{escape(truncate_visible(first_line, max(ly.width - 16, 20)))}[/white]"
-            )
-        else:
-            start_bits = []
-            for cmd, tail in start_rows:
-                row = cmd if not tail else f"{cmd} {tail}"
-                start_bits.append(truncate_visible(row, max(18, (ly.width // 3) - 8)))
-            self.console.print(
-                f"[dim]siguiente:[/dim] "
-                f"[white]{escape(start_bits[0])}[/white] [ghost.dim]·[/ghost.dim] "
-                f"[white]{escape(start_bits[1])}[/white] [ghost.dim]·[/ghost.dim] "
-                f"[white]{escape(start_bits[2])}[/white]"
-            )
-        self.console.print(f"[ghost.dim]{escape(_ui_contract.STARTUP_HINT_CONTROLS)}[/ghost.dim]")
+        first_cmd, first_tail = start_rows[0]
+        next_line = first_cmd if not first_tail else f"{first_cmd} {first_tail}"
+        quick = " ".join(slash_menu_quick_actions()[1:])
+        startup_help = (
+            f"[dim]next:[/dim] [white]{escape(truncate_visible(next_line, max(22, ly.width // 2)))}[/white] "
+            f"[ghost.dim]·[/ghost.dim] [dim]quick[/dim] [white]{escape(quick)}[/white] "
+            f"[ghost.dim]·[/ghost.dim] [dim]{escape(_ui_contract.STARTUP_HINT_SLASH)}[/dim]"
+        )
+        self.console.print(startup_help)
         if verbose and role_models and isinstance(role_models, dict) and role_models:
             rm = ", ".join(f"{k}={v}" for k, v in list(role_models.items())[:6])
             self.console.print(f"[dim]role_models:[/dim] [dim]{escape(rm)}[/dim]")

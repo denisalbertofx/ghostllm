@@ -28,8 +28,8 @@ STARTUP_HINT_CONTROLS = "↑↓ historial/menu · Tab completa · Esc cierra"
 PROMPT_HANDLE = "ghost"
 PERMISSION_READONLY = "read"
 PERMISSION_WRITE = "read edit"
-PERMISSION_SHELL_APPROVAL = "shell?"
-PERMISSION_SHELL_AUTO = "shell↗"
+PERMISSION_SHELL_APPROVAL = "shell↗"
+PERMISSION_SHELL_AUTO = "shell"
 
 # ── Phase rail (format_phase_rail / live status) ────────────────────────────
 PHASE_RAIL_LABEL_EXPLORAR = "Explorar"

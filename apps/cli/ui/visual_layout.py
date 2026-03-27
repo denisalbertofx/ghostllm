@@ -367,22 +367,22 @@ def startup_lines(
     Devuelve (línea principal, línea secundaria opcional).
     En estrecho: una sola línea compacta.
     """
+    _ = assistant_mode
     if layout.ultra_narrow or (layout.narrow and layout.density == DENSITY_COMPACT):
         one = (
-            f"[ghost.brand]Ghost[/ghost.brand] [cyan]{escape(assistant_mode)}[/cyan] "
-            f"[dim]{escape(command_mode)}[/dim]"
+            f"[ghost.brand]Ghost[/ghost.brand] [dim]mode:[/dim] [white]{escape(command_mode)}[/white] "
+            f"[ghost.dim]·[/ghost.dim] [dim]model:[/dim] [white]{escape(model)}[/white]"
         )
         return one, f"[dim]{escape(subtitle)}[/dim]"
     if layout.narrow:
         a = (
-            f"[ghost.brand]Ghost[/ghost.brand] [cyan]{escape(assistant_mode)}[/cyan] "
-            f"[ghost.dim]|[/ghost.dim] [white]{escape(model)}[/white]"
+            f"[ghost.brand]Ghost[/ghost.brand] [dim]mode:[/dim] [white]{escape(command_mode)}[/white] "
+            f"[ghost.dim]|[/ghost.dim] [dim]model:[/dim] [white]{escape(model)}[/white]"
         )
-        return a, f"[dim]{escape(command_mode)}[/dim] · [dim]{escape(subtitle)}[/dim]"
+        return a, f"[dim]{escape(subtitle)}[/dim]"
     line = (
-        f"[ghost.brand]Ghost[/ghost.brand] [cyan]{escape(assistant_mode)}[/cyan] "
-        f"[ghost.dim]│[/ghost.dim] [white]{escape(model)}[/white] "
-        f"[ghost.dim]│[/ghost.dim] [dim]{escape(command_mode)}[/dim]"
+        f"[ghost.brand]Ghost[/ghost.brand] [dim]mode:[/dim] [white]{escape(command_mode)}[/white] "
+        f"[ghost.dim]│[/ghost.dim] [dim]model:[/dim] [white]{escape(model)}[/white]"
     )
     return line, f"[dim]{escape(subtitle)}[/dim]"
 

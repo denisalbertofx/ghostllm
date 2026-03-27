@@ -1491,8 +1491,8 @@ Discovery actions this session: {discovery_count}
 
         if text.startswith("/swarm"):
             self.swarm_manager.refresh_worker_statuses()
-            self.console.print("[bold yellow]⚠ Ghost Swarm v0 Initialized.[/bold yellow]")
-            self.console.print("[dim]Worktree management and coordination layer active.[/dim]")
+            workers = self.swarm_manager.list_workers()
+            self.renderer.render_swarm_board(workers)
             return
 
         if text.startswith("/batch start"):

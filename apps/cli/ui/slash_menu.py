@@ -95,7 +95,7 @@ SLASH_MENU_ITEMS: List[SlashMenuItem] = [
     SlashMenuItem(
         "/swarm",
         "Swarm",
-        "Inicializa o inspecciona workers",
+        "Ver board y estado de workers",
         "coordinar",
         "/swarm",
         accepts_args=False,

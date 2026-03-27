@@ -204,7 +204,7 @@ class TestArtifactSummaryFindingsTier(unittest.TestCase):
         with patch.object(
             self.renderer,
             "_workspace_context",
-            return_value=("GhostLLM · branch main · files 847 · last session 2h ago", "C:\\repo"),
+            return_value=("GhostLLM · branch main · files 847 · last session 2h ago", "GhostLLM"),
         ):
             self.renderer.render_cli_startup_summary(
                 command_mode="dev",
@@ -217,16 +217,20 @@ class TestArtifactSummaryFindingsTier(unittest.TestCase):
                 auto_approve=False,
             )
         out = self.output.getvalue()
-        self.assertIn("acciones:", out.lower())
+        normalized = out.replace("\n", " ")
+        self.assertIn("mode", out.lower())
+        self.assertIn("next:", out.lower())
         self.assertIn("/plan", out)
+        self.assertIn("quick", out.lower())
         self.assertIn("escribe `/`", out)
         self.assertIn("workspace:", out.lower())
         self.assertIn("runtime:", out.lower())
         self.assertIn("permissions:", out.lower())
-        self.assertIn("siguiente:", out.lower())
-        self.assertIn("historial/menu", out)
         self.assertIn("branch main", out)
-        self.assertIn("last session 2h ago", out)
+        self.assertIn("last", normalized)
+        self.assertIn("session 2h ago", normalized)
+        self.assertNotIn("C:\\repo", out)
+        self.assertNotIn("Chat │ kimi │ dev", out)
 
     def test_renderer_history_navigation_helper(self):
         self.renderer._record_input_history("/plan bugs")
@@ -253,10 +257,24 @@ class TestArtifactSummaryFindingsTier(unittest.TestCase):
         self.renderer._live_rail_profile = ui_contract.LIVE_RAIL_PROFILE_READONLY
         self.renderer._last_status_phase = "EXPLORE"
         bar = self.renderer._prompt_toolkit_bottom_toolbar()
-        self.assertIn("plan", bar)
+        self.assertIn("plan mode", bar)
         self.assertIn("/plan", bar)
         self.assertIn("F2", bar)
         self.assertIn("read", bar)
+
+    def test_render_swarm_board_hides_absolute_worktree_path(self):
+        class _Worker:
+            worker_id = "worker_1234"
+            role = "coder"
+            task_id = "task_abc"
+            status = "active"
+            worktree_path = "C:\\Users\\denis\\OneDrive\\Escritorio\\GhostLLM\\.ghost\\worktrees\\worker_1234"
+
+        self.renderer.render_swarm_board([_Worker()])
+        out = self.output.getvalue()
+        self.assertIn("SWARM", out)
+        self.assertIn("worker_1234", out)
+        self.assertNotIn("C:\\Users\\denis\\OneDrive\\Escritorio\\GhostLLM", out)
 
     def test_display_phase_for_rail_distinguishes_gather_and_plan(self):
         self.renderer._live_rail_profile = ui_contract.LIVE_RAIL_PROFILE_IMPLEMENT
