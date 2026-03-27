@@ -1945,8 +1945,6 @@ class GhostRenderer:
             truncate_visible(model or "sin modelo", 24),
             truncate_visible(command_mode or "dev", 12),
         ]
-        if provider_backend_label:
-            runtime_bits.append(truncate_visible(provider_backend_label, 24))
         if llm_gateway_reachable is True:
             runtime_bits.append("gateway ready")
         elif llm_gateway_reachable is False:
@@ -1988,6 +1986,20 @@ class GhostRenderer:
             right.add_row(
                 f"[dim]{escape(_ui_contract.STARTUP_LABEL_RUNTIME)}:[/dim] [white]{escape(runtime_line)}[/white]"
             )
+            if llm_gateway_url:
+                if llm_gateway_reachable is True:
+                    gw_status = "[ghost.success]ready[/ghost.success]"
+                elif llm_gateway_reachable is False:
+                    gw_status = "[ghost.error]down[/ghost.error]"
+                else:
+                    gw_status = "[dim]unknown[/dim]"
+                right.add_row(
+                    f"[dim]gateway:[/dim] [cyan]{escape(llm_gateway_url)}[/cyan] [ghost.dim]·[/ghost.dim] {gw_status}"
+                )
+            if provider_backend_label:
+                right.add_row(
+                    f"[dim]provider:[/dim] [white]{escape(provider_backend_label)}[/white]"
+                )
             if verbose:
                 right.add_row(
                     f"[dim]flags:[/dim] [dim]{escape(truncate_visible(flags_line, max(ly.width - 28, 32)))}[/dim]"
@@ -2007,7 +2019,7 @@ class GhostRenderer:
                     expand=False,
                 )
             )
-        if llm_gateway_url:
+        if llm_gateway_url and ly.ultra_narrow:
             if llm_gateway_reachable is True:
                 gw_line = (
                     f"[dim]gateway:[/dim] [cyan]{escape(llm_gateway_url)}[/cyan] "
@@ -2023,7 +2035,7 @@ class GhostRenderer:
             else:
                 gw_line = f"[dim]gateway:[/dim] [cyan]{escape(llm_gateway_url)}[/cyan] [dim](sin preflight)[/dim]"
             self.console.print(gw_line)
-        if provider_backend_label:
+        if provider_backend_label and ly.ultra_narrow:
             self.console.print(
                 f"[dim]provider (transporte):[/dim] [white]{escape(provider_backend_label)}[/white]"
             )
@@ -2039,12 +2051,16 @@ class GhostRenderer:
                 f"[dim]{escape(_ui_contract.STARTUP_LABEL_EMPIEZA)}:[/dim] [white]{escape(truncate_visible(first_line, max(ly.width - 16, 20)))}[/white]"
             )
         else:
-            self.console.print(f"[dim]{escape(_ui_contract.STARTUP_LABEL_EMPIEZA)}:[/dim]")
+            start_bits = []
             for cmd, tail in start_rows:
                 row = cmd if not tail else f"{cmd} {tail}"
-                self.console.print(
-                    f"  [ghost.brand]›[/ghost.brand] [white]{escape(truncate_visible(row, max(ly.width - 6, 24)))}[/white]"
-                )
+                start_bits.append(truncate_visible(row, max(18, (ly.width // 3) - 8)))
+            self.console.print(
+                f"[dim]{escape(_ui_contract.STARTUP_LABEL_EMPIEZA)}:[/dim] "
+                f"[white]{escape(start_bits[0])}[/white] [ghost.dim]·[/ghost.dim] "
+                f"[white]{escape(start_bits[1])}[/white] [ghost.dim]·[/ghost.dim] "
+                f"[white]{escape(start_bits[2])}[/white]"
+            )
         self.console.print(f"[dim]{escape(_ui_contract.STARTUP_HINT_CONTROLS)}[/dim]")
         if verbose and role_models and isinstance(role_models, dict) and role_models:
             rm = ", ".join(f"{k}={v}" for k, v in list(role_models.items())[:6])
