@@ -34,6 +34,7 @@ from apps.cli.ui.slash_menu import (
     slash_menu_examples,
     slash_menu_group_label,
     slash_menu_quick_actions,
+    slash_menu_query_items,
     slash_menu_start_suggestions,
     slash_menu_state,
 )
@@ -497,6 +498,7 @@ class GhostRenderer:
         self._last_status_render_sig: Optional[str] = None
         self._input_history: deque[str] = deque(maxlen=32)
         self._slash_recent: deque[str] = deque(maxlen=6)
+        self._pt_session: Any = None
 
     def _tty_layout(self) -> GhostVisualLayout:
         w = self.console.width
@@ -801,6 +803,11 @@ class GhostRenderer:
     def read_input(self) -> str:
         """Prompt del operador — identidad Ghost, sin nombres hardcodeados."""
         h = escape(_operator_input_handle())
+        if self._supports_prompt_toolkit_input():
+            try:
+                return self._read_input_prompt_toolkit().strip()
+            except (KeyboardInterrupt, EOFError):
+                return "exit"
         if self._supports_windows_slash_menu():
             try:
                 return self._read_input_windows_slash_menu().strip()
@@ -812,6 +819,69 @@ class GhostRenderer:
             ).strip()
         except (KeyboardInterrupt, EOFError):
             return "exit"
+
+    def _supports_prompt_toolkit_input(self) -> bool:
+        if os.getenv("GHOST_PROMPT_TOOLKIT", "1").strip().lower() in ("0", "false", "off", "no"):
+            return False
+        out = getattr(sys, "stdout", None)
+        if not bool(getattr(out, "isatty", lambda: False)()):
+            return False
+        try:
+            import prompt_toolkit  # noqa: F401
+        except Exception:
+            return False
+        return True
+
+    def _read_input_prompt_toolkit(self) -> str:
+        session = self._get_prompt_toolkit_session()
+        handle = _operator_input_handle()
+        marker = ">" if self._tty_layout().ascii_ui else "›"
+        prompt = f"{marker} {handle} · "
+        result = session.prompt(
+            prompt,
+            bottom_toolbar=self._prompt_toolkit_bottom_toolbar,
+        )
+        self._record_input_history(result)
+        stripped = str(result or "").strip()
+        if stripped.startswith("/"):
+            first = stripped.split(" ", 1)[0]
+            self._record_recent_slash(first)
+        return result
+
+    def _get_prompt_toolkit_session(self) -> Any:
+        if self._pt_session is not None:
+            return self._pt_session
+        from prompt_toolkit import PromptSession
+        from prompt_toolkit.auto_suggest import AutoSuggestFromHistory
+        from prompt_toolkit.completion import WordCompleter
+        from prompt_toolkit.history import InMemoryHistory
+        from prompt_toolkit.shortcuts.prompt import CompleteStyle
+
+        history = InMemoryHistory()
+        for entry in list(self._input_history):
+            history.append_string(entry)
+        completer = WordCompleter(
+            [item.command for item in slash_menu_query_items("", recent_commands=list(self._slash_recent))],
+            ignore_case=True,
+            sentence=True,
+        )
+        self._pt_session = PromptSession(
+            history=history,
+            auto_suggest=AutoSuggestFromHistory(),
+            completer=completer,
+            complete_while_typing=True,
+            complete_style=CompleteStyle.MULTI_COLUMN,
+            reserve_space_for_menu=8,
+            enable_history_search=True,
+        )
+        return self._pt_session
+
+    def _prompt_toolkit_bottom_toolbar(self) -> str:
+        recent = list(self._slash_recent)[:2]
+        recent_text = ""
+        if recent:
+            recent_text = "  ·  recientes: " + "  ".join(recent)
+        return self._input_context_hint("", ascii_ui=self._tty_layout().ascii_ui) + recent_text
 
     def _supports_windows_slash_menu(self) -> bool:
         if os.name != "nt":
@@ -990,6 +1060,12 @@ class GhostRenderer:
         if self._input_history and self._input_history[-1] == value:
             return
         self._input_history.append(value)
+        hist = getattr(self._pt_session, "history", None)
+        if hist is not None:
+            try:
+                hist.append_string(value)
+            except Exception:
+                pass
 
     def _record_recent_slash(self, command: str) -> None:
         value = str(command or "").strip()
@@ -998,6 +1074,7 @@ class GhostRenderer:
         while value in self._slash_recent:
             self._slash_recent.remove(value)
         self._slash_recent.appendleft(value)
+        self._pt_session = None
 
     def _move_history(self, history_index: Optional[int], delta: int) -> Tuple[Optional[int], str]:
         if not self._input_history:
