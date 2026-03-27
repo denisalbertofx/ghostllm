@@ -66,6 +66,13 @@ class TestPhaseRailAndChips(unittest.TestCase):
         self.assertEqual(cmds, ["/fix", "/do"])
         self.assertEqual(cats, ["reciente", "reciente"])
 
+    def test_slash_menu_recommended_commands_rank_first(self):
+        state = slash_menu_state("/", recommended_commands=["/review", "/fix"])
+        cmds = [it.command for it in state.items[:2]]
+        cats = [it.category for it in state.items[:2]]
+        self.assertEqual(cmds, ["/review", "/fix"])
+        self.assertEqual(cats, ["recomendado", "recomendado"])
+
     def test_phase_rail_marks_verify_bucket(self):
         r = format_phase_rail("VERIFY")
         self.assertIn(ui_contract.PHASE_RAIL_LABEL_VERIFICAR, r)
@@ -226,6 +233,19 @@ class TestArtifactSummaryFindingsTier(unittest.TestCase):
         self.renderer._record_recent_slash("/do")
         self.renderer._record_recent_slash("/plan")
         self.assertEqual(list(self.renderer._slash_recent), ["/plan", "/do"])
+
+    def test_renderer_recommended_actions_follow_phase(self):
+        self.renderer._live_rail_profile = ui_contract.LIVE_RAIL_PROFILE_IMPLEMENT
+        self.renderer._last_status_phase = "VERIFY"
+        self.assertEqual(self.renderer._recommended_actions(), ["/fix", "/review", "/do"])
+
+    def test_prompt_toolbar_mentions_multiline_and_recommended(self):
+        self.renderer._live_rail_profile = ui_contract.LIVE_RAIL_PROFILE_READONLY
+        self.renderer._last_status_phase = "EXPLORE"
+        bar = self.renderer._prompt_toolkit_bottom_toolbar()
+        self.assertIn("recomienda:", bar)
+        self.assertIn("/plan", bar)
+        self.assertIn("F2", bar)
 
     def test_implementation_closure_ready_for_review_banner(self):
         art = {
@@ -405,6 +425,7 @@ class TestRendererVerificationProvenance(unittest.TestCase):
         self.assertNotIn(ui_contract.LEGACY_TOOLS_LOTE_PHRASE, out)
         self.assertIn("read", out)
         self.assertIn("package.json", out)
+        self.assertNotIn("Ghost · operaciones", out)
 
     def test_summarize_pytest_extracts_nodes_and_duration(self):
         blob = (

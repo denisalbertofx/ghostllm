@@ -149,6 +149,7 @@ def slash_menu_state(
     *,
     selected: int = 0,
     recent_commands: Iterable[str] = (),
+    recommended_commands: Iterable[str] = (),
 ) -> SlashMenuState:
     raw = str(text or "")
     stripped = raw.lstrip()
@@ -160,7 +161,11 @@ def slash_menu_state(
     if " " in stripped and stripped.endswith(" "):
         return SlashMenuState(False, query, [], 0)
 
-    items = slash_menu_query_items(query, recent_commands=recent_commands)
+    items = slash_menu_query_items(
+        query,
+        recent_commands=recent_commands,
+        recommended_commands=recommended_commands,
+    )
     if not items:
         return SlashMenuState(True, query, [], 0)
     selected = max(0, min(int(selected), len(items) - 1))
@@ -176,14 +181,24 @@ def slash_menu_group_label(item: SlashMenuItem) -> str:
     return item.category.upper()
 
 
-def slash_menu_query_items(query: str, *, recent_commands: Iterable[str] = ()) -> List[SlashMenuItem]:
+def slash_menu_query_items(
+    query: str,
+    *,
+    recent_commands: Iterable[str] = (),
+    recommended_commands: Iterable[str] = (),
+) -> List[SlashMenuItem]:
     recent_map = {it.command: it for it in SLASH_MENU_ITEMS}
+    recommended_items: List[SlashMenuItem] = []
+    for cmd in recommended_commands:
+        key = str(cmd or "").strip()
+        if key in recent_map and key not in {it.command for it in recommended_items}:
+            recommended_items.append(replace(recent_map[key], category="recomendado"))
     recent_items: List[SlashMenuItem] = []
     for cmd in recent_commands:
         key = str(cmd or "").strip()
         if key in recent_map and key not in {it.command for it in recent_items}:
             recent_items.append(replace(recent_map[key], category="reciente"))
-    return _filter_slash_items(query, recent_items=recent_items)
+    return _filter_slash_items(query, recent_items=recommended_items + recent_items)
 
 
 def _filter_slash_items(query: str, *, recent_items: Sequence[SlashMenuItem]) -> List[SlashMenuItem]:

@@ -499,6 +499,7 @@ class GhostRenderer:
         self._input_history: deque[str] = deque(maxlen=32)
         self._slash_recent: deque[str] = deque(maxlen=6)
         self._pt_session: Any = None
+        self._composer_multiline: bool = False
 
     def _tty_layout(self) -> GhostVisualLayout:
         w = self.console.width
@@ -854,17 +855,44 @@ class GhostRenderer:
         from prompt_toolkit import PromptSession
         from prompt_toolkit.auto_suggest import AutoSuggestFromHistory
         from prompt_toolkit.completion import WordCompleter
+        from prompt_toolkit.filters import Condition
         from prompt_toolkit.history import InMemoryHistory
+        from prompt_toolkit.key_binding import KeyBindings
         from prompt_toolkit.shortcuts.prompt import CompleteStyle
 
         history = InMemoryHistory()
         for entry in list(self._input_history):
             history.append_string(entry)
         completer = WordCompleter(
-            [item.command for item in slash_menu_query_items("", recent_commands=list(self._slash_recent))],
+            [
+                item.command
+                for item in slash_menu_query_items(
+                    "",
+                    recent_commands=list(self._slash_recent),
+                    recommended_commands=self._recommended_actions(),
+                )
+            ],
             ignore_case=True,
             sentence=True,
         )
+        kb = KeyBindings()
+
+        @Condition
+        def _multiline_mode() -> bool:
+            return self._composer_multiline
+
+        @kb.add("f2")
+        def _toggle_multiline(event) -> None:
+            self._composer_multiline = not self._composer_multiline
+
+        @kb.add("enter", filter=~_multiline_mode)
+        def _accept_singleline(event) -> None:
+            event.current_buffer.validate_and_handle()
+
+        @kb.add("escape", "enter")
+        def _insert_newline(event) -> None:
+            event.current_buffer.insert_text("\n")
+
         self._pt_session = PromptSession(
             history=history,
             auto_suggest=AutoSuggestFromHistory(),
@@ -873,6 +901,8 @@ class GhostRenderer:
             complete_style=CompleteStyle.MULTI_COLUMN,
             reserve_space_for_menu=8,
             enable_history_search=True,
+            multiline=_multiline_mode,
+            key_bindings=kb,
         )
         return self._pt_session
 
@@ -881,7 +911,13 @@ class GhostRenderer:
         recent_text = ""
         if recent:
             recent_text = "  ·  recientes: " + "  ".join(recent)
-        return self._input_context_hint("", ascii_ui=self._tty_layout().ascii_ui) + recent_text
+        rec = " ".join(self._recommended_actions()[:2])
+        phase = self._last_status_phase.lower()
+        multiline = "multiline on" if self._composer_multiline else "multiline off"
+        return (
+            f"fase: {phase}  ·  recomienda: {rec}  ·  F2 {multiline}  ·  Esc+Enter nueva linea"
+            + recent_text
+        )
 
     def _supports_windows_slash_menu(self) -> bool:
         if os.name != "nt":
@@ -912,6 +948,7 @@ class GhostRenderer:
                 buffer,
                 selected=selected,
                 recent_commands=list(self._slash_recent),
+                recommended_commands=self._recommended_actions(),
             )
             selected = state.selected
             lines = self._format_slash_menu_lines(state, width=max(ly.width, 40), ascii_ui=ascii_ui)
@@ -936,6 +973,7 @@ class GhostRenderer:
                     buffer,
                     selected=selected,
                     recent_commands=list(self._slash_recent),
+                    recommended_commands=self._recommended_actions(),
                 )
                 if state.active and state.items:
                     chosen = state.items[selected]
@@ -967,6 +1005,7 @@ class GhostRenderer:
                     buffer,
                     selected=selected,
                     recent_commands=list(self._slash_recent),
+                    recommended_commands=self._recommended_actions(),
                 )
                 if key == "H" and state.items:
                     selected = (selected - 1) % len(state.items)
@@ -1005,6 +1044,7 @@ class GhostRenderer:
                     buffer,
                     selected=selected,
                     recent_commands=list(self._slash_recent),
+                    recommended_commands=self._recommended_actions(),
                 )
                 if state.active and state.items:
                     buffer = slash_menu_apply_selection(buffer, state.items[selected])
@@ -1095,6 +1135,21 @@ class GhostRenderer:
         if (buffer or "").startswith("/"):
             return "Tab or Enter complete current action" if ascii_ui else "Tab o Enter completa la accion actual"
         return "Use / for actions or write a task directly" if ascii_ui else "Usa / para acciones o escribe una tarea directa"
+
+    def _recommended_actions(self) -> List[str]:
+        prof = str(self._live_rail_profile or _ui_contract.LIVE_RAIL_PROFILE_IMPLEMENT).strip().lower()
+        phase = str(self._last_status_phase or "EXPLORE").strip().upper()
+        if prof == _ui_contract.LIVE_RAIL_PROFILE_READONLY:
+            if phase == "CLOSE":
+                return ["/review", "/do", "/doctor"]
+            return ["/plan", "/do", "/doctor"]
+        if phase == "VERIFY":
+            return ["/fix", "/review", "/do"]
+        if phase == "ACT":
+            return ["/do", "/edit", "/fix"]
+        if phase == "CLOSE":
+            return ["/review", "/do", "/logs"]
+        return ["/plan", "/do", "/fix"]
 
     def render_verification_results(
         self,
@@ -2057,10 +2112,13 @@ class GhostRenderer:
             self.console.print(t)
             self.console.print("")
         else:
-            if not repeat_batch:
-                self.console.print(f"[dim]{escape(_ui_contract.BRAND_WORDMARK)} · operaciones[/dim]")
-            for row in self._tool_segment_buffer:
-                self.console.print(self._format_tool_chip_row(row, ly))
+            if mode == "compact":
+                self.console.print("")
+            else:
+                if not repeat_batch:
+                    self.console.print(f"[dim]{escape(_ui_contract.BRAND_WORDMARK)} · operaciones[/dim]")
+                for row in self._tool_segment_buffer:
+                    self.console.print(self._format_tool_chip_row(row, ly))
             self.console.print("")
         self._tool_segment_buffer = []
 
