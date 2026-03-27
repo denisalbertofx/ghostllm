@@ -5175,7 +5175,14 @@ Discovery actions this session: {discovery_count}
                 _cl = self._strip_tool_calls_for_display(safe_content)
                 if _cl:
                     _tier_display = str(locals().get("_tier_now") or "").strip().lower()
-                    _task_next = str(latest_user_content or "").strip()
+                    _task_next = ""
+                    _current_task = getattr(getattr(self, "task_manager", None), "current_task", None)
+                    if _current_task and getattr(_current_task, "title", None):
+                        _task_next = str(_current_task.title or "").strip()
+                    if not _task_next:
+                        _task_next = str(getattr(sess_g, "task", "") or "").strip()
+                    if not _task_next:
+                        _task_next = str(latest_user_content or "").strip()
                     if _task_next.startswith("/plan"):
                         _task_next = _task_next[len("/plan") :].strip()
                     elif _task_next.startswith("/do"):

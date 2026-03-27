@@ -155,11 +155,15 @@ def terminal_phase_from_signals(
                 return SessionPhase.ABORTED
         else:
             return SessionPhase.ABORTED
-    if loop_abort_reason in (
-        LOOP_ABORT_STAGNATION,
-        LOOP_ABORT_POLICY,
-        LOOP_ABORT_PROVIDER,
-    ):
+    if loop_abort_reason == LOOP_ABORT_STAGNATION:
+        if outcome in (OUTCOME_READ_ONLY, OUTCOME_ALREADY_IMPLEMENTED):
+            if has_final_nl_response or evidence_score >= iteration_limit_soft_done_min_evidence():
+                pass  # allow read-only/already-implemented sessions to soft-close
+            else:
+                return SessionPhase.ABORTED
+        else:
+            return SessionPhase.ABORTED
+    if loop_abort_reason in (LOOP_ABORT_POLICY, LOOP_ABORT_PROVIDER):
         return SessionPhase.ABORTED
     if budget_exhausted:
         return SessionPhase.ABORTED

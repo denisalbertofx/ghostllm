@@ -104,6 +104,19 @@ class TestBudgetManager(unittest.TestCase):
             d.add_action("read_file", det)
         self.assertTrue(d.check_stagnation()[0])
 
+    def test_search_code_distinct_queries_not_threepeat_loop(self) -> None:
+        d = StagnationDetector(max_same_action_same_target=3)
+        for query in ("AuthService", "JWT_SECRET", "validateToken"):
+            d.add_action("search_code", stagnation_tool_detail("search_code", {"query": query, "mode": "symbol"}))
+        self.assertFalse(d.check_stagnation()[0])
+
+    def test_search_code_same_query_still_triggers_loop(self) -> None:
+        d = StagnationDetector(max_same_action_same_target=3)
+        detail = stagnation_tool_detail("search_code", {"query": "validateToken", "mode": "symbol"})
+        for _ in range(3):
+            d.add_action("search_code", detail)
+        self.assertTrue(d.check_stagnation()[0])
+
 
 class TestBudgetManagerAdaptive(unittest.TestCase):
     def test_env_budget_max_caps_growth(self) -> None:

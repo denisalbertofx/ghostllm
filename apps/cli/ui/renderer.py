@@ -196,6 +196,8 @@ def _plan_mode_steps(lines: List[str], *, limit: int = 6) -> List[str]:
         low = ln.lower()
         if low.endswith(":") or any(low.startswith(pref) for pref in skip_prefixes):
             continue
+        if low.startswith(("voy a ", "empezar", "empezaré", "empezare", "analizar", "buscar", "explorar")):
+            continue
         if len(ln) < 18:
             continue
         fallback.append(ln)
@@ -217,6 +219,8 @@ def _plan_mode_summary(lines: List[str]) -> str:
     for ln in lines:
         low = ln.lower()
         if low.endswith(":") or any(low.startswith(pref) for pref in skip_prefixes):
+            continue
+        if low.startswith(("voy a ", "empezar", "empezaré", "empezare", "analizar", "buscar", "explorar")):
             continue
         if len(ln) < 28:
             continue
@@ -1490,6 +1494,8 @@ class GhostRenderer:
         lines = _plan_mode_lines(text)
         summary = _plan_mode_summary(lines)
         steps = _plan_mode_steps(lines, limit=6)
+        if summary and steps and steps[0].strip().lower() == summary.strip().lower():
+            steps = steps[1:]
         if not summary:
             t = str(tier or "").strip().lower()
             if t == "confirmed":

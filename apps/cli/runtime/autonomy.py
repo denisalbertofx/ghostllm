@@ -26,6 +26,12 @@ def stagnation_tool_detail(tool_name: str, args: Optional[Dict[str, Any]] = None
         return p
     if t == "ls":
         return str(args.get("path") or ".").strip() or "."
+    if t == "search_code":
+        query = str(args.get("query") or "").strip()
+        mode = str(args.get("mode") or "symbol").strip().lower() or "symbol"
+        if query:
+            return f"{mode}:{query}"
+        return mode
     return str(args.get("path") or args.get("command") or "")
 
 

@@ -304,6 +304,19 @@ JWT migration is feasible. No breaking changes expected.
         self.assertIn("execute", out)
         self.assertNotIn("execute next:", out)
 
+    def test_readonly_plan_response_filters_meta_explore_summary(self):
+        self.renderer.render_readonly_plan_response(
+            """
+Voy a analizar el código buscando bugs críticos. Empezaré buscando patrones problemáticos comunes y comentarios de TODO.
+""",
+            tier="unverified",
+            evidence_count=1,
+            next_command="/do encuentra los bugs mas importantes",
+        )
+        out = self.output.getvalue()
+        self.assertNotIn("Voy a analizar el código", out)
+        self.assertIn("Hay contexto para orientar el siguiente paso", out)
+
     def test_compact_tool_segment_aggregates_read_batches(self):
         with patch.dict(os.environ, {"GHOST_TOOL_UI": "compact"}, clear=False):
             self.renderer.begin_tool_segment()
