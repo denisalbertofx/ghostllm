@@ -1,6 +1,7 @@
 import os
 import unittest
 from tempfile import TemporaryDirectory
+from types import SimpleNamespace
 
 from apps.cli.assistant import (
     _filter_workspace_listing_entries,
@@ -28,6 +29,16 @@ class TestAssistantGreenfieldHelpers(unittest.TestCase):
         with TemporaryDirectory() as tmp:
             os.mkdir(os.path.join(tmp, ".git"))
             intent = route_intake_intent("/do crea desde cero una CLI de tareas en Python con SQLite")
+            self.assertTrue(_should_start_greenfield_in_act(tmp, intent))
+
+    def test_should_start_greenfield_in_act_for_partial_bootstrap_continuation(self) -> None:
+        with TemporaryDirectory() as tmp:
+            os.mkdir(os.path.join(tmp, ".git"))
+            with open(os.path.join(tmp, "README.md"), "w", encoding="utf-8") as fh:
+                fh.write("# demo\n")
+            with open(os.path.join(tmp, "task_manager.py"), "w", encoding="utf-8") as fh:
+                fh.write("print('hi')\n")
+            intent = SimpleNamespace(task_type="scaffold", scaffold_type="extend", task="continua este proyecto")
             self.assertTrue(_should_start_greenfield_in_act(tmp, intent))
 
     def test_read_utf8_text_for_tool_returns_error_for_binary_file(self) -> None:

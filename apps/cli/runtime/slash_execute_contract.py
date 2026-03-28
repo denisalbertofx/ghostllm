@@ -28,8 +28,6 @@ def apply_slash_execute_write_overrides(session: Any, intent: Intent) -> bool:
 
     Returns True si se aplicó corrección.
     """
-    if not getattr(intent, "is_slash_command", False):
-        return False
     if str(getattr(intent, "mode", "") or "").strip() not in SLASH_WRITE_MODES:
         return False
     spec = get_task_contract_spec(session)

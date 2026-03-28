@@ -344,9 +344,11 @@ def _filter_workspace_listing_entries(path: str, entries: List[str]) -> List[str
 
 
 def _should_start_greenfield_in_act(cwd: str, intent: Optional[Intent]) -> bool:
+    context, _markers = WorkingDirectoryGuard.detect_context(cwd)
+    if context == "bootstrap_partial":
+        return bool(intent) and str(getattr(intent, "task_type", "") or "").strip().lower() == "scaffold"
     if not _is_bootstrap_scaffold_intent(intent):
         return False
-    context, _markers = WorkingDirectoryGuard.detect_context(cwd)
     return context in ("empty", "repo_shell")
 
 

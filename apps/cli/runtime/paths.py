@@ -94,6 +94,47 @@ class WorkingDirectoryGuard:
         ".gitattributes",
         ".editorconfig",
     }
+    BOOTSTRAP_PARTIAL_ALLOWLIST = REPO_SHELL_ALLOWLIST | {"README.txt"}
+    BOOTSTRAP_SOURCE_SUFFIXES = (
+        ".py",
+        ".ts",
+        ".tsx",
+        ".js",
+        ".jsx",
+        ".go",
+        ".rs",
+        ".java",
+        ".kt",
+        ".rb",
+        ".php",
+        ".cs",
+    )
+
+    @classmethod
+    def _looks_like_partial_bootstrap(cls, entries: List[str]) -> bool:
+        visible = [str(name or "").strip() for name in entries if str(name or "").strip()]
+        if not visible:
+            return False
+        non_shell_entries = [
+            name for name in visible
+            if name not in cls.BOOTSTRAP_PARTIAL_ALLOWLIST
+        ]
+        if not non_shell_entries or len(non_shell_entries) > 3:
+            return False
+        lowered = [name.lower() for name in non_shell_entries]
+        if any(name in ("pyproject.toml", "package.json", "requirements.txt") for name in lowered):
+            return False
+        if any(
+            name.startswith("tests")
+            or name.startswith("test")
+            or name.endswith("_test.py")
+            or name.endswith(".test.ts")
+            or name.endswith(".spec.ts")
+            for name in lowered
+        ):
+            return False
+        source_like = [name for name in lowered if name.endswith(cls.BOOTSTRAP_SOURCE_SUFFIXES)]
+        return len(source_like) >= 1
 
     @classmethod
     def detect_context(cls, cwd: str) -> Tuple[str, List[str]]:
@@ -125,6 +166,8 @@ class WorkingDirectoryGuard:
         ]
         if not non_shell_entries:
             return "repo_shell", found
+        if cls._looks_like_partial_bootstrap(entries):
+            return "bootstrap_partial", found
 
         return "project", found
 
@@ -145,6 +188,9 @@ class WorkingDirectoryGuard:
 
         if context == "repo_shell":
             return "ALLOW", "Repositorio recién inicializado detectado; scaffold in-place permitido.", []
+
+        if context == "bootstrap_partial":
+            return "ALLOW", "Scaffold greenfield parcial detectado; se permite continuar construyendo el proyecto en este directorio.", []
 
         if context == "project":
             if not target_subfolder:

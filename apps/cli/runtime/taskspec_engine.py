@@ -117,7 +117,22 @@ def _looks_like_greenfield_scaffold(prompt: str) -> bool:
         "clean start",
         "scaffold",
     )
-    return any(marker in t for marker in scaffold_markers)
+    if any(marker in t for marker in scaffold_markers):
+        return True
+    continuation_markers = (
+        "continua este proyecto",
+        "continúa este proyecto",
+        "continua el proyecto",
+        "continúa el proyecto",
+        "continue this project",
+        "finish this project",
+        "terminalo",
+        "termínalo",
+    )
+    continuation_targets = ("cli", "app", "aplicacion", "aplicación", "python", "sqlite", "pytest", "readme")
+    return any(marker in t for marker in continuation_markers) and any(
+        marker in t for marker in continuation_targets
+    )
 
 
 def extract_target_files_from_prompt(prompt: str) -> List[str]:
@@ -212,12 +227,24 @@ def _repo_verification_hints(repo: RepoProfile) -> Dict[str, bool]:
         hints["build"] = bool(vc.build)
         hints["lint"] = bool(vc.lint)
         hints["tests"] = bool(vc.tests) or ("pytest" in (v2.stack.test_runner or []))
+        important = [str(x).replace("\\", "/").strip().lower() for x in (v2.important_folders or [])]
+        key_files = [str(x).replace("\\", "/").strip().lower() for x in (v2.key_files or [])]
+        runtime = str(v2.stack.runtime or "").strip().lower()
+        if runtime == "python" and not hints["tests"]:
+            if any(item == "tests" or item.startswith("tests/") for item in important):
+                hints["tests"] = True
+            elif any(item.endswith("pyproject.toml") or item.endswith("requirements.txt") for item in key_files):
+                hints["tests"] = True
         return hints
     if repo.has_package_json:
         hints["typecheck"] = True
         hints["build"] = True
         hints["lint"] = True
         hints["tests"] = True
+    if str(getattr(repo, "stack", "") or "").strip().lower() == "python":
+        important = [str(x).replace("\\", "/").strip().lower() for x in (repo.important_folders or [])]
+        if any(item == "tests" or item.startswith("tests/") or item == "pyproject.toml" for item in important):
+            hints["tests"] = True
     return hints
 
 

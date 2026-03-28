@@ -36,6 +36,14 @@ class TestTaskSpecEngine(unittest.TestCase):
             important_folders=["apps", "src"],
         )
 
+    def _python_repo_with_tests(self) -> RepoProfile:
+        return RepoProfile(
+            stack="python",
+            layers_detected=["api", "tests"],
+            has_package_json=False,
+            important_folders=["pyproject.toml", "tests"],
+        )
+
     def test_implementation_api_task(self):
         repo = self._node_repo()
         r = build_taskspec(
@@ -202,6 +210,16 @@ class TestTaskSpecEngine(unittest.TestCase):
         self.assertTrue(ts.verification_policy.get("required"))
         self.assertTrue(ts.verification_policy.get("tests"))
 
+    def test_greenfield_continuation_prompt_with_pytest_requires_tests_verification(self):
+        repo = self._empty_repo()
+        r = build_taskspec(
+            "continua este proyecto y terminalo: crea una CLI de tareas en Python con SQLite y añade tests con pytest y README",
+            repo,
+        )
+        ts = r.taskspec
+        self.assertTrue(ts.verification_policy.get("required"))
+        self.assertTrue(ts.verification_policy.get("tests"))
+
     def test_bugfix_task(self):
         repo = self._node_repo()
         r = build_taskspec("Fix broken PUT /api/users when body is empty", repo)
@@ -214,6 +232,17 @@ class TestTaskSpecEngine(unittest.TestCase):
                 for k in ("typecheck", "build", "lint", "tests")
             )
         )
+
+    def test_python_bugfix_with_tests_folder_enables_tests_verification(self):
+        repo = self._python_repo_with_tests()
+        r = build_taskspec(
+            "corrige este proyecto para Windows: al listar tareas completas la consola falla por el simbolo de check",
+            repo,
+        )
+        self.assertIn(r.validation_status, ("valid", "repaired"))
+        ts = r.taskspec
+        self.assertEqual(ts.intent, INTENT_BUGFIX)
+        self.assertTrue(ts.verification_policy.get("tests"))
 
     def test_refactor_task(self):
         repo = self._node_repo()

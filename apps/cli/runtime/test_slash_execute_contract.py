@@ -66,6 +66,31 @@ class TestSlashExecuteContract(unittest.TestCase):
         self.assertFalse(apply_slash_execute_write_overrides(s, plan))
         self.assertEqual(s.change_expectation, "should_not_write")
 
+    def test_fix_top_level_mode_also_overrides_readonly_spec(self) -> None:
+        s = ArtifactSession("sid_z", "corrige el proyecto actual", task_id="task_3")
+        ensure_task_contract_foundation(s, Intent(mode="Chat", task="x", original_text="x"))
+        spec = {
+            "intent": "analysis",
+            "change_expectation": "should_not_write",
+            "scope": [],
+            "target_files": [],
+            "verification_policy": {},
+            "budget_policy": {},
+            "forbidden_layers": [],
+        }
+        update_task_contract_after_spec_apply(s, spec)
+        s.task_intent = spec["intent"]
+        s.change_expectation = spec["change_expectation"]
+        fix = Intent(
+            mode="Fix",
+            task="corrige el proyecto actual",
+            is_slash_command=False,
+            original_text="corrige el proyecto actual",
+        )
+        self.assertTrue(apply_slash_execute_write_overrides(s, fix))
+        self.assertEqual(s.task_intent, "bugfix")
+        self.assertEqual(s.change_expectation, "may_write")
+
 
 if __name__ == "__main__":
     unittest.main()
