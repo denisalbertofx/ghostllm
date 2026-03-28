@@ -72,6 +72,28 @@ class WorkingDirectoryGuard:
         "next.config.js",
         "next.config.ts"
     ]
+    STRONG_MARKERS = {
+        "package.json",
+        "pyproject.toml",
+        "requirements.txt",
+        "app/",
+        "src/",
+        "next.config.js",
+        "next.config.ts",
+    }
+    REPO_SHELL_ALLOWLIST = {
+        ".git",
+        ".ghost",
+        "ghost_memory.db",
+        "README",
+        "README.md",
+        "LICENSE",
+        "LICENSE.md",
+        "LICENSE.txt",
+        ".gitignore",
+        ".gitattributes",
+        ".editorconfig",
+    }
 
     @classmethod
     def detect_context(cls, cwd: str) -> Tuple[str, List[str]]:
@@ -89,8 +111,21 @@ class WorkingDirectoryGuard:
         
         if not found:
             return "empty", []
-        
-        # If we found markers, we are in a project
+
+        if any(marker in cls.STRONG_MARKERS for marker in found):
+            return "project", found
+
+        try:
+            entries = [entry.name for entry in os.scandir(cwd)]
+        except OSError:
+            entries = []
+        non_shell_entries = [
+            name for name in entries
+            if name not in cls.REPO_SHELL_ALLOWLIST
+        ]
+        if not non_shell_entries:
+            return "repo_shell", found
+
         return "project", found
 
     @classmethod
@@ -107,6 +142,9 @@ class WorkingDirectoryGuard:
             "Usar una subcarpeta vacía",
             "Trabajar sobre el proyecto actual (sin bootstrap)"
         ]
+
+        if context == "repo_shell":
+            return "ALLOW", "Repositorio recién inicializado detectado; scaffold in-place permitido.", []
 
         if context == "project":
             if not target_subfolder:
