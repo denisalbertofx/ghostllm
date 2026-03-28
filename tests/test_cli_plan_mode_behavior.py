@@ -10,6 +10,15 @@ from apps.cli.runtime.session_phase import LOOP_ABORT_STAGNATION
 
 
 class TestCliPlanModeBehavior(unittest.TestCase):
+    def test_broad_plan_mode_detects_plan_payload_without_literal_slash(self) -> None:
+        assistant = CodexAssistant("http://localhost:11434", "key", "coder")
+        assistant.mode = "Chat"
+        assistant.current_intent = SimpleNamespace(task="encuentra los bugs mas importantes")
+        assistant.artifact_manager.current_session = SimpleNamespace(
+            task_contract={"intent": {"is_slash_command": True, "mode": "plan"}}
+        )
+        self.assertTrue(assistant._is_broad_plan_mode_task())
+
     def test_capture_readonly_plan_payload_only_for_final_no_tool_turn(self) -> None:
         assistant = CodexAssistant("http://localhost:11434", "key", "coder")
         self.assertFalse(

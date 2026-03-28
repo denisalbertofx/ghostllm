@@ -2318,7 +2318,14 @@ Discovery actions this session: {discovery_count}
     def _is_broad_plan_mode_task(self) -> bool:
         if (self._effective_prompt_mode() or "").strip().lower() != "plan":
             return False
-        return detect_broad_readonly_plan_request(self._primary_user_task_text())
+        task_text = self._primary_user_task_text()
+        if not task_text:
+            return False
+        if detect_strategy_plan_request(task_text):
+            return True
+        return detect_broad_readonly_plan_request(task_text) or detect_broad_readonly_plan_request(
+            f"/plan {task_text}"
+        )
 
     def _should_soft_close_readonly_stagnation(self, reason: str = "") -> bool:
         if not self._is_broad_plan_mode_task():
