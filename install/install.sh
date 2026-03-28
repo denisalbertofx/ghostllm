@@ -84,11 +84,10 @@ uv sync
 cat > "$BIN_DIR/ghost" <<EOF
 #!/usr/bin/env bash
 set -euo pipefail
-cd "$INSTALL_DIR"
-exec uv run python apps/cli/main.py "\$@"
+exec "$INSTALL_DIR/ghost" "\$@"
 EOF
 
-chmod +x "$BIN_DIR/ghost"
+chmod +x "$INSTALL_DIR/ghost" "$BIN_DIR/ghost"
 
 cat <<EOF
 

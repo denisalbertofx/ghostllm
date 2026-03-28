@@ -253,6 +253,12 @@ def get_pid():
                 pid_from_file = int(f.read().strip())
             except Exception:
                 pid_from_file = None
+    if pid_from_file is not None and not _pid_exists(pid_from_file):
+        try:
+            os.remove(PID_FILE)
+        except OSError:
+            pass
+        pid_from_file = None
     listener_pid = _find_gateway_listener_pid()
     if pid_from_file is not None and _pid_exists(pid_from_file):
         if listener_pid is None or listener_pid == pid_from_file:
@@ -368,7 +374,10 @@ def _stop_daemon_process(*, quiet: bool = False) -> bool:
         else:
             import signal
 
-            os.kill(pid, signal.SIGTERM)
+            try:
+                os.killpg(os.getpgid(pid), signal.SIGTERM)
+            except Exception:
+                os.kill(pid, signal.SIGTERM)
         if os.path.exists(PID_FILE):
             os.remove(PID_FILE)
         listener_pid = _find_gateway_listener_pid()
@@ -394,12 +403,17 @@ def _start_daemon_process(*, quiet: bool = False) -> bool:
 
     file_path = root_dir / "apps" / "server" / "main.py"
     with open(LOG_FILE, "a") as log:
-        process = subprocess.Popen(
-            [sys.executable, str(file_path)],
-            stdout=subprocess.DEVNULL,
-            stderr=log,
-            creationflags=subprocess.CREATE_NEW_PROCESS_GROUP if sys.platform == "win32" else 0,
-        )
+        popen_kwargs = {
+            "args": [sys.executable, str(file_path)],
+            "stdout": subprocess.DEVNULL,
+            "stderr": log,
+            "stdin": subprocess.DEVNULL,
+        }
+        if sys.platform == "win32":
+            popen_kwargs["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP
+        else:
+            popen_kwargs["start_new_session"] = True
+        process = subprocess.Popen(**popen_kwargs)
 
     with open(PID_FILE, "w") as f:
         f.write(str(process.pid))
@@ -726,7 +740,7 @@ def plan(
         runtime_prep=runtime_prep,
         gateway_preflight=pf,
     )
-    assistant.run(initial_task=task)
+    assistant.run(initial_task=task, keep_open=False)
 
 @app.command()
 def do(task: str = typer.Argument(...), 
@@ -760,7 +774,7 @@ def do(task: str = typer.Argument(...),
         runtime_prep=runtime_prep,
         gateway_preflight=pf,
     )
-    assistant.run(initial_task=task)
+    assistant.run(initial_task=task, keep_open=False)
 
 @app.command()
 def edit(
@@ -790,10 +804,11 @@ def edit(
         runtime_prep=runtime_prep,
         gateway_preflight=pf,
     )
-    assistant.run(initial_task=initial_task)
+    assistant.run(initial_task=initial_task, keep_open=False)
 
 @app.command()
 def fix(
+    task: str | None = typer.Argument(None, help="Specific issue to fix in plain language."),
     auto_approve: bool = typer.Option(True, "-y"),
     preflight_only: bool = typer.Option(
         False,
@@ -807,7 +822,7 @@ def fix(
     pf = _preflight_gateway_or_exit()
     if _handle_preflight_only("Ghost Fix preflight OK", preflight_only):
         return
-    initial_task = "Busca errores y corrígelos."
+    initial_task = (task or "").strip() or "Busca errores y corrígelos."
     runtime_prep = _prepare_runtime_for_assistant(Profile.coder, initial_task=initial_task)
     from apps.cli.assistant import CodexAssistant
     assistant = CodexAssistant(
@@ -819,7 +834,7 @@ def fix(
         runtime_prep=runtime_prep,
         gateway_preflight=pf,
     )
-    assistant.run(initial_task="Busca errores y corrígelos.")
+    assistant.run(initial_task=initial_task, keep_open=False)
 
 
 if __name__ == "__main__":

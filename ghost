@@ -1,0 +1,29 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$ROOT_DIR"
+
+export PYTHONPATH="$ROOT_DIR:$ROOT_DIR/packages/py-core${PYTHONPATH:+:$PYTHONPATH}"
+
+if command -v uv >/dev/null 2>&1; then
+  exec uv run --project "$ROOT_DIR" python apps/cli/main.py "$@"
+fi
+
+if command -v uv.exe >/dev/null 2>&1; then
+  exec uv.exe run --project "$ROOT_DIR" python apps/cli/main.py "$@"
+fi
+
+if [[ -x "$ROOT_DIR/.venv/bin/python" ]]; then
+  exec "$ROOT_DIR/.venv/bin/python" apps/cli/main.py "$@"
+fi
+
+if [[ -x "$ROOT_DIR/.venv/Scripts/python.exe" ]]; then
+  exec "$ROOT_DIR/.venv/Scripts/python.exe" apps/cli/main.py "$@"
+fi
+
+if command -v python3 >/dev/null 2>&1; then
+  exec python3 apps/cli/main.py "$@"
+fi
+
+exec python apps/cli/main.py "$@"

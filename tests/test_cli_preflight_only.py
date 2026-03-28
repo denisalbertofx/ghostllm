@@ -40,6 +40,58 @@ def test_plan_preflight_only_exits_before_runtime_loop() -> None:
         assert "Ghost Plan preflight OK" in result.stdout
 
 
+def test_fix_accepts_task_argument_and_runs_with_it() -> None:
+    pf = SimpleNamespace(base_url="http://127.0.0.1:8000", ok=True)
+    runtime_prep = SimpleNamespace(active_feature_flags={}, operational_profile="dev")
+    with patch("apps.cli.main.is_running", return_value=True), patch(
+        "apps.cli.main._preflight_gateway_or_exit", return_value=pf
+    ), patch(
+        "apps.cli.main._prepare_runtime_for_assistant", return_value=runtime_prep
+    ) as prep_mock, patch("apps.cli.main.get_api_key", return_value="test-key"), patch(
+        "apps.cli.assistant.CodexAssistant"
+    ) as assistant_cls:
+        result = runner.invoke(
+            app,
+            [
+                "fix",
+                "corrige los tests inestables y verifica otra vez",
+            ],
+        )
+        assert result.exit_code == 0, result.stdout
+        prep_mock.assert_called_once_with(
+            Profile.coder,
+            initial_task="corrige los tests inestables y verifica otra vez",
+        )
+        assistant_cls.return_value.run.assert_called_once_with(
+            initial_task="corrige los tests inestables y verifica otra vez",
+            keep_open=False,
+        )
+
+
+def test_do_runs_as_one_shot_command() -> None:
+    pf = SimpleNamespace(base_url="http://127.0.0.1:8000", ok=True)
+    runtime_prep = SimpleNamespace(active_feature_flags={}, operational_profile="dev")
+    with patch("apps.cli.main.is_running", return_value=True), patch(
+        "apps.cli.main._preflight_gateway_or_exit", return_value=pf
+    ), patch(
+        "apps.cli.main._prepare_runtime_for_assistant", return_value=runtime_prep
+    ), patch("apps.cli.main.get_api_key", return_value="test-key"), patch(
+        "apps.cli.assistant.CodexAssistant"
+    ) as assistant_cls:
+        result = runner.invoke(
+            app,
+            [
+                "do",
+                "crea el endpoint faltante y verifica al final",
+            ],
+        )
+        assert result.exit_code == 0, result.stdout
+        assistant_cls.return_value.run.assert_called_once_with(
+            initial_task="crea el endpoint faltante y verifica al final",
+            keep_open=False,
+        )
+
+
 def test_preflight_gateway_refreshes_stale_registry() -> None:
     from apps.cli.main import _preflight_gateway_or_exit
 
@@ -109,6 +161,63 @@ def test_get_pid_prefers_listener_when_pid_file_is_stale(monkeypatch, tmp_path) 
         "apps.cli.main._find_gateway_listener_pid", return_value=33504
     ):
         assert cli_main.get_pid() == 33504
+
+
+def test_get_pid_clears_stale_pid_file_without_listener(monkeypatch, tmp_path) -> None:
+    from apps.cli import main as cli_main
+
+    pid_file = tmp_path / "ghost.pid"
+    pid_file.write_text("11800", encoding="utf-8")
+    monkeypatch.setattr(cli_main, "PID_FILE", str(pid_file))
+
+    with patch("apps.cli.main._pid_exists", return_value=False), patch(
+        "apps.cli.main._find_gateway_listener_pid", return_value=None
+    ):
+        assert cli_main.get_pid() is None
+    assert not pid_file.exists()
+
+
+def test_start_daemon_process_detaches_on_unix(monkeypatch, tmp_path) -> None:
+    from apps.cli import main as cli_main
+
+    log_file = tmp_path / "ghost.log"
+    pid_file = tmp_path / "ghost.pid"
+    monkeypatch.setattr(cli_main, "LOG_FILE", str(log_file))
+    monkeypatch.setattr(cli_main, "PID_FILE", str(pid_file))
+    monkeypatch.setattr(cli_main, "root_dir", tmp_path)
+    monkeypatch.setattr(cli_main.sys, "platform", "linux")
+
+    process = SimpleNamespace(pid=4321)
+    with patch("apps.cli.main.is_running", return_value=False), patch(
+        "apps.cli.main.subprocess.Popen", return_value=process
+    ) as popen_mock, patch(
+        "apps.cli.main.requests.get", return_value=SimpleNamespace(status_code=200)
+    ), patch("apps.cli.main._find_gateway_listener_pid", return_value=4321):
+        assert cli_main._start_daemon_process(quiet=True) is True
+
+    kwargs = popen_mock.call_args.kwargs
+    assert kwargs["start_new_session"] is True
+    assert kwargs["stdin"] is cli_main.subprocess.DEVNULL
+    assert pid_file.read_text(encoding="utf-8").strip() == "4321"
+
+
+def test_stop_daemon_process_uses_process_group_on_unix(monkeypatch, tmp_path) -> None:
+    from apps.cli import main as cli_main
+
+    pid_file = tmp_path / "ghost.pid"
+    pid_file.write_text("4321", encoding="utf-8")
+    monkeypatch.setattr(cli_main, "PID_FILE", str(pid_file))
+    monkeypatch.setattr(cli_main.sys, "platform", "linux")
+
+    with patch("apps.cli.main.get_pid", return_value=4321), patch(
+        "apps.cli.main.os.getpgid", return_value=4321, create=True
+    ), patch("apps.cli.main.os.killpg", create=True) as killpg_mock, patch(
+        "apps.cli.main._find_gateway_listener_pid", side_effect=[4321, None]
+    ):
+        assert cli_main._stop_daemon_process(quiet=True) is True
+
+    killpg_mock.assert_called_once()
+    assert not pid_file.exists()
 
 
 def test_is_running_requires_listener_or_health() -> None:
