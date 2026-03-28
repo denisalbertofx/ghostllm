@@ -129,6 +129,7 @@ def test_prepare_runtime_for_assistant_applies_architect_alias(monkeypatch, tmp_
     prep = _prepare_runtime_for_assistant(Profile.architect, initial_task="plan architecture")
     assert os.environ["GHOST_ACTIVE_PROFILE"] == "safe"
     assert prep.operational_profile == "safe"
+    assert os.environ["GHOST_PLANNER_MODEL"] == "qwen/qwen3-coder-480b-a35b-instruct"
 
 
 def test_doctor_reports_health_but_not_ready() -> None:

@@ -20,7 +20,7 @@ PROFILE_IDS = frozenset({"simple", "dev", "fast", "turbo", "safe"})
 _DEFAULT_TIERS: Dict[str, str] = {
     "medium": "coder",
     "fast": "fast",
-    "strong": "smart",
+    "strong": "coder",
 }
 
 _DEFAULT_PROFILES: Dict[str, Dict[str, Any]] = {
