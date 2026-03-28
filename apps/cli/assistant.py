@@ -277,6 +277,89 @@ def _positive_int_or_none(value: Any) -> Optional[int]:
     return parsed if parsed > 0 else None
 
 
+_INTERNAL_WORKSPACE_METADATA_NAMES = frozenset(
+    {
+        ".ghost",
+        ".git",
+        "__pycache__",
+        "ghost_memory.db",
+        "ghost.db",
+        "ghost.log",
+        "ghost.pid",
+    }
+)
+
+
+def _is_bootstrap_scaffold_intent(intent: Optional[Intent]) -> bool:
+    if intent is None:
+        return False
+    if str(getattr(intent, "scaffold_type", "") or "").strip().lower() == "bootstrap":
+        return True
+    task = str(getattr(intent, "task", "") or "").strip().lower()
+    if not task:
+        return False
+    return any(
+        marker in task
+        for marker in (
+            "desde cero",
+            "from scratch",
+            "nuevo proyecto",
+            "proyecto nuevo",
+            "crea un proyecto",
+            "create a project",
+            "bootstrap",
+            "clean start",
+            "scaffold",
+        )
+    )
+
+
+def _normalize_workspace_probe_path(path: str) -> str:
+    norm = str(path or "").replace("\\", "/").strip()
+    while "//" in norm:
+        norm = norm.replace("//", "/")
+    if norm.startswith("./"):
+        norm = norm[2:]
+    return norm.strip("/")
+
+
+def _is_internal_workspace_metadata_path(path: str) -> bool:
+    norm = _normalize_workspace_probe_path(path)
+    if not norm:
+        return False
+    head = norm.split("/", 1)[0].lower()
+    return head in {name.lower() for name in _INTERNAL_WORKSPACE_METADATA_NAMES}
+
+
+def _filter_workspace_listing_entries(path: str, entries: List[str]) -> List[str]:
+    norm = _normalize_workspace_probe_path(path)
+    if _is_internal_workspace_metadata_path(norm):
+        return list(entries or [])
+    filtered: List[str] = []
+    for entry in entries or []:
+        if _is_internal_workspace_metadata_path(entry):
+            continue
+        filtered.append(entry)
+    return filtered
+
+
+def _should_start_greenfield_in_act(cwd: str, intent: Optional[Intent]) -> bool:
+    if not _is_bootstrap_scaffold_intent(intent):
+        return False
+    context, _markers = WorkingDirectoryGuard.detect_context(cwd)
+    return context in ("empty", "repo_shell")
+
+
+def _read_utf8_text_for_tool(full_path: str) -> Tuple[Optional[str], Optional[str]]:
+    try:
+        with open(full_path, "r", encoding="utf-8-sig", newline="") as f:
+            return f.read(), None
+    except UnicodeDecodeError:
+        return None, f"File is not UTF-8 text: {os.path.basename(full_path)}"
+    except OSError as exc:
+        return None, str(exc)
+
+
 def _normalize_newlines_with_index_map(text: str) -> Tuple[str, List[int]]:
     normalized: List[str] = []
     index_map: List[int] = []
@@ -609,6 +692,7 @@ Discovery actions this session: {discovery_count}
         self._explore_v2_churn_nudge_injected: bool = False
         self._explore_v2_tool_ranking_nudge_injected: bool = False
         self._last_tool_denial_key: Optional[Tuple[str, str]] = None
+        self._greenfield_bootstrap_nudge_sent: bool = False
 
     @staticmethod
     def _api_failure_user_hint(status_code: int, err_msg: Any) -> str:
@@ -1767,6 +1851,7 @@ Discovery actions this session: {discovery_count}
         self._explore_v2_tool_ranking_nudge_injected = False
         self._explore_empty_symbol_search_nudged = False
         self._explore_ls_before_search_nudged = False
+        self._greenfield_bootstrap_nudge_sent = False
         self.artifact_manager.start_session(
             text, 
             task_id=task_obj.task_id, 
@@ -2294,6 +2379,19 @@ Discovery actions this session: {discovery_count}
             task_mode=getattr(_sess_ts, "task_mode", "standard") if _sess_ts else "standard",
             micro_task_kind=getattr(_sess_ts, "micro_task_kind", None) if _sess_ts else None,
         )
+        if _should_start_greenfield_in_act(self.cwd, intent):
+            try:
+                session.events.append(
+                    {
+                        "event": "greenfield_bootstrap_start_in_act",
+                        "cwd_context": WorkingDirectoryGuard.detect_context(self.cwd)[0],
+                    }
+                )
+            except Exception:
+                pass
+            logger.info("phase transition: INTAKE -> ACT (greenfield bootstrap)")
+            self._apply_session_phase(SessionPhase.ACT, detail="greenfield bootstrap", sync_task=True)
+            return
         logger.info("phase transition: INTAKE -> EXPLORE (contract ready)")
         self._apply_session_phase(SessionPhase.EXPLORE, detail="post-intake", sync_task=True)
 
@@ -2314,6 +2412,24 @@ Discovery actions this session: {discovery_count}
                     if m:
                         return m
         return (self.mode or "Chat").strip() or "Chat"
+
+    def _current_task_is_bootstrap_scaffold(self) -> bool:
+        if _is_bootstrap_scaffold_intent(getattr(self, "current_intent", None)):
+            return True
+        sess = self.artifact_manager.current_session if self.artifact_manager else None
+        if not sess:
+            return False
+        if str(getattr(sess, "task_type", "") or "").strip().lower() == "scaffold":
+            return True
+        tc = getattr(sess, "task_contract", None)
+        if isinstance(tc, Mapping):
+            id_rec = tc.get("intent")
+            if isinstance(id_rec, Mapping):
+                if str(id_rec.get("task_type") or "").strip().lower() == "scaffold":
+                    return True
+                if str(id_rec.get("scaffold_type") or "").strip().lower() == "bootstrap":
+                    return True
+        return False
 
     def _is_broad_plan_mode_task(self) -> bool:
         if (self._effective_prompt_mode() or "").strip().lower() != "plan":
@@ -4011,6 +4127,20 @@ Discovery actions this session: {discovery_count}
             )
             self._apply_session_phase(SessionPhase.VERIFY, detail="post_structured_repair", sync_task=True)
             return "ok"
+        if (
+            self._current_task_is_bootstrap_scaffold()
+            and not getattr(self, "_greenfield_bootstrap_nudge_sent", False)
+            and not self._session_has_diff()
+        ):
+            self._greenfield_bootstrap_nudge_sent = True
+            nudge = (
+                "[SYSTEM] Greenfield scaffold task in a fresh repo. Work from the repository root and create "
+                "the initial project structure directly. Do NOT inspect `.ghost`, `.git`, `ghost_memory.db`, "
+                "handoffs, or prior task artifacts unless the user explicitly asks. Start by writing the minimal "
+                "set of real project files (for example `README.md`, `pyproject.toml`, `src/` package, `tests/`)."
+            )
+            self.history.append({"role": "user", "content": nudge})
+            self.memory.add_message(self.session_id, "user", nudge)
         max_iter_act = self._effective_iteration_cap()
         show_turn_brand = iterations == 1 or self._env_truthy("GHOST_SHOW_BRAND_EVERY_TURN")
         with self.renderer.session_status(
@@ -5766,23 +5896,32 @@ Discovery actions this session: {discovery_count}
             full_path = PathComposer.compose(self.cwd, path)
             if not os.path.exists(full_path): return {"error": f"Path not found: {path}"}
             if not os.path.isdir(full_path): return {"error": f"'{path}' is not a directory. Use 'ls' instead."}
-            files = os.listdir(full_path)
+            files = _filter_workspace_listing_entries(path, os.listdir(full_path))
             self.exploration_memory.add_ls(path, files, self.cwd)
             return {"files": files}
             
         elif name == "read_file":
             if not path: return {"error": "Missing 'path' argument."}
             path = PathComposer.normalize_path_segments(path)
+            if self._current_task_is_bootstrap_scaffold() and _is_internal_workspace_metadata_path(path):
+                return {
+                    "error": (
+                        "Internal Ghost workspace metadata is not part of the project source for a bootstrap task. "
+                        "Create project files from the repo root instead."
+                    )
+                }
             if not is_authorized and not self.policy_gate.check_permission("Read File", path, getattr(self, "mode", "Chat"), metadata):
                 return {"error": "Access denied by policy."}
             full_path = PathComposer.compose(self.cwd, path)
             if not os.path.exists(full_path): return {"error": f"Path not found: {path}"}
             if os.path.isdir(full_path):
-                files = os.listdir(full_path)
+                files = _filter_workspace_listing_entries(path, os.listdir(full_path))
                 self.exploration_memory.add_ls(path, files, self.cwd)
                 listing = "\n".join(files)
                 return {"content": f"[Directory: {path}]\nContents:\n{listing}\n\nUse ls for directories; read_file for files."}
-            with open(full_path, "r", encoding="utf-8-sig", newline="") as f: content = f.read()
+            content, read_err = _read_utf8_text_for_tool(full_path)
+            if read_err:
+                return {"error": read_err}
             start_line = _positive_int_or_none(args.get("start_line"))
             max_lines = _positive_int_or_none(args.get("max_lines"))
             if start_line is None and max_lines is None:
