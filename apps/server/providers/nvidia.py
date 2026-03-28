@@ -39,6 +39,32 @@ class NvidiaProvider:
                 payload["max_tokens"] = 8192
         return payload
 
+    async def probe_auth(self, probe_model: Optional[str] = None) -> tuple[bool, str]:
+        """Real upstream readiness/auth probe used by /ready and doctor."""
+        if not probe_model:
+            return False, "No probe model configured"
+        payload = {
+            "model": probe_model,
+            "messages": [{"role": "user", "content": "ping"}],
+            "max_tokens": 1,
+            "stream": False,
+            "temperature": 0,
+        }
+        try:
+            chat_resp = await self.client.post(
+                f"{self.base_url}/chat/completions",
+                json=payload,
+                headers=self._get_headers(stream=False),
+            )
+        except httpx.RequestError as e:
+            return False, f"Upstream connectivity failed: {e}"
+
+        if chat_resp.status_code == 200:
+            return True, ""
+        if chat_resp.status_code in (401, 403):
+            return False, f"Upstream authentication failed ({chat_resp.status_code})"
+        return False, f"Upstream readiness probe failed (HTTP {chat_resp.status_code})"
+
     def _map_error(self, status_code: int, error_text: str) -> NVIDIAError:
         try:
             data = json.loads(error_text)

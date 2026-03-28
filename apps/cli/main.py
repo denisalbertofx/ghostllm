@@ -338,18 +338,14 @@ def _find_gateway_listener_pid(base_url: Optional[str] = None) -> Optional[int]:
     return None
 
 def is_running():
-    pid = get_pid()
-    if pid:
-        try:
-            if _pid_exists(pid):
-                return True
-        except Exception:
-            pass
-    
+    listener_pid = _find_gateway_listener_pid()
+    if listener_pid and _pid_exists(listener_pid):
+        return True
+
     # Fallback: probe configured gateway (short timeout)
     try:
         base = _effective_gateway_url()
-        requests.get(base + "/health", timeout=0.35)
+        requests.get(base + "/health", timeout=1.5)
         return True
     except Exception:
         return False
@@ -594,11 +590,10 @@ def doctor():
     table.add_row("Gateway URL (efectiva)", gw)
     table.add_row("Provider (CLI transport)", "[cyan]openai_compatible[/cyan]")
 
-    # Daemon Status
-    d_status = "[bold green]Running[/bold green]" if is_running() else "[bold red]Stopped[/bold red]"
-    table.add_row("Daemon", d_status)
-
     pf = probe_gateway(gw, api_key=get_api_key(), timeout_sec=1.5)
+    daemon_running = is_running() or pf.ok
+    d_status = "[bold green]Running[/bold green]" if daemon_running else "[bold red]Stopped[/bold red]"
+    table.add_row("Daemon", d_status)
     if pf.ok:
         s_status = f"[bold green]Reachable[/bold green] [dim]({pf.checked_url} → HTTP {pf.status_code})[/dim]"
     else:

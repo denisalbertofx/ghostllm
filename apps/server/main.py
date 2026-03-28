@@ -17,6 +17,7 @@ import json
 import os
 import asyncio
 import logging
+import time
 
 # Core & Providers & Auth
 from ghostllm_core.config import (
@@ -117,10 +118,43 @@ def _model_registry_payload() -> Dict[str, Any]:
     }
 
 
-def _provider_ready_payload() -> Dict[str, Any]:
-    ready = nvidia_provider is not None
-    detail = "" if ready else "NVIDIA Provider not initialized"
-    return {"ready": ready, "detail": detail}
+_PROVIDER_READY_CACHE: Dict[str, Any] = {
+    "checked_at": 0.0,
+    "payload": {"ready": False, "detail": "NVIDIA Provider not initialized", "auth_checked": False},
+}
+_PROVIDER_READY_TTL_SECONDS = float(os.getenv("GHOST_PROVIDER_READY_TTL_SECONDS", "15"))
+
+
+def _provider_probe_model() -> str:
+    for alias in ("fast", "chat", "coder", "planner"):
+        model = ENABLED_MODELS.get(alias)
+        if model and getattr(model, "upstream_id", ""):
+            return str(model.upstream_id)
+    values = list(MODEL_MAPPING.values())
+    return str(values[0]) if values else ""
+
+
+async def _provider_ready_payload(force: bool = False) -> Dict[str, Any]:
+    if not nvidia_provider:
+        return {"ready": False, "detail": "NVIDIA Provider not initialized", "auth_checked": False}
+
+    now = time.time()
+    cached = _PROVIDER_READY_CACHE.get("payload") or {}
+    checked_at = float(_PROVIDER_READY_CACHE.get("checked_at") or 0.0)
+    if not force and cached and (now - checked_at) < _PROVIDER_READY_TTL_SECONDS:
+        return dict(cached)
+
+    probe_model = _provider_probe_model()
+    ready, detail = await nvidia_provider.probe_auth(probe_model or None)
+    payload = {
+        "ready": ready,
+        "detail": detail,
+        "auth_checked": True,
+        "probe_model": probe_model,
+    }
+    _PROVIDER_READY_CACHE["checked_at"] = now
+    _PROVIDER_READY_CACHE["payload"] = dict(payload)
+    return payload
 
 # Import translation logic
 from apps.server.api.translation import (
@@ -374,7 +408,7 @@ async def anthropic_messages(request: Request, forced_model: Optional[str] = Non
 @app.get("/healthz")
 @app.get("/health")
 async def health():
-    provider = _provider_ready_payload()
+    provider = await _provider_ready_payload()
     registry = _model_registry_payload()
     status = "healthy" if provider["ready"] and registry["healthy"] else "degraded"
     return {
@@ -387,7 +421,7 @@ async def health():
 
 @app.get("/ready")
 async def ready():
-    provider = _provider_ready_payload()
+    provider = await _provider_ready_payload(force=True)
     if provider["ready"]:
         return provider
     return JSONResponse(content=provider, status_code=503)

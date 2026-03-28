@@ -111,6 +111,15 @@ def test_get_pid_prefers_listener_when_pid_file_is_stale(monkeypatch, tmp_path) 
         assert cli_main.get_pid() == 33504
 
 
+def test_is_running_requires_listener_or_health() -> None:
+    from apps.cli import main as cli_main
+
+    with patch("apps.cli.main._find_gateway_listener_pid", return_value=None), patch(
+        "apps.cli.main.requests.get", side_effect=Exception("down")
+    ):
+        assert cli_main.is_running() is False
+
+
 def test_prepare_runtime_for_assistant_applies_architect_alias(monkeypatch, tmp_path) -> None:
     monkeypatch.chdir(tmp_path)
     (tmp_path / "package.json").write_text("{}", encoding="utf-8")
