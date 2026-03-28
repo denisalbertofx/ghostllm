@@ -173,14 +173,14 @@ def _plan_mode_lines(text: str) -> List[str]:
 def _plan_mode_steps(lines: List[str], *, limit: int = 6) -> List[str]:
     numbered = [re.sub(r"^\d+\.\s*", "", ln).strip() for ln in lines if re.match(r"^\d+\.\s+", ln)]
     if numbered:
-        return numbered[:limit]
+        return _plan_mode_clean_items(numbered, limit=limit)
     bullets = [
         re.sub(r"^[-*•]\s*", "", ln).strip()
         for ln in lines
         if re.match(r"^[-*•]\s+", ln)
     ]
     if bullets:
-        return bullets[:limit]
+        return _plan_mode_clean_items(bullets, limit=limit)
     fallback: List[str] = []
     skip_prefixes = (
         "plan de",
@@ -203,7 +203,45 @@ def _plan_mode_steps(lines: List[str], *, limit: int = 6) -> List[str]:
         fallback.append(ln)
         if len(fallback) >= limit:
             break
-    return fallback
+    return _plan_mode_clean_items(fallback, limit=limit)
+
+
+def _plan_mode_clean_items(items: List[str], *, limit: int = 6) -> List[str]:
+    out: List[str] = []
+    seen: set[str] = set()
+    meta_prefixes = (
+        "voy a ",
+        "empezar",
+        "empezaré",
+        "empezare",
+        "analizar",
+        "buscando",
+        "buscar",
+        "explorar",
+        "identificando",
+        "investigando",
+        "revisando",
+        "inspeccionando",
+    )
+    for raw in items or []:
+        s = str(raw or "").strip()
+        if not s:
+            continue
+        low = s.lower()
+        if any(low.startswith(pref) for pref in meta_prefixes):
+            continue
+        if s.endswith(":"):
+            continue
+        if re.fullmatch(r"[\w./\\-]+\.(?:py|ts|tsx|js|jsx|json|md|yaml|yml|toml|go|java|rb|rs|cs|cpp|c|h):?", s):
+            continue
+        key = low
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(s)
+        if len(out) >= limit:
+            break
+    return out
 
 
 def _plan_mode_summary(lines: List[str]) -> str:
@@ -215,6 +253,9 @@ def _plan_mode_summary(lines: List[str]) -> str:
         "resumen",
         "siguiente paso",
         "plan de corrección",
+        "identificando",
+        "investigando",
+        "revisando",
     )
     for ln in lines:
         low = ln.lower()
@@ -226,6 +267,28 @@ def _plan_mode_summary(lines: List[str]) -> str:
             continue
         return ln
     return ""
+
+
+def _plan_mode_summary_is_meta(summary: str) -> bool:
+    low = str(summary or "").strip().lower()
+    if not low:
+        return True
+    return low.startswith(
+        (
+            "voy a ",
+            "empezar",
+            "empezaré",
+            "empezare",
+            "analizar",
+            "buscando",
+            "buscar",
+            "explorar",
+            "identificando",
+            "investigando",
+            "revisando",
+            "inspeccionando",
+        )
+    )
 
 
 def _plan_mode_sections(lines: List[str]) -> Dict[str, List[str]]:
@@ -1529,9 +1592,11 @@ class GhostRenderer:
         lines = _plan_mode_lines(text)
         sections = _plan_mode_sections(lines)
         summary = " ".join(sections.get("conclusion") or []).strip() or _plan_mode_summary(lines)
-        findings = list(sections.get("findings") or [])
-        steps = list(sections.get("steps") or [])
+        findings = _plan_mode_clean_items(list(sections.get("findings") or []), limit=5)
+        steps = _plan_mode_clean_items(list(sections.get("steps") or []), limit=6)
         evidence_lines = list(sections.get("evidence") or [])
+        if _plan_mode_summary_is_meta(summary):
+            summary = ""
         if not steps:
             steps = _plan_mode_steps(lines, limit=6)
         if summary and steps and steps[0].strip().lower() == summary.strip().lower():

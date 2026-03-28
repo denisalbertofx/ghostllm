@@ -1162,6 +1162,10 @@ Discovery actions this session: {discovery_count}
                 if st_is_stagnant:
                     if status:
                         status.stop()
+                    if self._should_soft_close_readonly_stagnation(st_reason):
+                        self._loop_abort_reason = LOOP_ABORT_STAGNATION
+                        self._apply_session_phase(SessionPhase.CLOSING, detail="readonly_stagnation", sync_task=True)
+                        return "stagnation"
                     checkpoint = self._create_autonomy_checkpoint("stagnation_detected", st_reason)
                     self.renderer.render_autonomy_checkpoint(checkpoint)
                     return "stagnation"
@@ -2316,6 +2320,34 @@ Discovery actions this session: {discovery_count}
             return False
         return detect_broad_readonly_plan_request(self._primary_user_task_text())
 
+    def _should_soft_close_readonly_stagnation(self, reason: str = "") -> bool:
+        if not self._is_broad_plan_mode_task():
+            return False
+        if not getattr(self, "_tools_executed_this_session", False):
+            return False
+        low = str(reason or "").strip().lower()
+        if not low:
+            return True
+        return any(
+            marker in low
+            for marker in (
+                "read_file",
+                "search_code",
+                "estancamiento:",
+                "secuencia de acciones idéntica",
+                "secuencia de acciones identica",
+            )
+        )
+
+    def _should_capture_readonly_plan_payload(
+        self,
+        text: str,
+        final_tool_calls: Optional[List[Dict[str, Any]]] = None,
+    ) -> bool:
+        if not str(text or "").strip():
+            return False
+        return not bool(final_tool_calls)
+
     def _current_iteration_cap(self) -> int:
         base_cap = global_iteration_cap()
         hard_cap = plan_iteration_hard_cap(base_cap) if self._is_broad_plan_mode_task() else base_cap
@@ -3043,6 +3075,58 @@ Discovery actions this session: {discovery_count}
         except Exception as e:
             logger.warning("iteration limit closing synthesis failed: %s", e)
 
+    def _maybe_stagnation_readonly_synthesis(self) -> bool:
+        if getattr(self, "_loop_abort_reason", None) != LOOP_ABORT_STAGNATION:
+            return False
+        if not self._is_broad_plan_mode_task():
+            return False
+        if _has_final_nl_response(self.history):
+            return False
+        if self._final_synthesis_done:
+            return False
+        if not getattr(self, "_tools_executed_this_session", False):
+            return False
+        sess = self.artifact_manager.current_session
+        if not sess:
+            return False
+        nudge = (
+            "[SYSTEM] Broad plan mode stalled on repeated exploration. "
+            "Stop using tools and write the best final read-only plan using only the tool output already in this conversation. "
+            "Plain text only. Use these exact sections: Conclusion:, Findings:, Steps:, Evidence:, Next:. "
+            "Rank the biggest risks first, keep steps sequenced, and cite concrete files in Evidence."
+        )
+        self.history.append({"role": "user", "content": nudge})
+        self.memory.add_message(self.session_id, "user", nudge)
+        self.console.print(
+            "\n[dim]Plan amplio: exploración estancada; generando síntesis final sin herramientas…[/dim]"
+        )
+        self._final_synthesis_done = True
+        try:
+            with self.renderer.session_status(
+                SessionPhase.CLOSING.value,
+                initial="closing",
+                rail_profile=self._live_rail_profile(),
+            ) as status:
+                msg = self._stream_completion(status, show_turn_brand=False, tools=[])
+        except Exception as e:
+            logger.warning("broad plan stagnation synthesis failed: %s", e)
+            self._final_synthesis_done = False
+            return False
+        ok_text = bool(msg and str(msg.get("content") or "").strip())
+        try:
+            sess.events.append(
+                {
+                    "event": "broad_plan_stagnation_synthesis",
+                    "content_len": len(str((msg or {}).get("content") or "").strip()),
+                    "had_tool_calls": bool((msg or {}).get("tool_calls")),
+                }
+            )
+        except Exception:
+            pass
+        if not ok_text:
+            self._final_synthesis_done = False
+        return ok_text
+
     def _chat_loop_postamble(self, task_obj: Any) -> None:
         """Verification (if needed) + single resolve_terminal_result + persist (batch hooks)."""
         policy_status: PolicyTerminalStatus = "ok"
@@ -3067,6 +3151,7 @@ Discovery actions this session: {discovery_count}
         hard_abort = policy_status != "ok" or provider_status != "ok"
 
         if not hard_abort:
+            self._maybe_stagnation_readonly_synthesis()
             self._maybe_max_iteration_readonly_synthesis(task_obj)
 
         if self.budget_manager.is_exhausted():
@@ -3762,6 +3847,12 @@ Discovery actions this session: {discovery_count}
                         {"stagnation_reason": st_reason, "when": "precheck"},
                     )
                     return "ok"
+                if self._should_soft_close_readonly_stagnation(st_reason):
+                    if status:
+                        status.stop()
+                    self._loop_abort_reason = LOOP_ABORT_STAGNATION
+                    self._apply_session_phase(SessionPhase.CLOSING, detail="readonly_stagnation", sync_task=True)
+                    return "halt"
                 if status:
                     status.stop()
                 self._loop_abort_reason = LOOP_ABORT_STAGNATION
@@ -3779,6 +3870,8 @@ Discovery actions this session: {discovery_count}
             if kind == "terminal":
                 return "ok"
             if kind == "stagnation":
+                if self.session_phase == SessionPhase.CLOSING:
+                    return "halt"
                 sess = self.artifact_manager.current_session
                 _, st_reason2 = self.stagnation_detector.check_stagnation()
                 metrics_s = self._build_exploration_metrics_for_promotion()
@@ -5288,7 +5381,7 @@ Discovery actions this session: {discovery_count}
                 response_text = safe_content
             if defer_analysis_grounding_print:
                 _cl = self._strip_tool_calls_for_display(safe_content)
-                if _cl:
+                if self._should_capture_readonly_plan_payload(_cl, final_tool_calls):
                     _tier_display = str(locals().get("_tier_now") or "").strip().lower()
                     _task_next = str(self._primary_user_task_text() or "").strip()
                     if not _task_next:

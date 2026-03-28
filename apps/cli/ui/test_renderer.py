@@ -363,6 +363,24 @@ Next: /do migrate auth to jwt
         self.assertIn("JWTService.ts", out)
         self.assertIn("middleware.py", out)
 
+    def test_readonly_plan_response_filters_intermediate_audit_lines(self):
+        self.renderer.render_readonly_plan_response(
+            """
+Conclusion: Identificando posibles problemas en apps/cli/main.py
+Steps:
+1. apps/cli/main.py:
+2. Validar todas las entradas de usuario antes de pasarlas a funciones internas.
+3. Asegurar que las rutas de archivo sean verificadas para prevenir la inyección de rutas.
+""",
+            tier="suspected",
+            evidence_count=3,
+            next_command="/do encuentra los bugs mas importantes",
+        )
+        out = self.output.getvalue()
+        self.assertNotIn("Identificando posibles problemas", out)
+        self.assertNotIn("apps/cli/main.py:", out)
+        self.assertIn("Validar todas las entradas de usuario", out)
+
     def test_compact_tool_segment_aggregates_read_batches(self):
         with patch.dict(os.environ, {"GHOST_TOOL_UI": "compact"}, clear=False):
             self.renderer.begin_tool_segment()
