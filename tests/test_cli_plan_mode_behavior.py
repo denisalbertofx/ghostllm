@@ -59,6 +59,33 @@ class TestCliPlanModeBehavior(unittest.TestCase):
             any(evt.get("event") == "broad_plan_stagnation_synthesis" for evt in assistant.artifact_manager.current_session.events)
         )
 
+    def test_broad_plan_churn_runs_final_synthesis(self) -> None:
+        assistant = CodexAssistant("http://localhost:11434", "key", "coder")
+        assistant._tools_executed_this_session = True
+        assistant._final_synthesis_done = False
+        assistant.history = []
+        assistant.artifact_manager.current_session = SimpleNamespace(
+            events=[{"event": "explore_v2_churn_abort", "reason": "No new read_file hit in last 5 explore steps"}],
+            task_intent="analysis",
+        )
+        assistant._is_broad_plan_mode_task = lambda: True  # type: ignore[method-assign]
+        assistant.renderer.session_status = MagicMock(return_value=nullcontext(SimpleNamespace()))  # type: ignore[method-assign]
+        assistant.memory.add_message = MagicMock()  # type: ignore[method-assign]
+
+        with patch.object(
+            assistant,
+            "_stream_completion",
+            return_value={"content": "Conclusion: ok\nFindings:\n1. x\nSteps:\n1. y", "tool_calls": None},
+        ) as mock_stream, patch.object(assistant.console, "print"):
+            ok = assistant._maybe_churn_readonly_synthesis()
+
+        self.assertTrue(ok)
+        mock_stream.assert_called_once()
+        self.assertTrue(assistant._final_synthesis_done)
+        self.assertTrue(
+            any(evt.get("event") == "broad_plan_churn_synthesis" for evt in assistant.artifact_manager.current_session.events)
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

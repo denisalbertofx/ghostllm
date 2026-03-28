@@ -2355,6 +2355,13 @@ Discovery actions this session: {discovery_count}
             return False
         return not bool(final_tool_calls)
 
+    def _latest_explore_churn_reason(self) -> str:
+        sess = self.artifact_manager.current_session if self.artifact_manager else None
+        for event in reversed(getattr(sess, "events", None) or []):
+            if isinstance(event, dict) and event.get("event") == "explore_v2_churn_abort":
+                return str(event.get("reason") or "").strip()
+        return ""
+
     def _current_iteration_cap(self) -> int:
         base_cap = global_iteration_cap()
         hard_cap = plan_iteration_hard_cap(base_cap) if self._is_broad_plan_mode_task() else base_cap
@@ -3082,9 +3089,13 @@ Discovery actions this session: {discovery_count}
         except Exception as e:
             logger.warning("iteration limit closing synthesis failed: %s", e)
 
-    def _maybe_stagnation_readonly_synthesis(self) -> bool:
-        if getattr(self, "_loop_abort_reason", None) != LOOP_ABORT_STAGNATION:
-            return False
+    def _run_broad_plan_readonly_synthesis(
+        self,
+        *,
+        event_name: str,
+        log_label: str,
+        console_hint: str,
+    ) -> bool:
         if not self._is_broad_plan_mode_task():
             return False
         if _has_final_nl_response(self.history):
@@ -3097,16 +3108,14 @@ Discovery actions this session: {discovery_count}
         if not sess:
             return False
         nudge = (
-            "[SYSTEM] Broad plan mode stalled on repeated exploration. "
+            "[SYSTEM] Broad plan mode stopped exploration before a final read-only answer was produced. "
             "Stop using tools and write the best final read-only plan using only the tool output already in this conversation. "
             "Plain text only. Use these exact sections: Conclusion:, Findings:, Steps:, Evidence:, Next:. "
             "Rank the biggest risks first, keep steps sequenced, and cite concrete files in Evidence."
         )
         self.history.append({"role": "user", "content": nudge})
         self.memory.add_message(self.session_id, "user", nudge)
-        self.console.print(
-            "\n[dim]Plan amplio: exploración estancada; generando síntesis final sin herramientas…[/dim]"
-        )
+        self.console.print(f"\n[dim]{console_hint}[/dim]")
         self._final_synthesis_done = True
         try:
             with self.renderer.session_status(
@@ -3116,14 +3125,14 @@ Discovery actions this session: {discovery_count}
             ) as status:
                 msg = self._stream_completion(status, show_turn_brand=False, tools=[])
         except Exception as e:
-            logger.warning("broad plan stagnation synthesis failed: %s", e)
+            logger.warning("%s failed: %s", log_label, e)
             self._final_synthesis_done = False
             return False
         ok_text = bool(msg and str(msg.get("content") or "").strip())
         try:
             sess.events.append(
                 {
-                    "event": "broad_plan_stagnation_synthesis",
+                    "event": event_name,
                     "content_len": len(str((msg or {}).get("content") or "").strip()),
                     "had_tool_calls": bool((msg or {}).get("tool_calls")),
                 }
@@ -3133,6 +3142,24 @@ Discovery actions this session: {discovery_count}
         if not ok_text:
             self._final_synthesis_done = False
         return ok_text
+
+    def _maybe_stagnation_readonly_synthesis(self) -> bool:
+        if getattr(self, "_loop_abort_reason", None) != LOOP_ABORT_STAGNATION:
+            return False
+        return self._run_broad_plan_readonly_synthesis(
+            event_name="broad_plan_stagnation_synthesis",
+            log_label="broad plan stagnation synthesis",
+            console_hint="Plan amplio: exploración estancada; generando síntesis final sin herramientas…",
+        )
+
+    def _maybe_churn_readonly_synthesis(self) -> bool:
+        if not self._latest_explore_churn_reason():
+            return False
+        return self._run_broad_plan_readonly_synthesis(
+            event_name="broad_plan_churn_synthesis",
+            log_label="broad plan churn synthesis",
+            console_hint="Plan amplio: exploración detenida por churn; generando síntesis final sin herramientas…",
+        )
 
     def _chat_loop_postamble(self, task_obj: Any) -> None:
         """Verification (if needed) + single resolve_terminal_result + persist (batch hooks)."""
@@ -3159,6 +3186,7 @@ Discovery actions this session: {discovery_count}
 
         if not hard_abort:
             self._maybe_stagnation_readonly_synthesis()
+            self._maybe_churn_readonly_synthesis()
             self._maybe_max_iteration_readonly_synthesis(task_obj)
 
         if self.budget_manager.is_exhausted():

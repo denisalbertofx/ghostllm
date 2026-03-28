@@ -73,6 +73,19 @@ def _session_readonly_contract(session: Any) -> bool:
     ce_sess = str(getattr(session, "change_expectation", "") or "").strip().lower()
     return ce_spec == "should_not_write" or ce_sess == "should_not_write"
 
+
+def _session_prompt_mode(session: Any) -> str:
+    tc = getattr(session, "task_contract", None)
+    if isinstance(tc, Mapping):
+        intent = tc.get("intent")
+        if isinstance(intent, Mapping) and intent.get("is_slash_command"):
+            return str(intent.get("mode") or "").strip().lower()
+    return ""
+
+
+def _session_is_readonly_plan_mode(session: Any) -> bool:
+    return _session_prompt_mode(session) == "plan" and _session_readonly_contract(session)
+
 INFORMATIVE_KIND_EXPLORE_CHURN = "explore_churn_stop"
 INFORMATIVE_KIND_MISSING_PATH_TOOLS = "missing_path_readonly"
 INFORMATIVE_KIND_MISSING_SYMBOL_HINT = "missing_symbol_explore"
@@ -896,8 +909,9 @@ def determine_task_outcome(
 
     # 2b Tools ran but produced unresolved errors and no writes — not "already implemented"
     if not made_changes and tools_executed:
+        readonly_plan_with_final_response = _session_is_readonly_plan_mode(session) and has_final_response
         cstop, creason = _explore_churn_graceful_stop(session)
-        if cstop:
+        if cstop and not readonly_plan_with_final_response:
             kind = _informative_kind_from_churn_reason(creason)
             sym_hint = _had_symbol_search_no_match_event(session)
             if sym_hint and kind == INFORMATIVE_KIND_EXPLORE_CHURN:
@@ -920,7 +934,7 @@ def determine_task_outcome(
                 informative_readonly_kind=kind,
             )
         unresolved, _pen_u = _get_normalized_tool_errors(tool_history, diff_summary)
-        if unresolved:
+        if unresolved and not readonly_plan_with_final_response:
             return TaskOutcomeResult(
                 outcome=OUTCOME_PARTIALLY_IMPLEMENTED,
                 confidence=0.82,

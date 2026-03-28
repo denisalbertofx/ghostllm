@@ -1,6 +1,6 @@
 """Tests for outcome_engine verification truthfulness and tool normalization."""
 import unittest
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Dict, Optional
 
 import json
@@ -34,6 +34,7 @@ class MockSession:
     runtime_contract_source: str = ""
     write_epoch: int = 0
     last_integrity_ok_write_epoch: int = -1
+    events: list = field(default_factory=list)
 
     def __post_init__(self) -> None:
         if self.task_contract is None:
@@ -518,6 +519,44 @@ class TestAnalysisReadOnlyOutcome(unittest.TestCase):
         result = determine_task_outcome(session, messages, {"status": "skipped", "checks": []})
         self.assertEqual(result.outcome, OUTCOME_READ_ONLY)
         self.assertEqual(result.findings_evidence_tier, "unverified")
+
+    def test_broad_plan_final_response_beats_generic_churn_summary(self):
+        session = MockSession(
+            diff_summary=[],
+            task_contract={
+                "intent": {"is_slash_command": True, "mode": "plan"},
+                "spec": {"intent": "analysis", "change_expectation": "should_not_write"},
+            },
+            task_intent="analysis",
+            runtime_contract_source="taskspec",
+            events=[{"event": "explore_v2_churn_abort", "reason": "No new read_file hit in last 5 explore steps"}],
+        )
+        messages = [
+            {"role": "tool", "name": "read_file", "content": json.dumps({"content": "critical bare except here"})},
+            {"role": "assistant", "content": "Conclusion: risk found\nFindings:\n1. bare except\nSteps:\n1. verify"},
+        ]
+        result = determine_task_outcome(session, messages, {"status": "skipped", "checks": []})
+        self.assertEqual(result.outcome, OUTCOME_READ_ONLY)
+        self.assertNotIn("Exploration stopped early due to low-value repetition", result.summary)
+        self.assertEqual(result.findings_evidence_tier, "unverified")
+
+    def test_broad_plan_final_response_beats_partial_on_tool_arg_error(self):
+        session = MockSession(
+            diff_summary=[],
+            task_contract={
+                "intent": {"is_slash_command": True, "mode": "plan"},
+                "spec": {"intent": "analysis", "change_expectation": "should_not_write"},
+            },
+            task_intent="analysis",
+            runtime_contract_source="taskspec",
+        )
+        messages = [
+            {"role": "tool", "name": "read_file", "content": "{\"error\": \"Missing 'path' argument.\"}"},
+            {"role": "assistant", "content": "Conclusion: continue\nFindings:\n1. incomplete evidence\nSteps:\n1. inspect concrete file"},
+        ]
+        result = determine_task_outcome(session, messages, {"status": "skipped", "checks": []})
+        self.assertEqual(result.outcome, OUTCOME_READ_ONLY)
+        self.assertNotEqual(result.outcome, OUTCOME_PARTIALLY_IMPLEMENTED)
 
 
 if __name__ == "__main__":
