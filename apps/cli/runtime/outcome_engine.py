@@ -86,6 +86,22 @@ def _session_prompt_mode(session: Any) -> str:
 def _session_is_readonly_plan_mode(session: Any) -> bool:
     return _session_prompt_mode(session) == "plan" and _session_readonly_contract(session)
 
+
+def _session_is_scaffold_task(session: Any) -> bool:
+    task_type = str(getattr(session, "task_type", "") or "").strip().lower()
+    if task_type == "scaffold":
+        return True
+    tc = getattr(session, "task_contract", None)
+    if isinstance(tc, Mapping):
+        intent = tc.get("intent")
+        if isinstance(intent, Mapping):
+            if str(intent.get("task_type") or "").strip().lower() == "scaffold":
+                return True
+            if str(intent.get("scaffold_type") or "").strip().lower() == "bootstrap":
+                return True
+    return False
+
+
 INFORMATIVE_KIND_EXPLORE_CHURN = "explore_churn_stop"
 INFORMATIVE_KIND_MISSING_PATH_TOOLS = "missing_path_readonly"
 INFORMATIVE_KIND_MISSING_SYMBOL_HINT = "missing_symbol_explore"
@@ -881,6 +897,7 @@ def determine_task_outcome(
             spec_ce = str(spec_map.get("change_expectation") or "").strip().lower()
         sess_ce = str(getattr(session, "change_expectation", "") or "").strip().lower()
         read_only_contract = spec_ce == "should_not_write" or sess_ce == "should_not_write"
+        scaffold_task = _session_is_scaffold_task(session)
         if blocked_unique == ["missing_files"] and (
             intent in _INFORMATIVE_MISSING_PATH_INTENTS or read_only_contract
         ):
@@ -897,6 +914,21 @@ def determine_task_outcome(
                     "Verify paths exist in this repo, open the correct repository root, or narrow the question."
                 ),
                 informative_readonly_kind=INFORMATIVE_KIND_MISSING_PATH_TOOLS,
+            )
+        if blocked_unique == ["missing_files"] and scaffold_task:
+            return TaskOutcomeResult(
+                outcome=OUTCOME_BLOCKED,
+                confidence=0.74,
+                evidence_score=max(int(evidence_score), 6),
+                summary=(
+                    "Greenfield scaffold blocked early: the session tried to read paths that do not exist yet "
+                    "instead of creating the initial project structure from the repo root."
+                ),
+                evidence_lines=evidence_lines + ["greenfield scaffold: missing paths are expected before first write"],
+                recommended_next_action=(
+                    "Resume the task from the current repo root and create the first files/directories directly "
+                    "(for example pyproject.toml, README.md, src/ or app/) before reading nested paths."
+                ),
             )
         return TaskOutcomeResult(
             outcome=OUTCOME_BLOCKED,

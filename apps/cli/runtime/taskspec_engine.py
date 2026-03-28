@@ -102,6 +102,24 @@ _CLI_COMMAND_TARGETS = {
 }
 
 
+def _looks_like_greenfield_scaffold(prompt: str) -> bool:
+    t = (prompt or "").strip().lower()
+    if not t:
+        return False
+    scaffold_markers = (
+        "desde cero",
+        "from scratch",
+        "nuevo proyecto",
+        "proyecto nuevo",
+        "crea un proyecto",
+        "create a project",
+        "bootstrap",
+        "clean start",
+        "scaffold",
+    )
+    return any(marker in t for marker in scaffold_markers)
+
+
 def extract_target_files_from_prompt(prompt: str) -> List[str]:
     """Heuristic file path extraction from natural language."""
     if not prompt:
@@ -124,14 +142,17 @@ def infer_cli_maintenance_targets(prompt: str) -> List[str]:
     t = (prompt or "").strip().lower()
     if not t:
         return []
+    if _looks_like_greenfield_scaffold(t):
+        return []
     command_hint = any(
         marker in t
         for marker in (
             "comando",
             "command",
+            "subcomando",
+            "subcommand",
             "ghost ",
             "`ghost",
-            " cli",
         )
     )
     if not command_hint:
@@ -447,6 +468,7 @@ def _draft_from_classifier(
     repo_overview = detect_repo_overview_question(user_prompt)
     strategy_plan = detect_strategy_plan_request(user_prompt)
     broad_plan = detect_broad_readonly_plan_request(user_prompt)
+    greenfield_scaffold = _looks_like_greenfield_scaffold(user_prompt)
     scope_list = _scope_string_to_list(pre.scope, repo, pre.intent)
     ce = _enforce_intent_change_expectation(pre.intent, pre.change_expectation)
     targets = extract_target_files_from_prompt(user_prompt)
@@ -473,6 +495,10 @@ def _draft_from_classifier(
     if cli_targets:
         draft.setdefault("reasoning_lines", []).append(
             "CLI maintenance task detected -> inferred target_files for command entrypoint"
+        )
+    if greenfield_scaffold:
+        draft.setdefault("reasoning_lines", []).append(
+            "Greenfield scaffold detected -> do not assume existing app structure; create files from repo root."
         )
     if repo_overview:
         draft["budget_policy"] = {"max_shell_calls": 0, "max_tool_calls": 4}

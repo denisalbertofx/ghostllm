@@ -74,6 +74,21 @@ class TestEditMismatchNotMissingFiles(unittest.TestCase):
         self.assertEqual(result.outcome, OUTCOME_BLOCKED)
         self.assertIn("missing_files", result.summary)
 
+    def test_greenfield_scaffold_missing_paths_gets_specific_summary(self):
+        session = MockSession(
+            diff_summary=[],
+            task_type="scaffold",
+            task_contract={"intent": {"task_type": "scaffold", "scaffold_type": "bootstrap"}, "spec": {"intent": "implementation"}},
+            runtime_contract_source="taskspec",
+        )
+        messages = [
+            {"role": "tool", "name": "read_file", "content": '{"error": "Path not found: src/main.py"}'},
+        ]
+        result = determine_task_outcome(session, messages, {})
+        self.assertEqual(result.outcome, OUTCOME_BLOCKED)
+        self.assertIn("Greenfield scaffold blocked early", result.summary)
+        self.assertIn("create the first files/directories directly", result.recommended_next_action)
+
 
 class TestRecoveredToolFailure(unittest.TestCase):
     """Edit failed + write succeeded must not surface as unresolved error."""

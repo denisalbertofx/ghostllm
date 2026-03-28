@@ -173,6 +173,25 @@ class TestTaskSpecEngine(unittest.TestCase):
         )
         self.assertEqual(targets, ["apps/cli/main.py"])
 
+    def test_infer_cli_maintenance_targets_does_not_trigger_on_greenfield_cli(self):
+        targets = infer_cli_maintenance_targets(
+            "crea desde cero una CLI de tareas en Python con SQLite"
+        )
+        self.assertEqual(targets, [])
+
+    def test_greenfield_scaffold_prompt_does_not_infer_ghost_cli_target(self):
+        repo = self._empty_repo()
+        r = build_taskspec(
+            "/do crea desde cero una CLI de tareas en Python con SQLite. README y tests incluidos.",
+            repo,
+        )
+        ts = r.taskspec
+        self.assertEqual(ts.change_expectation, "must_write")
+        self.assertFalse(ts.target_files)
+        self.assertTrue(
+            any("Greenfield scaffold detected" in line for line in ts.reasoning_lines)
+        )
+
     def test_bugfix_task(self):
         repo = self._node_repo()
         r = build_taskspec("Fix broken PUT /api/users when body is empty", repo)

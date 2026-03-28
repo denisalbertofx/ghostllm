@@ -60,6 +60,24 @@ class Intent:
     metadata: Dict[str, Any] = field(default_factory=dict)
 
 
+def _has_bootstrap_scaffold_keywords(text: str) -> bool:
+    t = (text or "").strip().lower()
+    if not t:
+        return False
+    bootstrap_keywords = (
+        "desde cero",
+        "from scratch",
+        "nuevo proyecto",
+        "proyecto nuevo",
+        "crea un proyecto",
+        "create a project",
+        "bootstrap",
+        "clean start",
+        "scaffold",
+    )
+    return any(k in t for k in bootstrap_keywords)
+
+
 def _enrich_intent(intent: Intent) -> None:
     task_lower = intent.task.lower()
     bootstrap_keywords = ["desde cero", "nuevo", "inicializa", "re-inicializa", "bootstrap", "clean start"]
@@ -151,6 +169,8 @@ def route_intake_intent(text: str) -> Intent:
 def infer_work_task_type(text: str) -> str:
     """TaskManager taxonomy from natural language (unchanged heuristics)."""
     t = text.lower()
+    if _has_bootstrap_scaffold_keywords(t):
+        return "scaffold"
     if any(w in t for w in ["dependencia", "dependency", "package", "install", "npm", "pip", "uv", "requirements.txt"]):
         return "dependency_change"
     if any(w in t for w in ["config", "entorno", "setup", ".env", "toml", "yaml", "yml", "json"]):
