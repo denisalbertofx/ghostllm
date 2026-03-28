@@ -109,6 +109,26 @@ class TestProviderInitialization(unittest.TestCase):
         self.assertIn("/health OK", result.stdout)
         self.assertIn("/ready returned", result.stdout)
 
+    def test_doctor_reports_stale_model_registry(self):
+        """Doctor should surface when the running daemon registry differs from local configs/models.yaml."""
+        from apps.cli.main import app
+
+        preflight = SimpleNamespace(ok=True, checked_url="http://127.0.0.1:8000/health", status_code=200)
+        with patch("apps.cli.main.is_running", return_value=True), patch(
+            "apps.cli.main._effective_gateway_url", return_value="http://127.0.0.1:8000"
+        ), patch("apps.cli.main.probe_gateway", return_value=preflight), patch(
+            "apps.cli.main.check_provider_ready",
+            return_value=(True, ""),
+        ), patch(
+            "apps.cli.main._registry_sync_status",
+            return_value=(False, "planner=qwen/qwen2.5-coder-32b-instruct"),
+        ):
+            result = runner.invoke(app, ["doctor"])
+
+        self.assertEqual(result.exit_code, 0, result.stdout)
+        self.assertIn("Model registry sync", result.stdout)
+        self.assertIn("Stale", result.stdout)
+
     def test_assistant_detects_provider_not_initialized_and_sets_fatal_flag(self):
         """Assistant detects 500 with 'NVIDIA Provider not initialized' and sets _fatal_provider_error."""
         from apps.cli.assistant import CodexAssistant

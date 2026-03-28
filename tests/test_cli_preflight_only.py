@@ -40,6 +40,39 @@ def test_plan_preflight_only_exits_before_runtime_loop() -> None:
         assert "Ghost Plan preflight OK" in result.stdout
 
 
+def test_preflight_gateway_refreshes_stale_registry() -> None:
+    from apps.cli.main import _preflight_gateway_or_exit
+
+    pf = SimpleNamespace(base_url="http://127.0.0.1:8000", ok=True)
+    with patch("apps.cli.main.probe_gateway", return_value=pf), patch(
+        "apps.cli.main.require_provider_for_assistant"
+    ), patch(
+        "apps.cli.main._refresh_daemon_registry_if_needed", return_value=(True, "Daemon refreshed to current registry")
+    ) as refresh_mock:
+        result = _preflight_gateway_or_exit()
+
+    assert result is pf
+    refresh_mock.assert_called_once_with("http://127.0.0.1:8000")
+
+
+def test_preflight_gateway_exits_when_registry_stays_stale() -> None:
+    from apps.cli.main import _preflight_gateway_or_exit
+
+    pf = SimpleNamespace(base_url="http://127.0.0.1:8000", ok=True)
+    with patch("apps.cli.main.probe_gateway", return_value=pf), patch(
+        "apps.cli.main.require_provider_for_assistant"
+    ), patch(
+        "apps.cli.main._refresh_daemon_registry_if_needed",
+        return_value=(False, "planner=qwen/qwen2.5-coder-32b-instruct"),
+    ):
+        try:
+            _preflight_gateway_or_exit()
+            assert False, "expected typer.Exit"
+        except Exception as exc:
+            assert type(exc).__name__ == "Exit"
+            assert getattr(exc, "exit_code", 2) == 2
+
+
 def test_claude_preflight_only_skips_external_claude_launch() -> None:
     pf = SimpleNamespace(ok=True)
     with patch("apps.cli.main.is_running", return_value=True), patch(
@@ -63,6 +96,19 @@ def test_prepare_runtime_for_assistant_applies_coder_profile(monkeypatch, tmp_pa
     assert os.environ["GHOST_ACTIVE_PROFILE"] == "dev"
     assert prep.operational_profile == "dev"
     assert prep.active_feature_flags["GHOST_USE_DECISION_PLANNER"] == "1"
+
+
+def test_get_pid_prefers_listener_when_pid_file_is_stale(monkeypatch, tmp_path) -> None:
+    from apps.cli import main as cli_main
+
+    pid_file = tmp_path / "ghost.pid"
+    pid_file.write_text("11800", encoding="utf-8")
+    monkeypatch.setattr(cli_main, "PID_FILE", str(pid_file))
+
+    with patch("apps.cli.main._pid_exists", return_value=False), patch(
+        "apps.cli.main._find_gateway_listener_pid", return_value=33504
+    ):
+        assert cli_main.get_pid() == 33504
 
 
 def test_prepare_runtime_for_assistant_applies_architect_alias(monkeypatch, tmp_path) -> None:

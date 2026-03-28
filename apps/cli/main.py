@@ -8,6 +8,7 @@ import yaml
 from pathlib import Path
 from enum import Enum
 from typing import Optional, Union
+from urllib.parse import urlparse
 
 # Add project root to sys.path
 root_dir = Path(__file__).resolve().parent.parent.parent
@@ -75,6 +76,61 @@ def _write_local_config(data: dict) -> None:
         yaml.safe_dump(data, f, sort_keys=False)
 
 
+def _load_local_registry_alias_map() -> dict[str, str]:
+    try:
+        with open(REGISTRY_PATH, "r", encoding="utf-8") as f:
+            raw = yaml.safe_load(f) or {}
+    except Exception:
+        return {}
+    out: dict[str, str] = {}
+    for row in raw.get("models") or []:
+        if not isinstance(row, dict):
+            continue
+        name = str(row.get("name") or "").strip()
+        upstream = str(row.get("upstream_id") or "").strip()
+        if name and upstream:
+            out[name] = upstream
+    return out
+
+
+def _fetch_remote_registry_alias_map(base_url: Optional[str] = None) -> tuple[dict[str, str], str]:
+    base = (base_url or _effective_gateway_url()).rstrip("/")
+    try:
+        response = requests.get(f"{base}/v1/models", timeout=1.5)
+        response.raise_for_status()
+        payload = response.json()
+    except requests.RequestException as e:
+        return {}, str(e)
+    except ValueError as e:
+        return {}, f"invalid registry payload: {e}"
+    out: dict[str, str] = {}
+    for row in payload.get("data") or []:
+        if not isinstance(row, dict):
+            continue
+        name = str(row.get("id") or "").strip()
+        upstream = str(row.get("upstream_id") or "").strip()
+        if name and upstream:
+            out[name] = upstream
+    return out, ""
+
+
+def _registry_drift_summary(local_map: dict[str, str], remote_map: dict[str, str]) -> str:
+    diffs: list[str] = []
+    for name, local_upstream in sorted(local_map.items()):
+        remote_upstream = remote_map.get(name, "")
+        if not remote_upstream:
+            diffs.append(f"{name} missing on daemon")
+            continue
+        if remote_upstream != local_upstream:
+            diffs.append(f"{name}={remote_upstream}")
+    if not diffs:
+        return ""
+    preview = ", ".join(diffs[:3])
+    if len(diffs) > 3:
+        preview += f" (+{len(diffs) - 3} more)"
+    return preview
+
+
 def _configured_repo_remote() -> str:
     try:
         result = subprocess.run(
@@ -133,6 +189,12 @@ def _preflight_gateway_or_exit() -> GatewayPreflightResult:
         Console(file=sys.stderr).print(format_preflight_failure_console(result))
         raise typer.Exit(code=2)
     require_provider_for_assistant(base)
+    sync_ok, sync_detail = _refresh_daemon_registry_if_needed(base)
+    if not sync_ok:
+        Console(file=sys.stderr).print(
+            f"[bold red]Daemon model registry is stale[/bold red]\n[dim]{sync_detail}[/dim]"
+        )
+        raise typer.Exit(code=2)
     return result
 
 
@@ -184,24 +246,105 @@ def _prepare_runtime_for_assistant(
     return prep
 
 def get_pid():
+    pid_from_file = None
     if os.path.exists(PID_FILE):
         with open(PID_FILE, "r") as f:
-            try: return int(f.read().strip())
-            except: return None
+            try:
+                pid_from_file = int(f.read().strip())
+            except Exception:
+                pid_from_file = None
+    listener_pid = _find_gateway_listener_pid()
+    if pid_from_file is not None and _pid_exists(pid_from_file):
+        if listener_pid is None or listener_pid == pid_from_file:
+            return pid_from_file
+    if listener_pid is not None:
+        if listener_pid != pid_from_file:
+            try:
+                with open(PID_FILE, "w") as f:
+                    f.write(str(listener_pid))
+            except Exception:
+                pass
+        return listener_pid
+    return pid_from_file
+
+
+def _pid_exists(pid: int) -> bool:
+    try:
+        if sys.platform == "win32":
+            res = subprocess.run(
+                ["tasklist", "/FI", f"PID eq {pid}"],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            return str(pid) in res.stdout
+        os.kill(pid, 0)
+        return True
+    except Exception:
+        return False
+
+
+def _gateway_host_port(base_url: Optional[str] = None) -> tuple[str, int]:
+    parsed = urlparse((base_url or _effective_gateway_url()).rstrip("/"))
+    host = parsed.hostname or "127.0.0.1"
+    if parsed.port:
+        return host, parsed.port
+    if parsed.scheme == "https":
+        return host, 443
+    return host, 80
+
+
+def _find_gateway_listener_pid(base_url: Optional[str] = None) -> Optional[int]:
+    _host, port = _gateway_host_port(base_url)
+    try:
+        if sys.platform == "win32":
+            res = subprocess.run(
+                ["netstat", "-ano", "-p", "TCP"],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            needle = f":{port}"
+            for line in res.stdout.splitlines():
+                parts = line.split()
+                if len(parts) < 5:
+                    continue
+                local_addr = parts[1]
+                state = parts[3].upper()
+                pid_raw = parts[4]
+                if state != "LISTENING":
+                    continue
+                if not local_addr.endswith(needle):
+                    continue
+                if pid_raw.isdigit():
+                    return int(pid_raw)
+            return None
+        for cmd in (["lsof", "-ti", f"tcp:{port}"], ["ss", "-ltnp"]):
+            res = subprocess.run(cmd, capture_output=True, text=True, check=False)
+            if cmd[0] == "lsof":
+                for line in res.stdout.splitlines():
+                    line = line.strip()
+                    if line.isdigit():
+                        return int(line)
+                continue
+            for line in res.stdout.splitlines():
+                if f":{port}" not in line or "LISTEN" not in line.upper():
+                    continue
+                pid_chunk = line.rsplit("pid=", 1)[-1].split(",", 1)[0].strip()
+                if pid_chunk.isdigit():
+                    return int(pid_chunk)
+    except Exception:
+        return None
     return None
 
 def is_running():
     pid = get_pid()
     if pid:
         try:
-            if sys.platform == "win32":
-                # Check if process exists on windows
-                res = subprocess.run(["tasklist", "/FI", f"PID eq {pid}"], capture_output=True, text=True)
-                if str(pid) in res.stdout: return True
-            else:
-                os.kill(pid, 0)
+            if _pid_exists(pid):
                 return True
-        except: pass
+        except Exception:
+            pass
     
     # Fallback: probe configured gateway (short timeout)
     try:
@@ -210,6 +353,121 @@ def is_running():
         return True
     except Exception:
         return False
+
+
+def _stop_daemon_process(*, quiet: bool = False) -> bool:
+    pid = get_pid()
+    if not pid:
+        if not quiet:
+            typer.secho("Ghost is not running", fg=typer.colors.YELLOW)
+        return False
+    try:
+        if sys.platform == "win32":
+            subprocess.run(
+                ["taskkill", "/F", "/T", "/PID", str(pid)],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                check=False,
+            )
+        else:
+            import signal
+
+            os.kill(pid, signal.SIGTERM)
+        if os.path.exists(PID_FILE):
+            os.remove(PID_FILE)
+        listener_pid = _find_gateway_listener_pid()
+        if listener_pid == pid:
+            for _ in range(20):
+                time.sleep(0.2)
+                if _find_gateway_listener_pid() != pid:
+                    break
+        if not quiet:
+            typer.secho("Ghost Dev stopped", fg=typer.colors.RED)
+        return True
+    except Exception:
+        if not quiet:
+            typer.secho("Error stopping Ghost", fg=typer.colors.RED)
+        return False
+
+
+def _start_daemon_process(*, quiet: bool = False) -> bool:
+    if is_running():
+        if not quiet:
+            typer.secho("✓ GhostLLM is already running", fg=typer.colors.GREEN)
+        return True
+
+    file_path = root_dir / "apps" / "server" / "main.py"
+    with open(LOG_FILE, "a") as log:
+        process = subprocess.Popen(
+            [sys.executable, str(file_path)],
+            stdout=subprocess.DEVNULL,
+            stderr=log,
+            creationflags=subprocess.CREATE_NEW_PROCESS_GROUP if sys.platform == "win32" else 0,
+        )
+
+    with open(PID_FILE, "w") as f:
+        f.write(str(process.pid))
+
+    base = _effective_gateway_url()
+    for _ in range(40):
+        try:
+            requests.get(base + "/health", timeout=0.6)
+            break
+        except Exception:
+            time.sleep(0.4)
+    else:
+        if not quiet:
+            typer.secho(
+                f"Daemon iniciado pero no responde en {base}/health — revisa {LOG_FILE}",
+                fg=typer.colors.YELLOW,
+            )
+
+    if not quiet:
+        typer.secho("Ghost Dev Daemon started", fg=typer.colors.MAGENTA, bold=True)
+    listener_pid = _find_gateway_listener_pid(base)
+    if listener_pid is not None:
+        with open(PID_FILE, "w") as f:
+            f.write(str(listener_pid))
+    return True
+
+
+def _registry_sync_status(base_url: Optional[str] = None) -> tuple[bool, str]:
+    local_map = _load_local_registry_alias_map()
+    if not local_map:
+        return True, "Local registry unavailable"
+    remote_map, err = _fetch_remote_registry_alias_map(base_url)
+    if err:
+        return False, err
+    drift = _registry_drift_summary(local_map, remote_map)
+    if drift:
+        return False, drift
+    return True, "In sync"
+
+
+def _refresh_daemon_registry_if_needed(base_url: Optional[str] = None) -> tuple[bool, str]:
+    base = (base_url or _effective_gateway_url()).rstrip("/")
+    synced, detail = _registry_sync_status(base)
+    if synced:
+        return True, detail
+    if not get_pid():
+        return False, f"Daemon model registry is stale: {detail}"
+    typer.secho(
+        "Local model registry changed; refreshing Ghost daemon before entering the runtime...",
+        fg=typer.colors.YELLOW,
+    )
+    _stop_daemon_process(quiet=True)
+    time.sleep(0.6)
+    _start_daemon_process(quiet=True)
+    post = probe_gateway(base, api_key=get_api_key(), timeout_sec=2.0)
+    if not post.ok:
+        return False, f"Daemon refresh failed: {post.error or post.details}"
+    ready, ready_err = check_provider_ready(base)
+    if not ready:
+        return False, f"Daemon refreshed but provider is not ready: {ready_err}"
+    synced_after, detail_after = _registry_sync_status(base)
+    if not synced_after:
+        return False, f"Daemon registry still stale after refresh: {detail_after}"
+    return True, "Daemon refreshed to current registry"
 
 
 @app.command()
@@ -273,36 +531,7 @@ def init(
 @app.command()
 def start():
     """Start the GhostLLM daemon."""
-    if is_running():
-        typer.secho("✓ GhostLLM is already running", fg=typer.colors.GREEN)
-        return
-    
-    file_path = root_dir / "apps" / "server" / "main.py"
-    # Use a log file for stderr to catch startup errors
-    with open(LOG_FILE, "a") as log:
-        process = subprocess.Popen([sys.executable, str(file_path)], 
-                                 stdout=subprocess.DEVNULL, 
-                                 stderr=log,
-                                 creationflags=subprocess.CREATE_NEW_PROCESS_GROUP if sys.platform == "win32" else 0)
-    
-    with open(PID_FILE, "w") as f:
-        f.write(str(process.pid))
-    
-    # Wait for server to be ready (health es más barato que /v1/models)
-    base = _effective_gateway_url()
-    for _ in range(40):
-        try:
-            requests.get(base + "/health", timeout=0.6)
-            break
-        except Exception:
-            time.sleep(0.4)
-    else:
-        typer.secho(
-            f"⚠ Daemon iniciado pero no responde en {base}/health — revisa {LOG_FILE}",
-            fg=typer.colors.YELLOW,
-        )
-
-    typer.secho("👻 Ghost Dev Daemon started", fg=typer.colors.MAGENTA, bold=True)
+    _start_daemon_process()
 
 @app.command()
 def serve():
@@ -333,20 +562,7 @@ def update():
 @app.command()
 def stop():
     """Stop the GhostLLM daemon."""
-    pid = get_pid()
-    if pid:
-        try:
-            if sys.platform == "win32":
-                subprocess.run(["taskkill", "/F", "/T", "/PID", str(pid)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            else:
-                import signal
-                os.kill(pid, signal.SIGTERM)
-            if os.path.exists(PID_FILE): os.remove(PID_FILE)
-            typer.secho("Ghost Dev stopped", fg=typer.colors.RED)
-        except:
-            typer.secho("Error stopping Ghost", fg=typer.colors.RED)
-    else:
-        typer.secho("Ghost is not running", fg=typer.colors.YELLOW)
+    _stop_daemon_process()
 
 @app.command()
 def logs(n: int = 20):
@@ -400,6 +616,12 @@ def doctor():
     else:
         r_status = f"[bold red]Not ready[/bold red] [dim]{ready_err[:120]}[/dim]"
     table.add_row("Provider ready", r_status)
+    sync_ok, sync_detail = _registry_sync_status(gw)
+    if sync_ok:
+        sync_status = "[bold green]In sync[/bold green]"
+    else:
+        sync_status = f"[bold yellow]Stale[/bold yellow] [dim]{sync_detail[:120]}[/dim]"
+    table.add_row("Model registry sync", sync_status)
 
     # Environment
     table.add_row("Project", os.path.basename(os.getcwd()))
