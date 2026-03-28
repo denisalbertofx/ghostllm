@@ -4,6 +4,7 @@ from tempfile import TemporaryDirectory
 
 from apps.cli.assistant import (
     _filter_workspace_listing_entries,
+    _greenfield_scaffold_verify_readiness,
     _is_internal_workspace_metadata_path,
     _read_utf8_text_for_tool,
     _should_start_greenfield_in_act,
@@ -37,6 +38,30 @@ class TestAssistantGreenfieldHelpers(unittest.TestCase):
             content, err = _read_utf8_text_for_tool(fp)
             self.assertIsNone(content)
             self.assertIn("not UTF-8 text", err or "")
+
+    def test_greenfield_verify_readiness_requires_requested_tests_and_readme(self) -> None:
+        ready, reasons = _greenfield_scaffold_verify_readiness(
+            [{"file": "task_manager.py", "type": "Write File"}],
+            "crea desde cero una CLI en Python con pytest y README",
+            {"verification_policy": {"required": True, "tests": True}},
+        )
+        self.assertFalse(ready)
+        self.assertIn("missing_tests", reasons)
+        self.assertIn("missing_readme", reasons)
+        self.assertIn("single_file_only", reasons)
+
+    def test_greenfield_verify_readiness_passes_when_structure_is_present(self) -> None:
+        ready, reasons = _greenfield_scaffold_verify_readiness(
+            [
+                {"file": "task_manager.py", "type": "Write File"},
+                {"file": "README.md", "type": "Write File"},
+                {"file": "tests/test_task_manager.py", "type": "Write File"},
+            ],
+            "crea desde cero una CLI en Python con pytest y README",
+            {"verification_policy": {"required": True, "tests": True}},
+        )
+        self.assertTrue(ready)
+        self.assertEqual(reasons, [])
 
 
 if __name__ == "__main__":

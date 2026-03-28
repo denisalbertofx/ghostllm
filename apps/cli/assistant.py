@@ -360,6 +360,91 @@ def _read_utf8_text_for_tool(full_path: str) -> Tuple[Optional[str], Optional[st
         return None, str(exc)
 
 
+def _normalize_diff_path_for_scaffold(entry: Any) -> str:
+    if isinstance(entry, Mapping):
+        raw = entry.get("file") or entry.get("path") or ""
+    else:
+        raw = ""
+    return str(raw or "").replace("\\", "/").strip().lower()
+
+
+def _is_test_path_for_scaffold(path: str) -> bool:
+    p = str(path or "").strip().lower()
+    if not p:
+        return False
+    base = p.rsplit("/", 1)[-1]
+    return (
+        p.startswith("tests/")
+        or p.startswith("test/")
+        or base.startswith("test_")
+        or base.endswith("_test.py")
+        or base.endswith(".spec.ts")
+        or base.endswith(".test.ts")
+        or base.endswith(".spec.js")
+        or base.endswith(".test.js")
+    )
+
+
+def _is_readme_path_for_scaffold(path: str) -> bool:
+    p = str(path or "").strip().lower()
+    return bool(p) and p.endswith("readme.md")
+
+
+def _is_source_path_for_scaffold(path: str) -> bool:
+    p = str(path or "").strip().lower()
+    if not p or _is_test_path_for_scaffold(p) or _is_readme_path_for_scaffold(p):
+        return False
+    return p.endswith(
+        (
+            ".py",
+            ".ts",
+            ".tsx",
+            ".js",
+            ".jsx",
+            ".go",
+            ".rs",
+            ".java",
+            ".kt",
+            ".rb",
+            ".php",
+            ".cs",
+            ".cpp",
+            ".c",
+        )
+    )
+
+
+def _greenfield_scaffold_verify_readiness(
+    diff_summary: Optional[List[Dict[str, Any]]],
+    task_text: str,
+    contract_spec: Optional[Dict[str, Any]] = None,
+) -> Tuple[bool, List[str]]:
+    paths = [
+        path
+        for path in (_normalize_diff_path_for_scaffold(item) for item in (diff_summary or []))
+        if path
+    ]
+    reasons: List[str] = []
+    if not paths:
+        return False, ["no_files_written"]
+    if not any(_is_source_path_for_scaffold(path) for path in paths):
+        reasons.append("missing_source")
+    if len(set(paths)) < 2:
+        reasons.append("single_file_only")
+    task_lower = str(task_text or "").strip().lower()
+    vp = dict((contract_spec or {}).get("verification_policy") or {})
+    requires_tests = bool(vp.get("tests")) or any(
+        marker in task_lower
+        for marker in ("pytest", "tests", "test suite", "unit test", "unit tests")
+    )
+    if requires_tests and not any(_is_test_path_for_scaffold(path) for path in paths):
+        reasons.append("missing_tests")
+    requires_readme = "readme" in task_lower
+    if requires_readme and not any(_is_readme_path_for_scaffold(path) for path in paths):
+        reasons.append("missing_readme")
+    return (len(reasons) == 0), reasons
+
+
 def _normalize_newlines_with_index_map(text: str) -> Tuple[str, List[int]]:
     normalized: List[str] = []
     index_map: List[int] = []
@@ -2431,6 +2516,48 @@ Discovery actions this session: {discovery_count}
                     return True
         return False
 
+    def _bootstrap_scaffold_ready_for_verify(self) -> Tuple[bool, List[str]]:
+        sess = self.artifact_manager.current_session if self.artifact_manager else None
+        if not sess:
+            return False, ["no_session"]
+        return _greenfield_scaffold_verify_readiness(
+            getattr(sess, "diff_summary", None) or [],
+            self._primary_user_task_text(),
+            self._session_contract_spec_dict(),
+        )
+
+    def _maybe_defer_greenfield_verify(self) -> bool:
+        if not self._current_task_is_bootstrap_scaffold():
+            return False
+        ready, reasons = self._bootstrap_scaffold_ready_for_verify()
+        if ready:
+            return False
+        reason_map = {
+            "no_files_written": "no hay archivos reales del proyecto todavia",
+            "missing_source": "falta al menos un archivo de codigo fuente",
+            "single_file_only": "solo existe un archivo nuevo y la estructura sigue incompleta",
+            "missing_tests": "faltan los tests solicitados",
+            "missing_readme": "falta el README solicitado",
+            "no_session": "no hay sesion activa",
+        }
+        missing = [reason_map[r] for r in reasons if r in reason_map]
+        missing_text = "; ".join(missing) if missing else "la estructura minima aun no esta lista"
+        nudge = (
+            "[SYSTEM] Continue the greenfield scaffold in ACT. Do NOT verify yet. "
+            "Write the remaining project files from repo root first. Missing before verify: "
+            f"{missing_text}. "
+            "Prefer creating the real source file(s), requested tests, README, and any minimal project config needed."
+        )
+        self.history.append({"role": "user", "content": nudge})
+        self.memory.add_message(self.session_id, "user", nudge)
+        try:
+            sess = self.artifact_manager.current_session
+            if sess:
+                sess.events.append({"event": "greenfield_verify_deferred", "reasons": list(reasons)})
+        except Exception:
+            pass
+        return True
+
     def _is_broad_plan_mode_task(self) -> bool:
         if (self._effective_prompt_mode() or "").strip().lower() != "plan":
             return False
@@ -4166,6 +4293,9 @@ Discovery actions this session: {discovery_count}
             if kind == "tools":
                 self._bump_discovery_from_tools(executed or [])
                 if self._session_has_diff():
+                    if self._maybe_defer_greenfield_verify():
+                        logger.info("phase transition: ACT stays in ACT (greenfield scaffold incomplete after tools)")
+                        return "ok"
                     logger.info("phase transition: ACT -> VERIFY (diff after tools)")
                     self._record_phase_promotion(
                         "act_to_verify",
@@ -4216,6 +4346,9 @@ Discovery actions this session: {discovery_count}
                 )
                 return "ok"
             if self._session_has_diff():
+                if self._maybe_defer_greenfield_verify():
+                    logger.info("phase transition: ACT stays in ACT (greenfield scaffold incomplete after text turn)")
+                    return "ok"
                 logger.info("phase transition: ACT -> VERIFY (text turn with diff)")
                 self._record_phase_promotion(
                     "act_to_verify",
@@ -4369,7 +4502,8 @@ Discovery actions this session: {discovery_count}
             context_label=context_label,
         )
         record_verification_metrics(sess, v_res, reused=False)
-        if v_res.get("status") != "failed":
+        v_status = str(v_res.get("status") or "").strip().lower()
+        if v_status == "success":
             sess.last_verify_failure_snapshot = {}
             sess.reverification_pending = False
             sess.pytest_focus_targets = []
@@ -4393,6 +4527,14 @@ Discovery actions this session: {discovery_count}
             self.stagnation_detector.reset_after_verified_progress()
             logger.info("phase transition: VERIFY -> CLOSING (%s)", context_label)
             self._apply_session_phase(SessionPhase.CLOSING, detail=f"verify ok ({context_label})", sync_task=True)
+            return
+        if v_status in ("incomplete", "skipped"):
+            logger.info("phase transition: VERIFY -> CLOSING (%s, %s)", context_label, v_status)
+            self._apply_session_phase(
+                SessionPhase.CLOSING,
+                detail=f"verify {v_status} ({context_label})",
+                sync_task=True,
+            )
             return
         checks = v_res.get("checks", [])
         failed_checks = [c for c in checks if c.get("status") in ("failed", "error")]

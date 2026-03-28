@@ -255,6 +255,7 @@ def _build_verification_policy(
     intent: str,
     *,
     target_files: Optional[List[str]] = None,
+    user_prompt: str = "",
 ) -> Dict[str, Any]:
     if intent in (INTENT_REVIEW, INTENT_ANALYSIS):
         return {
@@ -275,6 +276,16 @@ def _build_verification_policy(
     vhints = _repo_verification_hints(repo)
     node_targeted = _targets_node_layer(target_files)
     python_targeted = _targets_python_layer(target_files)
+    prompt_lower = str(user_prompt or "").strip().lower()
+    greenfield_scaffold = _looks_like_greenfield_scaffold(prompt_lower)
+    python_greenfield = greenfield_scaffold and any(
+        marker in prompt_lower
+        for marker in ("python", "sqlite", "pytest", "pyproject", "requirements.txt")
+    )
+    explicit_test_request = any(
+        marker in prompt_lower
+        for marker in ("pytest", "tests", "test suite", "unit test", "unit tests")
+    )
 
     if node_targeted:
         vp["typecheck"] = bool(vhints.get("typecheck", False))
@@ -300,6 +311,13 @@ def _build_verification_policy(
             INTENT_REFACTOR,
         ) and not scope_set:
             vp["build"] = bool(vhints.get("build", False))
+    if intent in (
+        INTENT_IMPLEMENTATION,
+        INTENT_MODIFICATION,
+        INTENT_BUGFIX,
+        INTENT_REFACTOR,
+    ) and python_greenfield and explicit_test_request:
+        vp["tests"] = True
     if intent == INTENT_BUGFIX:
         if not any(vp[k] for k in ("typecheck", "build", "lint", "tests")):
             vp["tests"] = bool(vhints.get("tests", False))
@@ -523,7 +541,13 @@ def _draft_from_classifier(
 def _apply_policy_defaults(data: Dict[str, Any], repo: RepoProfile) -> TaskSpec:
     intent = str(data["intent"])
     scope = list(data.get("scope") or [])
-    vp = _build_verification_policy(scope, repo, intent, target_files=data.get("target_files"))
+    vp = _build_verification_policy(
+        scope,
+        repo,
+        intent,
+        target_files=data.get("target_files"),
+        user_prompt=str(data.get("_user_prompt") or ""),
+    )
     user_vp = data.get("verification_policy") or {}
     if isinstance(user_vp, dict):
         vp = {**vp, **user_vp}

@@ -192,6 +192,16 @@ class TestTaskSpecEngine(unittest.TestCase):
             any("Greenfield scaffold detected" in line for line in ts.reasoning_lines)
         )
 
+    def test_greenfield_python_scaffold_with_pytest_requires_tests_verification(self):
+        repo = self._empty_repo()
+        r = build_taskspec(
+            "/do crea desde cero una CLI de tareas en Python con SQLite. Requisitos: tests con pytest y README.",
+            repo,
+        )
+        ts = r.taskspec
+        self.assertTrue(ts.verification_policy.get("required"))
+        self.assertTrue(ts.verification_policy.get("tests"))
+
     def test_bugfix_task(self):
         repo = self._node_repo()
         r = build_taskspec("Fix broken PUT /api/users when body is empty", repo)
