@@ -20,7 +20,7 @@ class _StubProvider:
         return {
             "id": "chatcmpl-smoke",
             "object": "chat.completion",
-            "model": payload.get("model", "moonshotai/kimi-k2.5"),
+            "model": payload.get("model", "qwen/qwen3-coder-480b-a35b-instruct"),
             "choices": [
                 {
                     "index": 0,
@@ -60,7 +60,7 @@ class TestClaudeBridgeSmoke(unittest.TestCase):
                         "content-type": "application/json",
                     },
                     json={
-                        "model": "kimi",
+                        "model": "coder",
                         "messages": [{"role": "user", "content": "say hello"}],
                         "max_tokens": 16,
                     },
@@ -70,7 +70,7 @@ class TestClaudeBridgeSmoke(unittest.TestCase):
             body = response.json()
             self.assertEqual(body.get("type"), "message")
             self.assertEqual(body.get("role"), "assistant")
-            self.assertEqual(body.get("model"), "kimi")
+            self.assertEqual(body.get("model"), "coder")
             self.assertTrue(body.get("content"))
             self.assertEqual(body["content"][0]["type"], "text")
             self.assertIn("ghost smoke ok", body["content"][0]["text"])

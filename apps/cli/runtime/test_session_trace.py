@@ -314,7 +314,7 @@ class SessionTracePersistenceTests(unittest.TestCase):
     def test_missing_ttft_stays_null_non_stream_model(self) -> None:
         m = ModelCallTrace(
             role="general",
-            model="kimi",
+            model="coder",
             started_at="2026-01-01T00:00:00+00:00",
             first_token_at=None,
             ended_at="2026-01-01T00:00:01+00:00",

@@ -224,17 +224,17 @@ class TestExecutionAgent(unittest.TestCase):
         out = run_execution_agent(inp)
         self.assertEqual(out.selected_targets, [])
 
-    def test_model_default_devstral(self) -> None:
+    def test_model_default_primary_coder(self) -> None:
         with mock.patch.dict(os.environ, {ENV_EXECUTION_MODEL: ""}):
             sel = select_execution_model({}, {}, {}, target_file_count=1)
         self.assertEqual(sel.model_id, DEFAULT_CODE_WRITER_MODEL)
 
-    def test_fallback_qwen_multi_file_low_risk(self) -> None:
+    def test_fallback_primary_coder_multi_file_low_risk(self) -> None:
         with mock.patch.dict(
             os.environ,
             {
-                ENV_EXECUTION_FALLBACK_MODEL: "qwen2.5-coder-32b-instruct",
-                ENV_EXECUTION_MODEL: "devstral-2-123b-instruct-2512",
+                ENV_EXECUTION_FALLBACK_MODEL: "qwen/qwen3-coder-480b-a35b-instruct",
+                ENV_EXECUTION_MODEL: "vendor/alternate-coder",
             },
         ):
             sel = select_execution_model(
@@ -243,15 +243,15 @@ class TestExecutionAgent(unittest.TestCase):
                 {},
                 target_file_count=4,
             )
-        self.assertEqual(sel.model_id, "qwen2.5-coder-32b-instruct")
+        self.assertEqual(sel.model_id, "qwen/qwen3-coder-480b-a35b-instruct")
 
-    def test_multi_file_default_fallback_is_deepseek(self) -> None:
+    def test_multi_file_default_fallback_matches_primary_coder(self) -> None:
         with mock.patch.dict(
             os.environ,
             {
                 ENV_EXECUTION_FALLBACK_MODEL: "",
                 ENV_GENERAL_FALLBACK_MODEL: "",
-                ENV_EXECUTION_MODEL: "devstral-2-123b-instruct-2512",
+                ENV_EXECUTION_MODEL: "vendor/alternate-coder",
             },
             clear=False,
         ):
@@ -263,15 +263,15 @@ class TestExecutionAgent(unittest.TestCase):
             )
         self.assertEqual(sel.model_id, DEFAULT_GENERAL_FALLBACK_MODEL)
 
-    def test_repair_prefers_glm_when_configured(self) -> None:
-        with mock.patch.dict(os.environ, {ENV_REPAIR_MODEL: "glm-5"}):
+    def test_repair_prefers_configured_override(self) -> None:
+        with mock.patch.dict(os.environ, {ENV_REPAIR_MODEL: "vendor/repair-override"}):
             sel = select_execution_model(
                 {"intent": "bugfix"},
                 {},
                 {"repair_attempt_count": 2},
                 target_file_count=1,
             )
-        self.assertEqual(sel.model_id, "glm-5")
+        self.assertEqual(sel.model_id, "vendor/repair-override")
 
     def test_advisory_proposals_no_writes_path(self) -> None:
         with mock.patch.dict(os.environ, {"GHOST_EXECUTION_AGENT_WRITES": "0"}):

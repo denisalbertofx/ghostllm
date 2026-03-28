@@ -8,9 +8,9 @@ Architecture:
   configs/default.yaml  → GhostConfig (server, upstream, monitoring)
 
 CLI resolution chain:
-  GHOST_*_MODEL env vars  → alias name (e.g. "kimi")
+  GHOST_*_MODEL env vars  → alias name (e.g. "planner" or "coder")
          ↓
-  resolve_upstream_model_id()  → upstream_id (e.g. "moonshotai/kimi-k2.5")
+  resolve_upstream_model_id()  → upstream_id (e.g. "qwen/qwen3-coder-480b-a35b-instruct")
          ↓
   Server gateway /v1/chat/completions → NIM provider
 """
@@ -226,9 +226,9 @@ def resolve_upstream_model_id(requested: str, name_to_upstream: Dict[str, str]) 
     canonical ``upstream_id`` for the provider.
 
     Priority:
-      1. Exact registry name match  (e.g. ``kimi`` → ``moonshotai/kimi-k2.5``)
-      2. Full upstream_id passthrough  (e.g. ``moonshotai/kimi-k2.5``)
-      3. Basename match when unambiguous  (e.g. ``kimi-k2.5`` when unique)
+      1. Exact registry name match  (e.g. ``coder`` → ``qwen/qwen3-coder-480b-a35b-instruct``)
+      2. Full upstream_id passthrough  (e.g. ``qwen/qwen3-coder-480b-a35b-instruct``)
+      3. Basename match when unambiguous  (e.g. ``qwen3-coder-480b-a35b-instruct`` when unique)
       4. Return unchanged (caller decides how to handle unknown model)
     """
     r = (requested or "").strip()
@@ -245,7 +245,7 @@ def resolve_upstream_model_id(requested: str, name_to_upstream: Dict[str, str]) 
     if r in values:
         return r
 
-    # 3. Basename match (e.g. "kimi-k2.5" → "moonshotai/kimi-k2.5"), unique only
+    # 3. Basename match (e.g. "qwen3-coder-480b-a35b-instruct" → full upstream_id), unique only
     if "/" not in r:
         matches = sorted({u for u in values if u.split("/")[-1] == r})
         if len(matches) == 1:

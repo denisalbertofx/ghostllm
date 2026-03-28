@@ -5,7 +5,7 @@ logger = logging.getLogger("ghostllm.adapters.scheduler")
 
 class TaskScheduler:
     """
-    Intelligently detects task intent to choose the best Kimi profile.
+    Intelligently detects task intent to choose the best runtime profile.
     Supports both Anthropic and OpenAI request formats.
     """
     

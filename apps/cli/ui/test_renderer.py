@@ -230,7 +230,7 @@ class TestArtifactSummaryFindingsTier(unittest.TestCase):
             self.renderer.render_cli_startup_summary(
                 command_mode="dev",
                 assistant_mode="Chat",
-                model="kimi",
+                model="coder",
                 prep=None,
                 llm_gateway_url="http://127.0.0.1:8000",
                 llm_gateway_reachable=True,
@@ -251,7 +251,7 @@ class TestArtifactSummaryFindingsTier(unittest.TestCase):
         self.assertIn("last", normalized)
         self.assertIn("session 2h ago", normalized)
         self.assertNotIn("C:\\repo", out)
-        self.assertNotIn("Chat │ kimi │ dev", out)
+        self.assertNotIn("Chat │ coder │ dev", out)
 
     def test_renderer_history_navigation_helper(self):
         self.renderer._record_input_history("/plan bugs")

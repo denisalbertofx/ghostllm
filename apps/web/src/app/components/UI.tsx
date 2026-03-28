@@ -219,6 +219,10 @@ export function ChatWindow({
   stats,
 }: ChatWindowProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
+  const selectedModelBadge = (selectedModel || 'coder')
+    .replace(/^qwen\//i, '')
+    .replace(/[-_]/g, ' ')
+    .toUpperCase();
   useEffect(() => {
     if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
   }, [messages]);
@@ -236,7 +240,7 @@ export function ChatWindow({
             </p>
             <div className="grid grid-cols-2 gap-4 w-full">
               <SuggestionCard text="Summarize the Forge logs" />
-              <SuggestionCard text="Analyze Kimi k2.5 limits" />
+              <SuggestionCard text="Analyze Qwen3 Coder 480B limits" />
             </div>
           </div>
         ) : (
@@ -250,7 +254,7 @@ export function ChatWindow({
                 <div className="flex items-center gap-3 mb-3 border-b border-white/5 pb-2">
                   <span className="text-[10px] font-bold tracking-widest uppercase opacity-40">{m.role}</span>
                   {m.role === 'assistant' && (
-                    <span className="text-[10px] font-bold tracking-widest uppercase text-blue-500">KIMI K2.5</span>
+                    <span className="text-[10px] font-bold tracking-widest uppercase text-blue-500">{selectedModelBadge}</span>
                   )}
                 </div>
                 <p className="text-[15px] leading-[1.8] font-light tracking-wide whitespace-pre-wrap">
@@ -283,7 +287,7 @@ export function ChatWindow({
                           {m.name || m.id}
                         </option>
                       ))
-                    : <option value="kimi">kimi k2.5</option>}
+                    : <option value="coder">qwen3 coder 480b a35b</option>}
                 </select>
                 <div className="flex items-center gap-2">
                   <span className="w-1.5 h-1.5 bg-blue-500 rounded-full shadow-[0_0_8px_rgba(59,130,246,0.8)]" />

@@ -5,11 +5,17 @@ Verifies: preflight check, recovery message, no partial task/artifact on provide
 import sys
 import os
 import unittest
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
+
+from typer.testing import CliRunner
 
 root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 sys.path.insert(0, root)
 sys.path.insert(0, os.path.join(root, "packages", "py-core"))
+
+
+runner = CliRunner()
 
 
 class TestProviderInitialization(unittest.TestCase):
@@ -85,11 +91,29 @@ class TestProviderInitialization(unittest.TestCase):
                     require_provider_for_assistant()
                 self.assertEqual(ctx.exception.code, 1)
 
+    def test_doctor_reports_gateway_healthy_but_not_ready(self):
+        """Doctor must distinguish /health OK from /ready not ready in the rendered status."""
+        from apps.cli.main import app
+
+        preflight = SimpleNamespace(ok=True, checked_url="http://127.0.0.1:8000/health", status_code=200)
+        with patch("apps.cli.main.is_running", return_value=True), patch(
+            "apps.cli.main._effective_gateway_url", return_value="http://127.0.0.1:8000"
+        ), patch("apps.cli.main.probe_gateway", return_value=preflight), patch(
+            "apps.cli.main.check_provider_ready",
+            return_value=(False, "NVIDIA Provider not initialized"),
+        ):
+            result = runner.invoke(app, ["doctor"])
+
+        self.assertEqual(result.exit_code, 0, result.stdout)
+        self.assertIn("Gateway healthy but not ready", result.stdout)
+        self.assertIn("/health OK", result.stdout)
+        self.assertIn("/ready returned", result.stdout)
+
     def test_assistant_detects_provider_not_initialized_and_sets_fatal_flag(self):
         """Assistant detects 500 with 'NVIDIA Provider not initialized' and sets _fatal_provider_error."""
         from apps.cli.assistant import CodexAssistant
 
-        assistant = CodexAssistant("http://localhost:11434", "key", "kimi")
+        assistant = CodexAssistant("http://localhost:11434", "key", "coder")
         assistant.history = [{"role": "user", "content": "hello"}]
         with patch.object(assistant.console, "print"):  # Avoid Windows encoding issues with Unicode chars
             with patch("apps.cli.assistant.requests.post") as mock_post:
@@ -111,7 +135,7 @@ class TestProviderInitialization(unittest.TestCase):
         """Provider-not-initialized is not retryable; _stream_completion returns immediately."""
         from apps.cli.assistant import CodexAssistant
 
-        assistant = CodexAssistant("http://localhost:11434", "key", "kimi")
+        assistant = CodexAssistant("http://localhost:11434", "key", "coder")
         assistant.history = [{"role": "user", "content": "hello"}]
 
         call_count = 0

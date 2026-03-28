@@ -138,7 +138,7 @@ def is_model_allowed(model_name: str) -> bool:
     """Return True if model_name is a known alias, upstream_id, or Anthropic alias."""
     resolved = resolve_upstream_model_id(model_name, MODEL_MAPPING)
     return (
-        model_name in MODEL_MAPPING           # registry name alias (kimi, planner, etc.)
+        model_name in MODEL_MAPPING           # registry name alias (coder, planner, etc.)
         or model_name in MODEL_MAPPING.values()  # direct upstream_id
         or resolved in MODEL_MAPPING.values()    # unique basename -> upstream_id
         or model_name in _CLAUDE_ALIASES       # anthropic bridge

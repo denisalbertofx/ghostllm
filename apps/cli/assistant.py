@@ -623,7 +623,7 @@ Discovery actions this session: {discovery_count}
             return (
                 "Modelo no permitido en el registro Ghost (403): habilita el alias en configs/models.yaml "
                 "o usa un id listado en GET /v1/models. Si usaste `ghost plan` con un CLI antiguo, "
-                "el string literal «planner» no es válido: actualiza Ghost o pasa `--model kimi` (o el upstream del planner)."
+                "el string literal «planner» no es válido: actualiza Ghost o pasa `--model coder` (o el upstream del planner)."
             )
         if status_code == 429 or "rate" in em or "429" in em:
             return "Límite de tasa o cuota: espera y reintenta, o cambia de modelo/perfil."

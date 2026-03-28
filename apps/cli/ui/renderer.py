@@ -29,7 +29,7 @@ from rich import box
 from rich.table import Table
 
 from apps.cli.ui import ui_contract as _ui_contract
-from apps.cli.ui.theme import ghost_box_rounded, ghost_wordmark_lines
+from apps.cli.ui.theme import GHOST_RICH_THEME, ghost_box_rounded, ghost_wordmark_lines
 from apps.cli.ui.slash_menu import (
     SlashMenuState,
     slash_menu_apply_selection,
@@ -652,6 +652,9 @@ def _operator_input_handle() -> str:
 class GhostRenderer:
     def __init__(self, console: Console):
         self.console = console
+        # Some tests and utility entrypoints instantiate a plain Rich Console.
+        # Push the Ghost theme here so semantic styles like ``ghost.brand`` always resolve.
+        self.console.push_theme(GHOST_RICH_THEME)
         self._tool_segment_active: bool = False
         self._tool_segment_buffer: List[Dict[str, Any]] = []
         self._last_status_phase: str = "EXPLORE"

@@ -14,7 +14,7 @@ headers = {
 def test_count_tokens():
     print("Testing /v1/messages/count_tokens...")
     payload = {
-        "model": "kimi",
+        "model": "coder",
         "messages": [{"role": "user", "content": "Hello, how are you?"}]
     }
     resp = requests.post(f"{base_url}/v1/messages/count_tokens", headers=headers, json=payload)
@@ -24,7 +24,7 @@ def test_count_tokens():
 def test_messages():
     print("Testing /v1/messages...")
     payload = {
-        "model": "kimi",
+        "model": "coder",
         "messages": [{"role": "user", "content": "Say 'hello world' and nothing else."}],
         "max_tokens": 100
     }

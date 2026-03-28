@@ -203,7 +203,7 @@ def _product_smoke_sections() -> List[SectionResult]:
             f"{base_url}/v1/messages/count_tokens",
             headers=auth_headers,
             json_body={
-                "model": "kimi",
+                "model": "coder",
                 "messages": [{"role": "user", "content": "smoke test"}],
             },
         )

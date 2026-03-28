@@ -152,7 +152,7 @@ class TestNimProvider(unittest.TestCase):
             r = nim_chat_complete(
                 "https://nim.test",
                 "secret",
-                ProviderRequest(model="devstral-x", user="ping"),
+                ProviderRequest(model="vendor/test-coder", user="ping"),
                 session=sess,
             )
         self.assertIsInstance(r, ProviderResponse)

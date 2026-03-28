@@ -53,9 +53,9 @@ class OpenAIAdapter:
             if mapped_tools:
                 payload["tools"] = mapped_tools
             
-        # Kimi-specific logic (NVIDIA NIM thinking toggle)
-        # if "kimi" in model.lower():
-        #     logger.info(f"KIMI SCHEDULER: Profile={profile}, Thinking={thinking}, Temp={final_temp}")
+        # Optional provider-specific thinking toggle can be added here if a model family needs it.
+        # if "qwen3-coder" in model.lower():
+        #     logger.info(f"QWEN3 SCHEDULER: Profile={profile}, Thinking={thinking}, Temp={final_temp}")
         #     payload["extra_body"] = {"chat_template_kwargs": {"thinking": thinking}}
         #     if thinking:
         #          # Override some params for thinking mode stability

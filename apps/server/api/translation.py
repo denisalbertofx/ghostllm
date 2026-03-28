@@ -20,11 +20,11 @@ def translate_anthropic_to_openai(data: Dict[str, Any], model_mapping: Dict[str,
     # 2. Determine Upstream Model
     local_model = req["model"]
     if local_model in ["sonnet", "claude-3-5-sonnet", "claude-3-5-sonnet-20241022", "claude-sonnet-4-6"]:
-         local_model = "kimi"
+         local_model = "coder"
     upstream_model = model_mapping.get(local_model, local_model)
     
     # 3. Process Messages with Truncation (Sliding Window)
-    # Keeping 110k tokens (~330k chars) to fit Kimi's 128k limit
+    # Keep request size bounded so wide coding audits stay inside the primary coder context budget.
     max_chars = 330000 
     current_chars = 0
     truncated_messages = []

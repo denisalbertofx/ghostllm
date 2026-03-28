@@ -39,7 +39,7 @@ class TestServerModelRegistryBoot(unittest.TestCase):
         self.assertEqual(body.get("object"), "list")
         ids = {row.get("id") for row in body.get("data", [])}
         if server_main.MODEL_REGISTRY_ERROR is None:
-            self.assertIn("kimi", ids)
+            self.assertIn("coder", ids)
             self.assertFalse("ghost_diagnostics" in body)
         else:
             self.assertIn("ghost_diagnostics", body)
@@ -65,7 +65,7 @@ class TestServerModelRegistryBoot(unittest.TestCase):
 
         if server_main.MODEL_REGISTRY_ERROR:
             self.skipTest("registry not loaded in this environment")
-        self.assertTrue(server_main.is_model_allowed("kimi-k2.5"))
+        self.assertTrue(server_main.is_model_allowed("qwen3-coder-480b-a35b-instruct"))
 
     def test_list_models_when_bootstrap_fails_no_crash(self) -> None:
         """Import server with failed bootstrap — must not raise NameError on /v1/models."""

@@ -120,7 +120,7 @@ def test_startup_summary_ignores_disabled_flags() -> None:
         renderer.render_cli_startup_summary(
             command_mode="dev",
             assistant_mode="Chat",
-            model="kimi",
+            model="coder",
             prep=prep,
         )
     out = buf.getvalue()

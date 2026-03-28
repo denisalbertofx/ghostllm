@@ -1,6 +1,6 @@
 """
 Execution Agent v1 — model-router-ready, NVIDIA NIM-oriented, advisory-first.
-Produces context bundles, model selection (default Devstral), and structured edit proposals.
+Produces context bundles, model selection (default Qwen 3 Coder 480B A35B), and structured edit proposals.
 Does not replace the existing write path; GHOST_EXECUTION_AGENT_WRITES gates future automation.
 """
 from __future__ import annotations
@@ -40,11 +40,11 @@ ENV_NIM_BASE_URL = "GHOST_NIM_BASE_URL"
 ENV_NIM_API_KEY = "GHOST_NIM_API_KEY"
 ENV_EXECUTION_AGENT_LIVE = "GHOST_EXECUTION_AGENT_LIVE"
 
-# Apuesta inicial NIM (router-ready; overrides vía GHOST_*_MODEL)
-DEFAULT_CODE_WRITER_MODEL = "devstral-2-123b-instruct-2512"
-DEFAULT_REPAIR_MODEL = "glm-5"
-DEFAULT_PLANNER_MODEL = "kimi-k2.5"
-DEFAULT_GENERAL_FALLBACK_MODEL = "deepseek-v3.2"
+# Stack canónico de coding sobre NIM (router-ready; overrides vía GHOST_*_MODEL)
+DEFAULT_CODE_WRITER_MODEL = "qwen/qwen3-coder-480b-a35b-instruct"
+DEFAULT_REPAIR_MODEL = "qwen/qwen3-coder-480b-a35b-instruct"
+DEFAULT_PLANNER_MODEL = "qwen/qwen3-coder-480b-a35b-instruct"
+DEFAULT_GENERAL_FALLBACK_MODEL = "qwen/qwen3-coder-480b-a35b-instruct"
 MAX_CONTEXT_CHARS_DEFAULT = 12_000
 MAX_CONTEXT_FILES = 14
 
@@ -74,7 +74,7 @@ def execution_agent_live_enabled() -> bool:
 
 
 def general_fallback_model_id() -> str:
-    """Fallback general (p. ej. multi-file barato / razonamiento); por defecto deepseek-v3.2."""
+    """Fallback general del runtime; por defecto usa el mismo Qwen 3 Coder del stack canónico."""
     v = os.environ.get(ENV_GENERAL_FALLBACK_MODEL, "").strip()
     return v or DEFAULT_GENERAL_FALLBACK_MODEL
 
@@ -370,7 +370,7 @@ def select_execution_model(
     target_file_count: int = 1,
 ) -> ModelSelection:
     """
-    Deterministic model pick; router-ready. Defaults to Devstral for code writing.
+    Deterministic model pick; router-ready. Defaults to Qwen 3 Coder for code writing.
     """
     repair_n = int(session_state.get("repair_attempt_count") or 0)
     nim = nim_configured()
@@ -404,7 +404,7 @@ def select_execution_model(
         model_id=exec_model,
         role="execution",
         provider=provider,
-        reason="default_code_writer_devstral_or_GHOST_EXECUTION_MODEL",
+        reason="default_code_writer_qwen3_or_GHOST_EXECUTION_MODEL",
     )
 
 

@@ -119,7 +119,7 @@ def require_provider_for_assistant(base_url: Optional[str] = None) -> None:
 def _resolve_plan_command_model(model: str) -> str:
     requested = (model or "").strip()
     if requested.lower() == "planner":
-        requested = os.environ.get("GHOST_PLANNER_MODEL", "").strip() or "kimi"
+        requested = os.environ.get("GHOST_PLANNER_MODEL", "").strip() or "planner"
     return resolve_gateway_model_id(requested, REGISTRY_PATH)
 
 
@@ -442,7 +442,7 @@ def claude(
         typer.echo("Instálalo con: npm install -g @anthropic-ai/claude-code")
 
 @app.command()
-def dev(model: str = typer.Option("kimi", help="Model to use"), 
+def dev(model: str = typer.Option("coder", help="Model to use"), 
         auto_approve: bool = typer.Option(False, "--auto-approve", "-y"),
         profile: Profile = typer.Option(Profile.coder, "--profile", "-p", help="Operation profile"),
         preflight_only: bool = typer.Option(
@@ -471,12 +471,12 @@ def dev(model: str = typer.Option("kimi", help="Model to use"),
     assistant.run()
 
 @app.command()
-def codex(model: str = typer.Option("kimi"), auto_approve: bool = False, profile: Profile = Profile.coder):
+def codex(model: str = typer.Option("coder"), auto_approve: bool = False, profile: Profile = Profile.coder):
     """Alias for 'dev'."""
     dev(model=model, auto_approve=auto_approve, profile=profile)
 
 @app.command()
-def chat(model: str = typer.Option("kimi"), auto_approve: bool = False, profile: Profile = Profile.coder):
+def chat(model: str = typer.Option("coder"), auto_approve: bool = False, profile: Profile = Profile.coder):
     """Alias for 'dev'."""
     dev(model=model, auto_approve=auto_approve, profile=profile)
 
@@ -513,7 +513,7 @@ def plan(
 
 @app.command()
 def do(task: str = typer.Argument(...), 
-       model: str = typer.Option("kimi"), 
+       model: str = typer.Option("coder"), 
        auto_approve: bool = typer.Option(True, "-y"),
        profile: Profile = typer.Option(Profile.coder),
        role: str = typer.Option("main", help="The role for this session"),
@@ -567,7 +567,7 @@ def edit(
     assistant = CodexAssistant(
         pf.base_url,
         get_api_key(),
-        "kimi",
+        "coder",
         mode="Patch",
         auto_approve=auto_approve,
         runtime_prep=runtime_prep,
@@ -596,7 +596,7 @@ def fix(
     assistant = CodexAssistant(
         pf.base_url,
         get_api_key(),
-        "kimi",
+        "coder",
         mode="Fix",
         auto_approve=auto_approve,
         runtime_prep=runtime_prep,
