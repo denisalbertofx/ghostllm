@@ -61,12 +61,16 @@ Return a JSON object with exactly these keys:
 - "root_cause" (string, <= 400 chars): one-line diagnosis.
 - "edits" (array): zero or more objects, each with:
   - "path" (string): repo-relative file path; MUST be one of the allowed_paths listed in the user message.
-  - "old_str" (string): exact substring to replace once in that file (must exist verbatim).
+  - "old_str" (string): exact substring to replace once in that file (must exist verbatim). Use "" ONLY when creating
+    a brand-new allowlisted file that does not exist yet.
   - "new_str" (string): replacement text.
 Do not invent paths outside allowed_paths. Prefer the smallest edit that fixes the error.
 If the log shows SyntaxError, IndentationError, ImportError, AttributeError, or module load/startup failures,
 your edits MUST directly remove that exact failure (same file/line class). No refactors, renames, or cleanups
-until that error class disappears from output."""
+until that error class disappears from output.
+If the log shows a TypeScript missing declaration error (for example TS7016 / "Could not find a declaration file"),
+prefer creating a dedicated .d.ts file in an allowed path. Do NOT inline `declare module` hacks into runtime source
+files like .ts/.tsx implementations when a declaration-file path is available."""
 
 
 def repair_specialist_enabled() -> bool:
@@ -103,18 +107,119 @@ def _norm_rel_path(p: str) -> str:
     return s
 
 
+def _norm_cwd_path(p: str) -> str:
+    return _norm_rel_path(p).strip("/")
+
+
+def _sanitize_module_name_for_dts(module_name: str) -> str:
+    raw = str(module_name or "").strip().lower()
+    if raw.startswith("@"):
+        raw = raw[1:]
+    raw = raw.replace("\\", "/")
+    raw = raw.replace("/", "__")
+    raw = re.sub(r"[^a-z0-9._-]+", "-", raw)
+    raw = raw.strip(".-_")
+    return raw or "module"
+
+
+def _extract_missing_type_declaration_modules(blob: str) -> List[str]:
+    out: List[str] = []
+    patterns = (
+        r"Could not find a declaration file for module ['\"]([^'\"]+)['\"]",
+        r"Cannot find module ['\"]([^'\"]+)['\"] or its corresponding type declarations",
+    )
+    for pat in patterns:
+        for match in re.finditer(pat, blob or "", re.I):
+            module_name = str(match.group(1) or "").strip()
+            if not module_name:
+                continue
+            if module_name.startswith(".") or re.match(r"^[A-Za-z]:/", module_name):
+                continue
+            if module_name not in out:
+                out.append(module_name)
+    return out
+
+
+def _ts_declaration_allowlist_candidates(
+    failed_checks: List[Dict[str, Any]],
+    *,
+    limit: int,
+) -> List[str]:
+    seen: List[str] = []
+    for check in failed_checks or []:
+        if str(check.get("status") or "").strip().lower() not in ("failed", "error", "blocked", "denied"):
+            continue
+        blob = _check_blob(check)
+        modules = _extract_missing_type_declaration_modules(blob)
+        if not modules:
+            continue
+        cwd = _norm_cwd_path(str(check.get("cwd") or ""))
+        for module_name in modules:
+            safe_name = _sanitize_module_name_for_dts(module_name)
+            candidates = [
+                f"types/{safe_name}.d.ts",
+                "global.d.ts",
+            ]
+            for candidate in candidates:
+                rel = f"{cwd}/{candidate}" if cwd else candidate
+                rel = _norm_rel_path(rel)
+                if rel and rel not in seen:
+                    seen.append(rel)
+                if len(seen) >= limit:
+                    return seen[:limit]
+    return seen[:limit]
+
+
+def _looks_like_jest_typescript_transform_issue(blob: str) -> bool:
+    b = str(blob or "")
+    bl = b.lower()
+    if "jest encountered an unexpected token" not in bl:
+        return False
+    if "typescript" in bl or "ts-jest" in bl:
+        return True
+    return bool(re.search(r"\.(?:ts|tsx)(?::|\(|\b)", b))
+
+
+def _jest_transform_allowlist_candidates(
+    failed_checks: List[Dict[str, Any]],
+    *,
+    limit: int,
+) -> List[str]:
+    seen: List[str] = []
+    for check in failed_checks or []:
+        if str(check.get("status") or "").strip().lower() not in ("failed", "error", "blocked", "denied"):
+            continue
+        blob = _check_blob(check)
+        if not _looks_like_jest_typescript_transform_issue(blob):
+            continue
+        cwd = _norm_cwd_path(str(check.get("cwd") or ""))
+        for candidate in (
+            "package.json",
+            "jest.config.js",
+            "jest.config.cjs",
+            "jest.setup.js",
+            "tsconfig.json",
+        ):
+            rel = f"{cwd}/{candidate}" if cwd else candidate
+            rel = _norm_rel_path(rel)
+            if rel and rel not in seen:
+                seen.append(rel)
+            if len(seen) >= limit:
+                return seen[:limit]
+    return seen[:limit]
+
+
 def build_repair_allowlist(
     failed_checks: List[Dict[str, Any]],
     diff_summary: List[Dict[str, Any]],
     *,
     limit: int = 16,
 ) -> List[str]:
-    """Union of files touched in session diff and paths extracted from failed check output."""
+    """Union of failed-check paths plus touched files, prioritized by root-cause signals first."""
     seen: List[str] = []
-    for d in diff_summary or []:
-        fp = _norm_rel_path(str(d.get("file") or ""))
-        if fp and fp not in seen:
-            seen.append(fp)
+    for candidate in _jest_transform_allowlist_candidates(list(failed_checks or []), limit=limit):
+        if candidate and candidate not in seen:
+            seen.append(candidate)
         if len(seen) >= limit:
             return seen[:limit]
     for p in _collect_paths_from_failed_checks(list(failed_checks or []), limit=max(limit, 12)):
@@ -123,6 +228,17 @@ def build_repair_allowlist(
             seen.append(n)
         if len(seen) >= limit:
             break
+    for candidate in _ts_declaration_allowlist_candidates(list(failed_checks or []), limit=limit):
+        if candidate and candidate not in seen:
+            seen.append(candidate)
+        if len(seen) >= limit:
+            return seen[:limit]
+    for d in diff_summary or []:
+        fp = _norm_rel_path(str(d.get("file") or ""))
+        if fp and fp not in seen:
+            seen.append(fp)
+        if len(seen) >= limit:
+            return seen[:limit]
     return seen[:limit]
 
 
@@ -164,14 +280,26 @@ def summarize_primary_failure(failed_checks: List[Dict[str, Any]]) -> str:
         blob = _check_blob(check)
         if not blob.strip():
             continue
-        err = re.search(r"\b([A-Z][A-Za-z_]*(?:Error|Exception))\b(?::\s*([^\n]+))?", blob)
+        jest_syntax_loc = re.search(
+            r"SyntaxError:\s+([A-Za-z0-9_./\\:-]+\.(?:ts|tsx|js|jsx)):[^\n]*\((\d+):\d+\)",
+            blob,
+        )
         py_loc = re.search(r'File "([^"]+)", line (\d+)', blob)
         generic_loc = re.search(r"([A-Za-z0-9_./\\-]+\.(?:py|ts|tsx|js|jsx|json|yaml|yml))[:(](\d+)", blob)
         location = ""
-        if py_loc:
+        if jest_syntax_loc:
+            location = f"{_norm_rel_path(jest_syntax_loc.group(1))}:{jest_syntax_loc.group(2)}"
+        elif py_loc:
             location = f"{_norm_rel_path(py_loc.group(1))}:{py_loc.group(2)}"
         elif generic_loc:
             location = f"{_norm_rel_path(generic_loc.group(1))}:{generic_loc.group(2)}"
+        if _looks_like_jest_typescript_transform_issue(blob):
+            summary = "Jest TypeScript transform/config missing"
+            if location:
+                summary += f" at {location}"
+            summary += " - configure Jest for TS/TSX instead of editing the test source"
+            return summary[:240]
+        err = re.search(r"\b([A-Z][A-Za-z_]*(?:Error|Exception))\b(?::\s*([^\n]+))?", blob)
         if err:
             detail = str(err.group(2) or "").strip()
             summary = err.group(1)
@@ -549,6 +677,7 @@ def build_repair_specialist_user_message(
     diff_summary: List[Dict[str, Any]],
     previous_patch_text: str,
     max_chars: int,
+    repo_root: str = "",
     causal_signature_text: str = "",
     error_signature_delta: str = "first",
 ) -> Tuple[str, Dict[str, Any]]:
@@ -585,6 +714,16 @@ def build_repair_specialist_user_message(
     else:
         for p in allow:
             lines.append(f"- {p}")
+    declaration_targets = [p for p in allow if p.lower().endswith(".d.ts")]
+    if declaration_targets:
+        lines.append("")
+        lines.append("## TypeScript declaration guidance")
+        lines.append(
+            "- For TS7016 / missing declaration errors, prefer creating one of these .d.ts files with old_str set to \"\"."
+        )
+        lines.append("- Do not put `declare module` blocks inside runtime implementation files when a declaration target exists.")
+        for p in declaration_targets[:4]:
+            lines.append(f"- declaration target: {p}")
     lines.append("")
     lines.append("## Session diff summary (files touched)")
     uq, by_file, total = _diff_lines(diff_summary or [])
@@ -595,6 +734,7 @@ def build_repair_specialist_user_message(
     body_budget = max(800, max_chars - 400)
     stderr_budget = max(400, body_budget // 3)
     prev_budget = max(200, body_budget // 4)
+    excerpt_budget = max(800, body_budget // 2)
 
     lines.append("")
     lines.append("## Tool / check output (truncated)")
@@ -606,6 +746,25 @@ def build_repair_specialist_user_message(
             blob_parts.append(f"### {name}\n{blob}")
     stderr_combined = _truncate("\n\n".join(blob_parts), stderr_budget * 2)
     lines.append(stderr_combined or "(no stderr captured)")
+
+    if allow and repo_root:
+        lines.append("")
+        lines.append("## Current file excerpts (copy old_str exactly from here when possible)")
+        remaining = excerpt_budget
+        excerpt_paths: List[str] = []
+        for rel_path in allow[:4]:
+            if remaining < 240:
+                break
+            per_file = min(2500, max(240, remaining // max(1, 4 - len(excerpt_paths))))
+            excerpt = _load_repair_file_excerpt(repo_root, rel_path, max_chars=per_file)
+            if not excerpt:
+                continue
+            excerpt_paths.append(rel_path)
+            lines.append(f"### {rel_path}")
+            lines.append(excerpt)
+            remaining -= len(excerpt)
+    else:
+        excerpt_paths = []
 
     if previous_patch_text.strip():
         lines.append("")
@@ -622,6 +781,7 @@ def build_repair_specialist_user_message(
         "budget": max_chars,
         "primary_failure": primary_failure,
         "error_signature_delta": error_signature_delta,
+        "file_excerpt_paths": excerpt_paths,
     }
     return text, meta
 
@@ -630,6 +790,24 @@ def _diff_lines(diff_summary: List[Dict[str, Any]]) -> Tuple[List[str], Dict[str
     from apps.cli.runtime.artifacts import deduplicated_diff_summary
 
     return deduplicated_diff_summary(diff_summary)
+
+
+def _load_repair_file_excerpt(repo_root: str, rel_path: str, *, max_chars: int) -> str:
+    path = _norm_rel_path(rel_path)
+    if not repo_root or not path or max_chars <= 0:
+        return ""
+    abs_path = os.path.join(repo_root, path.replace("/", os.sep))
+    if not os.path.isfile(abs_path):
+        return ""
+    try:
+        with open(abs_path, "r", encoding="utf-8") as fh:
+            content = fh.read()
+    except Exception:
+        return ""
+    content = content.strip()
+    if not content:
+        return ""
+    return _truncate(content, max_chars)
 
 
 def parse_repair_edits_json(raw_text: str) -> Tuple[str, List[Dict[str, str]], bool]:
@@ -820,6 +998,7 @@ def run_repair_specialist_llm(
     last_main_turn_prompt_chars: int,
     ghost_server_url: str,
     ghost_api_key: str,
+    repo_root: str = "",
     causal_signature_text: str = "",
     error_signature_delta: str = "first",
 ) -> RepairSpecialistResult:
@@ -831,6 +1010,7 @@ def run_repair_specialist_llm(
         diff_summary=diff_summary,
         previous_patch_text=previous_patch_text,
         max_chars=user_cap,
+        repo_root=repo_root,
         causal_signature_text=causal_signature_text,
         error_signature_delta=error_signature_delta,
     )

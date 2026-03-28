@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import os
 import unittest
+from tempfile import TemporaryDirectory
 from unittest import mock
 
 from apps.cli.runtime.nim_provider import ProviderResponse, ProviderUsage
@@ -205,8 +206,100 @@ class TestRepairSpecialist(unittest.TestCase):
         ]
         diff = [{"file": "lib/bar.ts", "type": "Edit File"}]
         allow = build_repair_allowlist(failed, diff)
+        self.assertEqual(allow[0], "src/foo.ts")
         self.assertIn("lib/bar.ts", allow)
         self.assertTrue(any("foo.ts" in p for p in allow))
+
+    def test_build_allowlist_scopes_failed_check_paths_to_subproject_cwd(self):
+        failed = [
+            {
+                "name": "TypeCheck",
+                "status": "failed",
+                "cwd": "notes-app",
+                "stdout": (
+                    "tsconfig.json(3,15): error TS5107: Option 'target=ES5' is deprecated\n"
+                    "components/NoteEditor.tsx(2,27): error TS2835: Relative import paths need explicit file extensions\n"
+                ),
+            }
+        ]
+        allow = build_repair_allowlist(failed, [])
+        self.assertIn("notes-app/tsconfig.json", allow)
+        self.assertIn("notes-app/components/NoteEditor.tsx", allow)
+
+    def test_build_allowlist_adds_declaration_candidates_for_missing_types(self):
+        failed = [
+            {
+                "name": "Build",
+                "status": "failed",
+                "cwd": "notes-app",
+                "stderr": (
+                    "./lib/db.ts:1:22\n"
+                    "Type error: Could not find a declaration file for module 'better-sqlite3'.\n"
+                    "'.../node_modules/better-sqlite3/lib/index.js' implicitly has an 'any' type.\n"
+                ),
+            }
+        ]
+        allow = build_repair_allowlist(failed, [])
+        self.assertIn("notes-app/lib/db.ts", allow)
+        self.assertIn("notes-app/types/better-sqlite3.d.ts", allow)
+        self.assertIn("notes-app/global.d.ts", allow)
+
+    def test_build_allowlist_adds_jest_transform_config_candidates(self):
+        failed = [
+            {
+                "name": "Tests",
+                "status": "failed",
+                "cwd": "notes-app",
+                "stderr": (
+                    "FAIL __tests__/notes.test.tsx\n"
+                    "Jest encountered an unexpected token\n"
+                    "If you are trying to use TypeScript, see https://jestjs.io/docs/getting-started#using-typescript\n"
+                    "SyntaxError: C:\\repo\\notes-app\\__tests__\\notes.test.tsx: Missing semicolon. (6:11)\n"
+                ),
+            }
+        ]
+        allow = build_repair_allowlist(failed, [])
+        self.assertEqual(allow[0], "notes-app/package.json")
+        self.assertIn("notes-app/jest.config.js", allow)
+        self.assertIn("notes-app/tsconfig.json", allow)
+        self.assertIn("notes-app/__tests__/notes.test.tsx", allow)
+
+    def test_build_repair_specialist_user_message_includes_file_excerpts(self):
+        with TemporaryDirectory() as tmp:
+            os.makedirs(os.path.join(tmp, "notes-app", "components"), exist_ok=True)
+            note_editor = os.path.join(tmp, "notes-app", "components", "NoteEditor.tsx")
+            with open(note_editor, "w", encoding="utf-8") as fh:
+                fh.write("export default function NoteEditor() { return <div />; }\n")
+            tsconfig = os.path.join(tmp, "notes-app", "tsconfig.json")
+            with open(tsconfig, "w", encoding="utf-8") as fh:
+                fh.write('{"compilerOptions":{"target":"es5"}}\n')
+            failed = [
+                {
+                    "name": "Build",
+                    "status": "failed",
+                    "cwd": "notes-app",
+                    "stderr": "./components/NoteEditor.tsx:19:5 Type error: Property 'div' does not exist",
+                },
+                {
+                    "name": "TypeCheck",
+                    "status": "failed",
+                    "cwd": "notes-app",
+                    "stderr": "tsconfig.json(3,15): error TS5107",
+                },
+            ]
+            msg, meta = build_repair_specialist_user_message(
+                failed_checks=failed,
+                diff_summary=[],
+                previous_patch_text="",
+                max_chars=6000,
+                repo_root=tmp,
+            )
+            self.assertIn("Current file excerpts", msg)
+            self.assertIn("notes-app/components/NoteEditor.tsx", msg)
+            self.assertIn("export default function NoteEditor", msg)
+            self.assertIn("notes-app/tsconfig.json", msg)
+            self.assertIn("target", msg)
+            self.assertIn("notes-app/components/NoteEditor.tsx", meta["file_excerpt_paths"])
 
     def test_parse_repair_edits_json(self):
         payload = {
@@ -250,6 +343,24 @@ class TestRepairSpecialist(unittest.TestCase):
         summary = summarize_primary_failure(failed)
         self.assertIn("IndentationError", summary)
         self.assertIn("apps/server/database.py:38", summary)
+
+    def test_primary_failure_summary_prefers_jest_transform_diagnosis(self):
+        failed = [
+            {
+                "name": "Tests",
+                "status": "failed",
+                "cwd": "notes-app",
+                "stderr": (
+                    "FAIL __tests__/notes.test.tsx\n"
+                    "Jest encountered an unexpected token\n"
+                    "If you are trying to use TypeScript, see https://jestjs.io/docs/getting-started#using-typescript\n"
+                    "SyntaxError: C:\\repo\\notes-app\\__tests__\\notes.test.tsx: Missing semicolon. (6:11)\n"
+                ),
+            }
+        ]
+        summary = summarize_primary_failure(failed)
+        self.assertIn("Jest TypeScript transform/config missing", summary)
+        self.assertIn("notes-app/__tests__/notes.test.tsx:6", summary)
 
     def test_user_message_includes_exact_active_failure_section(self):
         failed = [

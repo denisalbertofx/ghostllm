@@ -7,8 +7,10 @@ import re
 import time
 import random
 import logging
+import locale
 import subprocess
 import difflib
+import shlex
 from collections.abc import Mapping
 from pathlib import Path
 from typing import List, Dict, Any, Optional, Tuple
@@ -37,7 +39,11 @@ from apps.cli.runtime.task_contract import (
 from apps.cli.runtime.adapters.contract_intake import intake_fill_task_contract_spec
 from .runtime.policy_gate import PolicyGate, ApprovalLevel
 from .runtime.verification import VerificationManager, parse_pytest_focus_targets
-from .runtime.verification_coordinator import VerificationCoordinator, format_integrity_verify_preamble
+from .runtime.verification_coordinator import (
+    VerificationCoordinator,
+    attach_coordinator_view,
+    format_integrity_verify_preamble,
+)
 from .runtime.artifacts import ArtifactManager, append_compacted_session_event
 from .runtime.hooks import HookManager, HookEvents
 from .runtime.tasks import TaskManager
@@ -195,6 +201,7 @@ from apps.cli.runtime.session_phase import (
 from apps.cli.runtime.outcome_engine import (
     OUTCOME_ALREADY_IMPLEMENTED,
     OUTCOME_READ_ONLY,
+    _collect_paths_from_failed_checks,
     _has_final_nl_response,
     determine_task_outcome,
     verification_integrity_stale,
@@ -277,6 +284,16 @@ def _positive_int_or_none(value: Any) -> Optional[int]:
     return parsed if parsed > 0 else None
 
 
+def _repair_apply_tool_for_edit(repo_root: str, edit: Mapping[str, Any]) -> Tuple[str, Dict[str, str]]:
+    path = PathComposer.normalize_path_segments(str(edit.get("path") or ""))
+    old_str = str(edit.get("old_str") if edit.get("old_str") is not None else "")
+    new_str = str(edit.get("new_str") if edit.get("new_str") is not None else "")
+    full_path = PathComposer.compose(repo_root, path) if repo_root and path else ""
+    if path and old_str == "" and full_path and not os.path.exists(full_path):
+        return "write_file", {"path": path, "content": new_str}
+    return "edit_file", {"path": path, "old_str": old_str, "new_str": new_str}
+
+
 _INTERNAL_WORKSPACE_METADATA_NAMES = frozenset(
     {
         ".ghost",
@@ -352,6 +369,630 @@ def _should_start_greenfield_in_act(cwd: str, intent: Optional[Intent]) -> bool:
     return context in ("empty", "repo_shell")
 
 
+def _effective_tool_task_type(mode: str, intent_task_type: str, *, bootstrap_scaffold: bool = False) -> str:
+    task_type = str(intent_task_type or "").strip().lower() or "ask"
+    mode_name = str(mode or "").strip()
+    if mode_name == "Fix":
+        return "fix"
+    if mode_name == "Patch":
+        return "code"
+    if mode_name == "Review":
+        return "review"
+    if mode_name == "Plan":
+        return "research"
+    if mode_name == "Execute":
+        if bootstrap_scaffold:
+            return "scaffold"
+        return "code" if task_type == "ask" else task_type
+    return task_type
+
+
+def _is_local_package_install_command(command: str) -> bool:
+    cmd = str(command or "").strip().lower()
+    if not cmd:
+        return False
+    if not re.search(r"\b(npm|pnpm|yarn)\s+install\b", cmd):
+        return False
+    if re.search(r"(^|\s)-(g|global)(\s|$)", cmd):
+        return False
+    if "npm install -g" in cmd or "pnpm add -g" in cmd or "yarn global " in cmd:
+        return False
+    return True
+
+
+_LOCAL_PACKAGE_MANIFEST_NAMES = (
+    "package.json",
+    "package-lock.json",
+    "pnpm-lock.yaml",
+    "yarn.lock",
+)
+
+
+def _local_package_manifest_relpaths(project_cwd: str) -> List[str]:
+    base = str(project_cwd or ".").strip().replace("\\", "/").strip()
+    prefix = "" if base in ("", ".") else base.strip("./") + "/"
+    return [prefix + name for name in _LOCAL_PACKAGE_MANIFEST_NAMES]
+
+
+def _snapshot_local_package_install_state(repo_root: str, project_cwd: str) -> Dict[str, str]:
+    snapshot: Dict[str, str] = {}
+    for rel_path in _local_package_manifest_relpaths(project_cwd):
+        abs_path = PathComposer.compose(repo_root, rel_path)
+        if not os.path.isfile(abs_path):
+            continue
+        try:
+            with open(abs_path, "rb") as fh:
+                snapshot[rel_path] = hashlib.sha256(fh.read()).hexdigest()
+        except OSError:
+            continue
+    return snapshot
+
+
+def _collect_changed_local_package_install_files(
+    repo_root: str,
+    project_cwd: str,
+    before_state: Optional[Dict[str, str]],
+) -> List[str]:
+    changed: List[str] = []
+    prior = dict(before_state or {})
+    for rel_path in _local_package_manifest_relpaths(project_cwd):
+        abs_path = PathComposer.compose(repo_root, rel_path)
+        if not os.path.isfile(abs_path):
+            continue
+        try:
+            with open(abs_path, "rb") as fh:
+                current_hash = hashlib.sha256(fh.read()).hexdigest()
+        except OSError:
+            continue
+        if prior.get(rel_path) != current_hash:
+            changed.append(rel_path)
+    return changed
+
+
+def _active_workset_candidate_paths(session: Any) -> List[str]:
+    workset_paths: List[str] = []
+    if not session or not isinstance(getattr(session, "active_workset", None), dict):
+        return workset_paths
+    ws = dict(getattr(session, "active_workset", {}) or {})
+    for key in ("written_files", "edited_files", "candidate_files", "read_files"):
+        for item in ws.get(key) or []:
+            txt = str(item or "").strip()
+            if txt:
+                workset_paths.append(txt)
+    return workset_paths
+
+
+def _extract_local_package_install_packages(command: str) -> List[str]:
+    cmd = str(command or "").strip()
+    if not cmd:
+        return []
+    segments = [seg.strip() for seg in re.split(r"[;&]+", cmd) if seg.strip()]
+    for segment in reversed(segments):
+        if not re.search(r"\b(npm|pnpm|yarn)\s+install\b", segment, re.IGNORECASE):
+            continue
+        try:
+            tokens = shlex.split(segment, posix=False)
+        except ValueError:
+            tokens = segment.split()
+        packages: List[str] = []
+        for idx in range(len(tokens) - 1):
+            if tokens[idx].lower() in ("npm", "pnpm", "yarn") and tokens[idx + 1].lower() == "install":
+                for token in tokens[idx + 2 :]:
+                    cleaned = str(token or "").strip().strip("\"'")
+                    if not cleaned or cleaned.startswith("-"):
+                        continue
+                    packages.append(cleaned)
+                return packages
+    return []
+
+
+def _package_declared_and_installed(repo_root: str, project_cwd: str, package_name: str) -> bool:
+    pkg = str(package_name or "").strip()
+    if not pkg:
+        return False
+    manifest_path = PathComposer.compose(repo_root, _local_package_manifest_relpaths(project_cwd)[0])
+    if not os.path.isfile(manifest_path):
+        return False
+    try:
+        with open(manifest_path, "r", encoding="utf-8") as fh:
+            manifest = json.load(fh)
+    except (OSError, json.JSONDecodeError):
+        return False
+    declared = False
+    for key in ("dependencies", "devDependencies", "peerDependencies", "optionalDependencies"):
+        section = manifest.get(key) or {}
+        if isinstance(section, dict) and pkg in section:
+            declared = True
+            break
+    if not declared:
+        return False
+    node_modules_root = PathComposer.compose(repo_root, f"{str(project_cwd or '.').strip().strip('./')}/node_modules".strip("/"))
+    if not os.path.isdir(node_modules_root):
+        return False
+    package_dir = os.path.join(node_modules_root, *pkg.split("/"))
+    return os.path.isdir(package_dir)
+
+
+def _package_declared(repo_root: str, project_cwd: str, package_name: str) -> bool:
+    pkg = str(package_name or "").strip()
+    if not pkg:
+        return False
+    manifest_path = PathComposer.compose(repo_root, _local_package_manifest_relpaths(project_cwd)[0])
+    if not os.path.isfile(manifest_path):
+        return False
+    try:
+        with open(manifest_path, "r", encoding="utf-8") as fh:
+            manifest = json.load(fh)
+    except (OSError, json.JSONDecodeError):
+        return False
+    for key in ("dependencies", "devDependencies", "peerDependencies", "optionalDependencies"):
+        section = manifest.get(key) or {}
+        if isinstance(section, dict) and pkg in section:
+            return True
+    return False
+
+
+def _local_package_install_already_satisfied(repo_root: str, command: str, *, project_cwd: str = ".") -> bool:
+    if not _is_local_package_install_command(command):
+        return False
+    packages = _extract_local_package_install_packages(command)
+    if not packages:
+        return False
+    return all(_package_declared_and_installed(repo_root, project_cwd, pkg) for pkg in packages)
+
+
+def _task_looks_dependency_only_change(task_text: str) -> bool:
+    t = str(task_text or "").strip().lower()
+    if not t:
+        return False
+    install_markers = ("install", "instala", "dependenc", "npm ", "pnpm ", "yarn ", "package", "paquete")
+    if not any(marker in t for marker in install_markers):
+        return False
+    feature_markers = (
+        "crud",
+        "database",
+        "db",
+        "api",
+        "ui",
+        "frontend",
+        "route",
+        "page",
+        "component",
+        "full-stack",
+        "full stack",
+        "create",
+        "crear",
+        "listar",
+        "list",
+        "update",
+        "actualiza",
+        "editar",
+        "edit",
+        "delete",
+        "borrar",
+        "warning",
+        "turbopack.root",
+    )
+    return not any(marker in t for marker in feature_markers)
+
+
+def _is_package_manager_project_command(command: str) -> bool:
+    cmd = str(command or "").strip().lower()
+    if not cmd:
+        return False
+    return bool(re.search(r"\b(npm|pnpm|yarn)\s+(install|run|test|lint|build)\b", cmd))
+
+
+def _infer_single_node_project_cwd(repo_root: str, candidate_paths: Optional[List[str]] = None) -> Optional[str]:
+    if os.path.exists(os.path.join(repo_root, "package.json")):
+        return "."
+
+    candidates: List[str] = []
+
+    def add_candidate(rel_dir: str) -> None:
+        rel = str(rel_dir or "").strip().replace("\\", "/").strip("./")
+        if rel and rel not in candidates:
+            candidates.append(rel)
+
+    for raw_path in candidate_paths or []:
+        rel_path = str(raw_path or "").strip().replace("\\", "/").strip("./")
+        if not rel_path:
+            continue
+        current = rel_path
+        abs_current = os.path.join(repo_root, current)
+        if not os.path.isdir(abs_current):
+            current = os.path.dirname(rel_path)
+        seen: set[str] = set()
+        while current and current not in seen:
+            seen.add(current)
+            if os.path.exists(os.path.join(repo_root, current, "package.json")):
+                add_candidate(current)
+                break
+            parent = os.path.dirname(current)
+            if parent == current:
+                break
+            current = parent
+
+    if not candidates:
+        try:
+            for entry in os.scandir(repo_root):
+                if not entry.is_dir():
+                    continue
+                name = str(entry.name or "").strip()
+                if not name or name.startswith("."):
+                    continue
+                if os.path.exists(os.path.join(entry.path, "package.json")):
+                    add_candidate(name)
+        except OSError:
+            return None
+
+    if len(candidates) == 1:
+        return candidates[0]
+    return None
+
+
+def _scope_package_manager_command_to_project(
+    repo_root: str,
+    command: str,
+    candidate_paths: Optional[List[str]] = None,
+) -> Tuple[str, Optional[str]]:
+    raw = str(command or "").strip()
+    if not _is_package_manager_project_command(raw):
+        return raw, None
+    if re.search(r"(^|[;&])\s*(cd|set-location)\b", raw, re.IGNORECASE):
+        return raw, None
+    target_cwd = _infer_single_node_project_cwd(repo_root, candidate_paths)
+    if not target_cwd or target_cwd == ".":
+        return raw, None
+    scoped = f'cd /d "{target_cwd}" && {raw}'
+    return scoped, target_cwd
+
+
+_NODE_TOOL_PACKAGE_MAP = {
+    "jest": "jest",
+    "vitest": "vitest",
+    "tsc": "typescript",
+    "eslint": "eslint",
+    "next": "next",
+    "ts-jest": "ts-jest",
+    "jest-environment-jsdom": "jest-environment-jsdom",
+    "babel-jest": "babel-jest",
+}
+
+
+def _extract_missing_command_token(text: str) -> str:
+    raw = str(text or "").strip()
+    if not raw:
+        return ""
+    patterns = (
+        r'"(?P<cmd>[^"\r\n]+)"\s+no se reconoce',
+        r"'(?P<cmd>[^'\r\n]+)'\s+is not recognized",
+        r"(?P<cmd>[@A-Za-z0-9._/-]+)\s+is not recognized",
+        r"(?P<cmd>[@A-Za-z0-9._/-]+):\s+command not found",
+        r"(?P<cmd>[@A-Za-z0-9._/-]+)\s+not found",
+    )
+    for pattern in patterns:
+        match = re.search(pattern, raw, re.IGNORECASE)
+        if match:
+            return str(match.group("cmd") or "").strip().strip("\"'")
+    return ""
+
+
+def _extract_missing_node_package_token(text: str) -> str:
+    raw = str(text or "").strip()
+    if not raw:
+        return ""
+    patterns = (
+        r"Preset\s+(?P<pkg>[@A-Za-z0-9._/-]+)\s+not found",
+        r"Cannot find module ['\"](?P<pkg>[^'\"]+)['\"]",
+        r"Test environment\s+(?P<pkg>[@A-Za-z0-9._/-]+)\s+cannot be found",
+    )
+    for pattern in patterns:
+        match = re.search(pattern, raw, re.IGNORECASE)
+        if not match:
+            continue
+        pkg = str(match.group("pkg") or "").strip().strip("\"'")
+        if not pkg or pkg.startswith(".") or re.match(r"^[A-Za-z]:[\\/]", pkg):
+            continue
+        return pkg
+    return ""
+
+
+def _infer_missing_local_node_package_from_failed_checks(
+    repo_root: str,
+    failed_checks: Optional[List[Dict[str, Any]]],
+) -> Optional[Dict[str, str]]:
+    for check in failed_checks or []:
+        if not isinstance(check, dict):
+            continue
+        blob = "\n".join(
+            str(check.get(key) or "")
+            for key in ("stderr", "stdout", "error", "output_summary")
+        )
+        missing_cmd = _extract_missing_command_token(blob)
+        pkg = ""
+        missing_token = ""
+        if missing_cmd:
+            missing_token = missing_cmd
+            pkg = _NODE_TOOL_PACKAGE_MAP.get(missing_cmd.strip().lower(), "")
+        if not pkg:
+            missing_pkg = _extract_missing_node_package_token(blob)
+            if missing_pkg:
+                missing_token = missing_pkg
+                pkg = _NODE_TOOL_PACKAGE_MAP.get(missing_pkg.strip().lower(), missing_pkg.strip())
+        if not pkg:
+            continue
+        project_cwd = str(check.get("cwd") or ".").strip() or "."
+        if _package_declared_and_installed(repo_root, project_cwd, pkg):
+            continue
+        declared = _package_declared(repo_root, project_cwd, pkg)
+        return {
+            "package": pkg,
+            "cwd": project_cwd,
+            "missing_command": missing_token,
+            "declared": "1" if declared else "",
+        }
+    return None
+
+
+def _build_local_package_install_command(repo_root: str, project_cwd: str, package_name: str, *, declared: bool) -> str:
+    cwd = str(project_cwd or ".").strip() or "."
+    pkg = str(package_name or "").strip()
+    base_dir = PathComposer.compose(repo_root, cwd)
+    if os.path.isfile(os.path.join(base_dir, "pnpm-lock.yaml")):
+        install_cmd = "pnpm install" if declared else f"pnpm add -D {pkg}"
+    elif os.path.isfile(os.path.join(base_dir, "yarn.lock")):
+        install_cmd = "yarn install" if declared else f"yarn add -D {pkg}"
+    else:
+        install_cmd = "npm install" if declared else f"npm install --save-dev {pkg}"
+    if cwd in ("", "."):
+        return install_cmd
+    return f'cd /d "{cwd}" && {install_cmd}'
+
+
+_TOOL_ARG_XML_SUFFIX_RE = re.compile(r"(?:\s*</?[A-Za-z][^>\r\n]*>\s*)+$")
+_SANITIZED_TOOL_STRING_KEYS = frozenset({"path", "query", "command", "mode", "evidence"})
+
+
+def _sanitize_tool_argument_scalar(key: Optional[str], value: Any) -> Any:
+    if not isinstance(value, str):
+        return value
+    text = value.strip()
+    if key in _SANITIZED_TOOL_STRING_KEYS:
+        text = _TOOL_ARG_XML_SUFFIX_RE.sub("", text).strip()
+        if key == "path":
+            text = text.replace("\r", " ").replace("\n", " ").strip()
+    return text
+
+
+def _sanitize_tool_arguments_payload(payload: Any, *, key: Optional[str] = None) -> Any:
+    if isinstance(payload, dict):
+        return {
+            str(k): _sanitize_tool_arguments_payload(v, key=str(k))
+            for k, v in payload.items()
+        }
+    if isinstance(payload, list):
+        return [_sanitize_tool_arguments_payload(v, key=key) for v in payload]
+    return _sanitize_tool_argument_scalar(key, payload)
+
+
+def _parse_tool_arguments_payload(args_raw: Any) -> Dict[str, Any]:
+    if isinstance(args_raw, dict):
+        return _sanitize_tool_arguments_payload(dict(args_raw))
+    if not isinstance(args_raw, str):
+        return {}
+    raw = str(args_raw or "").strip()
+    if not raw:
+        return {}
+    try:
+        parsed = json.loads(raw)
+    except json.JSONDecodeError:
+        try:
+            parsed, _end = json.JSONDecoder().raw_decode(raw)
+        except json.JSONDecodeError:
+            return {}
+    return _sanitize_tool_arguments_payload(parsed) if isinstance(parsed, dict) else {}
+
+
+def _should_retry_must_write_no_diff(
+    *,
+    change_expectation: str,
+    has_diff: bool,
+    already_implemented: bool,
+    iterations: int,
+    max_iter: int,
+    budget_exhausted: bool,
+    nudge_count: int,
+    nudge_cap: int,
+) -> bool:
+    if str(change_expectation or "").strip().lower() != "must_write":
+        return False
+    if has_diff or already_implemented or budget_exhausted:
+        return False
+    if nudge_cap <= 0 or nudge_count >= nudge_cap:
+        return False
+    return iterations < max_iter
+
+
+def _task_explicitly_requires_structured_verify(
+    task_text: str,
+    contract_spec: Optional[Dict[str, Any]],
+) -> bool:
+    spec = dict(contract_spec or {})
+    vp = dict(spec.get("verification_policy") or {})
+    if not bool(vp.get("required")):
+        return False
+    return user_explicitly_requests_verify_shell(str(task_text or ""))
+
+
+def _verification_input_files(
+    diff_summary: Optional[List[Dict[str, Any]]],
+    active_workset: Optional[Dict[str, Any]],
+    contract_spec: Optional[Dict[str, Any]],
+    task_text: str,
+) -> List[Dict[str, Any]]:
+    if diff_summary:
+        return [dict(item) for item in (diff_summary or []) if isinstance(item, dict) and item.get("file")]
+    if not _task_explicitly_requires_structured_verify(task_text, contract_spec):
+        return []
+    paths: List[str] = []
+    workset = dict(active_workset or {})
+    for key in ("written_files", "edited_files", "candidate_files", "read_files"):
+        for raw in workset.get(key) or []:
+            path = str(raw or "").strip()
+            if path and path not in paths:
+                paths.append(path)
+    for raw in (dict(contract_spec or {}).get("target_files") or []):
+        path = str(raw or "").strip()
+        if path and path not in paths:
+            paths.append(path)
+    return [{"file": path, "type": "Focus File"} for path in paths if path]
+
+
+def _verification_has_executed_checks(verification: Any) -> bool:
+    if not isinstance(verification, dict) or not verification:
+        return False
+    if int(verification.get("steps_executed_count") or 0) > 0:
+        return True
+    for check in verification.get("checks", []) or []:
+        if not isinstance(check, dict):
+            continue
+        if str(check.get("provenance") or "").strip().lower() != "executed":
+            continue
+        status = str(check.get("status") or "").strip().lower()
+        if status in ("passed", "success", "failed", "error"):
+            return True
+    return False
+
+
+def _manual_shell_check_kind_and_name(command: str) -> Tuple[str, str]:
+    cmd = str(command or "").strip().lower()
+    if any(tok in cmd for tok in ("tsc", "typecheck", "type-check", "pyright", "mypy")):
+        return "typecheck", "TypeCheck"
+    if any(tok in cmd for tok in ("eslint", "lint", "ruff", "biome", "prettier")):
+        return "lint", "Lint"
+    if any(tok in cmd for tok in ("pytest", "npm test", "pnpm test", "yarn test", "jest", "vitest")):
+        return "tests", "Tests"
+    return "build", "Build"
+
+
+def _extract_shell_command_cwd(command: str) -> str:
+    raw = str(command or "").strip()
+    if not raw:
+        return "."
+    m = re.search(r"(?:^|[;&])\s*cd\s+['\"]?([^'\";&]+)", raw, re.IGNORECASE)
+    if m:
+        return PathComposer.normalize_path_segments(m.group(1)) or "."
+    m = re.search(r"(?:^|[;&])\s*set-location\s+['\"]?([^'\";]+)", raw, re.IGNORECASE)
+    if m:
+        return PathComposer.normalize_path_segments(m.group(1)) or "."
+    return "."
+
+
+def _build_failed_manual_verify_check(command: str, result: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    cmd = str(command or "").strip()
+    if not cmd or not batch_exec.is_verification_shell_command(cmd):
+        return None
+    try:
+        exit_code = int(result.get("exit_code"))
+    except (TypeError, ValueError):
+        return None
+    if exit_code == 0:
+        return None
+    kind, name = _manual_shell_check_kind_and_name(cmd)
+    cwd = _extract_shell_command_cwd(cmd)
+    stdout = str(result.get("stdout") or "")
+    stderr = str(result.get("stderr") or "")
+    summary = stderr.strip() or stdout.strip()
+    if len(summary) > 1200:
+        summary = summary[:1200]
+    return {
+        "name": name,
+        "kind": kind,
+        "status": "failed",
+        "cwd": cwd,
+        "command": cmd,
+        "stdout": stdout,
+        "stderr": stderr,
+        "exit_code": exit_code,
+        "output_summary": summary,
+        "cause": "manual_shell_verify_failed",
+        "provenance": "executed",
+    }
+
+
+def _should_bridge_manual_verify_failure_to_repair(
+    *,
+    change_expectation: str,
+    has_diff: bool,
+    failed_checks: List[Dict[str, Any]],
+    iterations: int,
+    max_iter: int,
+    budget_exhausted: bool,
+    bridge_count: int,
+    bridge_cap: int,
+) -> bool:
+    if str(change_expectation or "").strip().lower() != "must_write":
+        return False
+    if has_diff or budget_exhausted:
+        return False
+    if not failed_checks:
+        return False
+    if bridge_cap <= 0 or bridge_count >= bridge_cap:
+        return False
+    return iterations < max_iter
+
+
+def _should_allow_followup_repair_attempt(
+    *,
+    repair_count: int,
+    max_repair: int,
+    focus_files: List[str],
+    diff_summary: List[Dict[str, Any]],
+    bonus_cap: int = 1,
+) -> bool:
+    if repair_count < max_repair:
+        return False
+    if bonus_cap <= 0 or repair_count >= max_repair + bonus_cap:
+        return False
+    focus = [str(item or "").replace("\\", "/").strip() for item in (focus_files or []) if str(item or "").strip()]
+    if not focus:
+        return False
+    diff_files = {
+        str(d.get("file") or "").replace("\\", "/").strip()
+        for d in (diff_summary or [])
+        if isinstance(d, dict) and str(d.get("file") or "").strip()
+    }
+    untouched = [item for item in focus if item not in diff_files]
+    return bool(untouched)
+
+
+def _repair_focus_paths_from_failed_checks(
+    failed_checks: List[Dict[str, Any]], *, limit: int = 8
+) -> List[str]:
+    focus: List[str] = []
+    for item in _collect_paths_from_failed_checks(list(failed_checks or []), limit=limit):
+        path = str(item or "").replace("\\", "/").strip()
+        if path and path not in focus:
+            focus.append(path)
+        if len(focus) >= limit:
+            break
+    return focus[:limit]
+
+
+def _should_skip_manual_only_verify(
+    *,
+    has_run_shell: bool,
+    contract_spec: Optional[Dict[str, Any]],
+    planned_check_labels: Optional[List[str]] = None,
+) -> bool:
+    skip_manual_only = not has_run_shell
+    skip_manual_only = verification_skip_respects_contract_spec(contract_spec, skip_manual_only)
+    if skip_manual_only and any(str(label or "").strip() for label in (planned_check_labels or [])):
+        return False
+    return skip_manual_only
+
+
 def _read_utf8_text_for_tool(full_path: str) -> Tuple[Optional[str], Optional[str]]:
     try:
         with open(full_path, "r", encoding="utf-8-sig", newline="") as f:
@@ -360,6 +1001,34 @@ def _read_utf8_text_for_tool(full_path: str) -> Tuple[Optional[str], Optional[st
         return None, f"File is not UTF-8 text: {os.path.basename(full_path)}"
     except OSError as exc:
         return None, str(exc)
+
+
+def _decode_subprocess_output(data: Any) -> str:
+    if data is None:
+        return ""
+    if isinstance(data, str):
+        return data
+    if not isinstance(data, (bytes, bytearray)):
+        return str(data)
+    blob = bytes(data)
+    if not blob:
+        return ""
+    tried: List[str] = []
+    for encoding in ("utf-8", locale.getpreferredencoding(False), "cp1252"):
+        enc = str(encoding or "").strip()
+        if not enc:
+            continue
+        key = enc.lower()
+        if key in tried:
+            continue
+        tried.append(key)
+        try:
+            return blob.decode(enc)
+        except UnicodeDecodeError:
+            continue
+        except LookupError:
+            continue
+    return blob.decode("utf-8", errors="replace")
 
 
 def _normalize_diff_path_for_scaffold(entry: Any) -> str:
@@ -375,15 +1044,19 @@ def _is_test_path_for_scaffold(path: str) -> bool:
     if not p:
         return False
     base = p.rsplit("/", 1)[-1]
+    if base in {"__init__.py", "conftest.py"}:
+        return False
     return (
-        p.startswith("tests/")
-        or p.startswith("test/")
-        or base.startswith("test_")
+        base.startswith("test_")
         or base.endswith("_test.py")
         or base.endswith(".spec.ts")
         or base.endswith(".test.ts")
+        or base.endswith(".spec.tsx")
+        or base.endswith(".test.tsx")
         or base.endswith(".spec.js")
         or base.endswith(".test.js")
+        or base.endswith(".spec.jsx")
+        or base.endswith(".test.jsx")
     )
 
 
@@ -392,9 +1065,67 @@ def _is_readme_path_for_scaffold(path: str) -> bool:
     return bool(p) and p.endswith("readme.md")
 
 
+def _is_test_tree_path_for_scaffold(path: str) -> bool:
+    p = str(path or "").strip().lower()
+    if not p:
+        return False
+    base = p.rsplit("/", 1)[-1]
+    return p.startswith("tests/") or p.startswith("test/") or base in {"conftest.py", "__init__.py"}
+
+
+def _is_project_config_path_for_scaffold(path: str) -> bool:
+    p = str(path or "").strip().lower()
+    if not p:
+        return False
+    base = p.rsplit("/", 1)[-1]
+    return base in {
+        "pyproject.toml",
+        "requirements.txt",
+        "package.json",
+        "cargo.toml",
+        "go.mod",
+        "pom.xml",
+        "build.gradle",
+        "build.gradle.kts",
+    }
+
+
+def _looks_like_web_frontend_scaffold_task(
+    task_text: str, contract_spec: Optional[Dict[str, Any]] = None
+) -> bool:
+    task_lower = str(task_text or "").strip().lower()
+    if not task_lower:
+        return False
+    if not any(
+        marker in task_lower
+        for marker in ("desde cero", "from scratch", "nuevo proyecto", "bootstrap", "scaffold")
+    ):
+        return False
+    if any(
+        marker in task_lower
+        for marker in (
+            "next.js",
+            "nextjs",
+            "react",
+            "typescript",
+            "tsx",
+            "web app",
+            "app web",
+            "frontend",
+            "interfaz",
+            "sitio web",
+            "página web",
+            "pagina web",
+        )
+    ):
+        return True
+    scope = list((contract_spec or {}).get("scope") or [])
+    return "ui" in scope and any(marker in task_lower for marker in ("app", "aplicación", "aplicacion"))
+
+
 def _is_source_path_for_scaffold(path: str) -> bool:
     p = str(path or "").strip().lower()
-    if not p or _is_test_path_for_scaffold(p) or _is_readme_path_for_scaffold(p):
+    if not p or _is_test_tree_path_for_scaffold(p) or _is_test_path_for_scaffold(p) or _is_readme_path_for_scaffold(p):
         return False
     return p.endswith(
         (
@@ -412,6 +1143,40 @@ def _is_source_path_for_scaffold(path: str) -> bool:
             ".cs",
             ".cpp",
             ".c",
+        )
+    )
+
+
+def _is_web_app_entry_path_for_scaffold(path: str) -> bool:
+    p = str(path or "").strip().lower()
+    if not p:
+        return False
+    return p.endswith(
+        (
+            "app/page.tsx",
+            "app/page.jsx",
+            "app/page.ts",
+            "app/page.js",
+            "src/app/page.tsx",
+            "src/app/page.jsx",
+            "src/app/page.ts",
+            "src/app/page.js",
+            "app/layout.tsx",
+            "app/layout.jsx",
+            "app/layout.ts",
+            "app/layout.js",
+            "src/app/layout.tsx",
+            "src/app/layout.jsx",
+            "src/app/layout.ts",
+            "src/app/layout.js",
+            "pages/index.tsx",
+            "pages/index.jsx",
+            "pages/index.ts",
+            "pages/index.js",
+            "src/pages/index.tsx",
+            "src/pages/index.jsx",
+            "src/pages/index.ts",
+            "src/pages/index.js",
         )
     )
 
@@ -441,6 +1206,16 @@ def _greenfield_scaffold_verify_readiness(
     )
     if requires_tests and not any(_is_test_path_for_scaffold(path) for path in paths):
         reasons.append("missing_tests")
+    requires_project_config = any(
+        marker in task_lower
+        for marker in ("pyproject", "uv ", "uv-compatible", "uv compatible", "package.json", "cargo", "go mod")
+    )
+    if requires_project_config and not any(_is_project_config_path_for_scaffold(path) for path in paths):
+        reasons.append("missing_project_config")
+    if _looks_like_web_frontend_scaffold_task(task_lower, contract_spec) and not any(
+        _is_web_app_entry_path_for_scaffold(path) for path in paths
+    ):
+        reasons.append("missing_app_entry")
     requires_readme = "readme" in task_lower
     if requires_readme and not any(_is_readme_path_for_scaffold(path) for path in paths):
         reasons.append("missing_readme")
@@ -514,6 +1289,45 @@ def _suggest_recovery_read_window(path: str, content: str, old_str: str) -> Opti
     return None
 
 
+def _suggest_edit_file_required_arg_recovery(path: str, content: str) -> Optional[Dict[str, Any]]:
+    norm_path = str(path or "").strip()
+    if not norm_path:
+        return None
+    total_lines = len(content.splitlines()) or 1
+    return {
+        "path": norm_path,
+        "start_line": 1,
+        "max_lines": min(total_lines, 120),
+    }
+
+
+def _edit_file_error_is_recoverable(error_text: str) -> bool:
+    err = str(error_text or "").strip().lower()
+    if not err:
+        return False
+    if "target string" in err:
+        return True
+    if "old_str" in err and "not found" in err:
+        return True
+    if "missing required arguments" in err:
+        return True
+    return False
+
+
+def _should_grant_structured_repair_tailroom(iteration: int, cap: int) -> bool:
+    try:
+        iter_no = int(iteration)
+    except (TypeError, ValueError):
+        iter_no = 0
+    try:
+        limit = int(cap)
+    except (TypeError, ValueError):
+        limit = 0
+    if limit <= 0:
+        return False
+    return iter_no >= max(1, limit - 1)
+
+
 DISCOVERY_ACTIONS = frozenset(["summarize_repo", "ls", "read_file"])
 WRITE_ACTIONS = frozenset(["write_file", "edit_file", "delete_file"])
 DISCOVERY_CAP = int(os.getenv("GHOST_DISCOVERY_CAP", 10))
@@ -548,7 +1362,7 @@ Use JSON within <tool_call> tags. Example:
 # Shell Minimization & Platform
 - Prefer `ls`, `read_file`, `summarize_repo` over `run_shell` for exploration. Use `run_shell` only for: builds, migrations, tests, or when no other tool can do the job.
 - In PowerShell: use `Select-Object -First N` (not head), `Select-Object -Last N` (not tail), `Select-String` (not grep). Unix pipes with head/tail/grep are blocked by policy.
-- **Verification commands**: Use standard commands only: `npm run build`, `npx tsc --noEmit`, `npm run lint`. Do NOT add pipelines (e.g. `2>&1 | Select-Object`) - the runtime handles truncation. This ensures consistent error detection.
+- **Verification commands**: Use repo-native commands only: `npm run build`, `npx tsc --noEmit`, and `npm run lint` only when the repo already has a working lint script. For modern Next.js, do NOT invent or rely on `next lint`. Do NOT add pipelines (e.g. `2>&1 | Select-Object`) - the runtime handles truncation.
 - For listing directories: use `ls` with path. Never use `run_shell` with Get-ChildItem, dir, or ls - redundant and wastes budget.
 - When the user says "no uses shell", "do not use shell", or "shell only when necessary": use `run_shell` only as last resort (e.g. db:migrate, npm run build). Use `ls`/`read_file` for all exploration.
 
@@ -643,7 +1457,7 @@ Discovery actions this session: {discovery_count}
         },
         {"name": "write_file", "description": "Write entire file", "parameters": {"type": "object", "properties": {"path": {"type": "string"}, "content": {"type": "string"}}, "required": ["path", "content"]}},
         {"name": "edit_file", "description": "Surgical string replacement", "parameters": {"type": "object", "properties": {"path": {"type": "string"}, "old_str": {"type": "string"}, "new_str": {"type": "string"}}, "required": ["path", "old_str", "new_str"]}},
-        {"name": "run_shell", "description": "Execute PowerShell command. For verification use standard commands only: npm run build, npx tsc --noEmit, npm run lint. Do NOT use custom pipelines (e.g. 2>&1 | Select-Object) - the runtime handles output truncation.", "parameters": {"type": "object", "properties": {"command": {"type": "string"}}, "required": ["command"]}},
+        {"name": "run_shell", "description": "Execute PowerShell command. For verification, use repo-native commands only: npm run build, npx tsc --noEmit, and npm run lint only when the repo already has a valid lint script. Do NOT invent next lint for modern Next.js. Do NOT use custom pipelines (e.g. 2>&1 | Select-Object) - the runtime handles output truncation.", "parameters": {"type": "object", "properties": {"command": {"type": "string"}}, "required": ["command"]}},
         {"name": "delete_file", "description": "Delete a file with mandatory evidence", "parameters": {"type": "object", "properties": {"path": {"type": "string"}, "evidence": {"type": "string"}}, "required": ["path", "evidence"]}},
         {"name": "summarize_repo", "description": "Get high-level project summary", "parameters": {"type": "object", "properties": {}}}
     ]
@@ -697,6 +1511,7 @@ Discovery actions this session: {discovery_count}
         self.mode = mode
         self._bundle_approval_fp: Optional[str] = None
         self._bundle_approval_ok: Optional[bool] = None
+        self._no_write_scope_nudge_count = 0
         self.auto_approve = auto_approve
         self.profile = profile
         self.project_name = project_name
@@ -773,6 +1588,9 @@ Discovery actions this session: {discovery_count}
         self._shown_large_prompt_non_stream_hint: bool = False
         self._plan_budget_extension_anchor_reads: int = 0
         self._plan_budget_extension_anchor_discovery: int = 0
+        self._dependency_install_completed: bool = False
+        self._dependency_install_changed_files: List[str] = []
+        self._dependency_install_continue_nudge_count: int = 0
         # Exploration Engine v2
         self._explore_v2_mismatch_checked: bool = False
         self._explore_v2_listing_path_checked: bool = False
@@ -1084,6 +1902,7 @@ Discovery actions this session: {discovery_count}
     ) -> Tuple[List[str], str]:
         """Returns (executed_tool_names, exit_reason) exit_reason: '' | 'terminal' | 'stagnation'."""
         self._apply_verify_shell_batch_annotations(prepared_calls)
+        self._last_tool_round_manual_failed_checks = []
         use_batch = self._env_truthy("GHOST_USE_BATCH_EXECUTOR")
         if use_batch:
             segs = batch_exec.segment_prepared_call_indices(prepared_calls)
@@ -1323,6 +2142,26 @@ Discovery actions this session: {discovery_count}
                     _ee = str(tool_result.get("error") or "").lower()
                     if "old_str" in _ee or "target string" in _ee or "not found" in _ee:
                         self.stagnation_detector.add_failed_edit_attempt(str(tc_args.get("path") or ""))
+                if tc_name == "run_shell" and isinstance(tool_result, dict):
+                    failed_manual_check = _build_failed_manual_verify_check(
+                        str(tc_args.get("command") or ""),
+                        tool_result,
+                    )
+                    if failed_manual_check:
+                        current = list(getattr(self, "_last_tool_round_manual_failed_checks", []) or [])
+                        current.append(failed_manual_check)
+                        self._last_tool_round_manual_failed_checks = current
+                        _sess_shell = self.artifact_manager.current_session
+                        if _sess_shell and isinstance(getattr(_sess_shell, "events", None), list):
+                            _sess_shell.events.append(
+                                {
+                                    "event": "manual_verify_shell_failed",
+                                    "check": failed_manual_check.get("name"),
+                                    "cwd": failed_manual_check.get("cwd"),
+                                    "command": str(failed_manual_check.get("command") or "")[:240],
+                                    "exit_code": failed_manual_check.get("exit_code"),
+                                }
+                            )
                 self._after_explore_tool_result(tc_name, tc_args, tool_result, legacy)
                 if tool_result.get("terminal"):
                     if status:
@@ -1333,6 +2172,8 @@ Discovery actions this session: {discovery_count}
                 if st_is_stagnant:
                     if status:
                         status.stop()
+                    if self._inject_edit_miss_recovery_nudge():
+                        return "recovery_nudge"
                     if self._should_soft_close_readonly_stagnation(st_reason):
                         self._loop_abort_reason = LOOP_ABORT_STAGNATION
                         self._apply_session_phase(SessionPhase.CLOSING, detail="readonly_stagnation", sync_task=True)
@@ -1474,6 +2315,13 @@ Discovery actions this session: {discovery_count}
                 cmd = str(args.get("command") or "")
                 if cmd:
                     sess.note_shell_command(cmd)
+                    for changed_path in (result.get("changed_files") or []):
+                        rel = str(changed_path or "").strip()
+                        if not rel:
+                            continue
+                        sess.note_workset_edit(rel, "edit")
+                        if self._looks_like_test_path(rel):
+                            sess.note_related_test(rel)
                     for match in re.findall(r"((?:tests|apps|packages)/[\\w./-]+\\.py)", cmd.replace("\\", "/")):
                         sess.note_related_test(match)
                         for target in targets:
@@ -1537,6 +2385,9 @@ Discovery actions this session: {discovery_count}
 
     def _repair_focus_files(self, sess: Any, failed_checks: List[Dict[str, Any]]) -> List[str]:
         focus: List[str] = []
+        for item in _repair_focus_paths_from_failed_checks(failed_checks):
+            if item and item not in focus:
+                focus.append(item)
         ws = getattr(sess, "active_workset", {}) or {}
         for key in ("edited_files", "written_files"):
             for item in ws.get(key, []) or []:
@@ -1565,13 +2416,15 @@ Discovery actions this session: {discovery_count}
         failed_checks: List[Dict[str, Any]],
         diff_summary: List[Dict[str, Any]],
     ) -> List[Dict[str, Any]]:
-        if len(diff_summary) <= 1:
+        if not diff_summary:
             return diff_summary
         focus = set(self._repair_focus_files(sess, failed_checks))
         if not focus:
             return diff_summary
         narrowed = [d for d in diff_summary if str(d.get("file") or "") in focus]
-        return narrowed or diff_summary
+        if narrowed:
+            return narrowed
+        return [] if len(diff_summary) <= 1 else diff_summary
 
     def _workset_runtime_nudge(self, state: Any) -> str:
         sess = self.artifact_manager.current_session
@@ -1636,9 +2489,12 @@ Discovery actions this session: {discovery_count}
         except Exception:
             pass
 
-    def run(self, initial_task: Optional[str] = None):
+    def run(self, initial_task: Optional[str] = None, *, keep_open: bool = True):
         if initial_task:
             self._process_input(initial_task)
+            if not keep_open or self.stop_loop:
+                self.console.print("\n[dim]Ghost session terminated. Stay secure.[/dim]")
+                return
         
         while not self.stop_loop:
             try:
@@ -1916,6 +2772,11 @@ Discovery actions this session: {discovery_count}
         self._session_failed = False
         self._last_api_error_hint = ""
         self._blocked_shell_commands: List[tuple] = []  # (command, error) for run_shell blocked by policy
+        self._last_tool_round_manual_failed_checks: List[Dict[str, Any]] = []
+        self._manual_verify_repair_bridge_count = 0
+        self._dependency_install_completed = False
+        self._dependency_install_changed_files = []
+        self._dependency_install_continue_nudge_count = 0
         self._pending_edit_recovery: Optional[Dict[str, Any]] = None
         self._already_implemented_answer_pending: Optional[Dict[str, Any]] = None
         self._stream_interrupted_this_session = False  # for strict verification provenance (no fake success)
@@ -1990,7 +2851,7 @@ Discovery actions this session: {discovery_count}
         return bool(sess and getattr(sess, "diff_summary", None))
 
     def _last_tool_round_had_edit_old_str_miss(self) -> bool:
-        """True if latest assistant message is text-only and preceding tool batch includes edit_file old_str miss."""
+        """True if latest assistant message is text-only and preceding tool batch includes a recoverable edit_file failure."""
         if len(self.history) < 3:
             return False
         last = self.history[-1]
@@ -2010,7 +2871,7 @@ Discovery actions this session: {discovery_count}
                     continue
                 res = json.loads(raw)
                 err = str(res.get("error", "")).lower()
-                if "target string" in err or ("old_str" in err and "not found" in err):
+                if _edit_file_error_is_recoverable(err):
                     found = True
             except Exception:
                 continue
@@ -2539,6 +3400,8 @@ Discovery actions this session: {discovery_count}
             "missing_source": "falta al menos un archivo de codigo fuente",
             "single_file_only": "solo existe un archivo nuevo y la estructura sigue incompleta",
             "missing_tests": "faltan los tests solicitados",
+            "missing_project_config": "falta el archivo de configuracion del proyecto solicitado",
+            "missing_app_entry": "faltan los archivos base de la app web (page/layout o entrypoint UI)",
             "missing_readme": "falta el README solicitado",
             "no_session": "no hay sesion activa",
         }
@@ -2622,6 +3485,38 @@ Discovery actions this session: {discovery_count}
         cap = max(4, min(cap, hard_cap))
         self._session_effective_iteration_cap = cap
         return cap
+
+    def _grant_iteration_tailroom(self, extra_turns: int, *, reason: str) -> int:
+        sess = self.artifact_manager.current_session if self.artifact_manager else None
+        current = self._current_iteration_cap()
+        base_cap = global_iteration_cap()
+        hard_cap = plan_iteration_hard_cap(base_cap) if self._is_broad_plan_mode_task() else base_cap
+        try:
+            extra = int(extra_turns)
+        except (TypeError, ValueError):
+            extra = 0
+        extra = max(0, min(6, extra))
+        if extra <= 0:
+            return 0
+        new_cap = max(4, min(current + extra, hard_cap))
+        if new_cap <= current:
+            return 0
+        self._session_effective_iteration_cap = new_cap
+        if sess:
+            ib = getattr(sess, "iteration_budget", None)
+            if isinstance(ib, dict):
+                ib["effective_max"] = new_cap
+            if isinstance(getattr(sess, "events", None), list):
+                sess.events.append(
+                    {
+                        "event": "iteration_tailroom_granted",
+                        "reason": reason,
+                        "from": current,
+                        "to": new_cap,
+                    }
+                )
+        logger.info("iteration tailroom granted reason=%s from=%s to=%s", reason, current, new_cap)
+        return new_cap - current
 
     def _maybe_extend_broad_plan_iteration_budget(self, iterations: int) -> None:
         """
@@ -3169,8 +4064,25 @@ Discovery actions this session: {discovery_count}
             self, "_verification_completed_this_session", False
         )
         has_run_shell = any(m.get("name") == "run_shell" for m in self.history if m.get("role") == "tool")
-        skip_manual_only = not has_run_shell
-        skip_manual_only = verification_skip_respects_contract_spec(tsd, skip_manual_only)
+        planned_check_labels: List[str] = []
+        if not has_run_shell:
+            try:
+                sess = self.artifact_manager.current_session
+                planned_check_labels = self.verification_coordinator.planned_check_labels(
+                    task_type=task_obj.task_type,
+                    scope=getattr(sess, "task_scope", "") or "unknown",
+                    files_changed=getattr(sess, "diff_summary", []) or [],
+                    budget_remaining=getattr(self.budget_manager, "remaining", 100),
+                    contract_spec=tsd,
+                    repo_v2=self._session_repo_v2_dict(),
+                )
+            except Exception:
+                planned_check_labels = []
+        skip_manual_only = _should_skip_manual_only_verify(
+            has_run_shell=has_run_shell,
+            contract_spec=tsd,
+            planned_check_labels=planned_check_labels,
+        )
         skip_exec = skip_stream or skip_manual_only
         skip_reason = "manual_only" if skip_manual_only else ("stream_interrupted" if skip_stream else None)
         return skip_exec, skip_reason, tsd
@@ -3184,6 +4096,48 @@ Discovery actions this session: {discovery_count}
         self._loop_abort_reason = LOOP_ABORT_STAGNATION
         checkpoint = self._create_autonomy_checkpoint("stagnation_detected", reason)
         self.renderer.render_autonomy_checkpoint(checkpoint)
+        return True
+
+    def _inject_edit_miss_recovery_nudge(self) -> bool:
+        plan_mode = (self._effective_prompt_mode() or "").strip().lower() == "plan"
+        cap_nudge = int(os.getenv("GHOST_EDIT_MISS_MAX_NUDGES", "1"))
+        current_iter = int(getattr(self, "_session_loop_iteration", 0) or 0)
+        if current_iter >= max(1, self._current_iteration_cap() - 1):
+            self._grant_iteration_tailroom(2, reason="edit_miss_recovery")
+        if (
+            not self._edit_miss_nudge_enabled()
+            or plan_mode
+            or self._session_has_diff()
+            or self._edit_miss_nudge_count >= cap_nudge
+            or self.budget_manager.is_exhausted()
+        ):
+            return False
+        self._edit_miss_nudge_count += 1
+        self._apply_session_phase(SessionPhase.ACT, detail="edit_file old_str miss", sync_task=True)
+        recovery = getattr(self, "_pending_edit_recovery", None) or {}
+        rec_args = dict(recovery.get("arguments") or {})
+        rec_path = str(rec_args.get("path") or "").strip()
+        rec_start = rec_args.get("start_line")
+        rec_max = rec_args.get("max_lines")
+        if rec_path:
+            if rec_start and rec_max:
+                one_step = f"read_file(path='{rec_path}', start_line={rec_start}, max_lines={rec_max})"
+            else:
+                one_step = f"read_file(path='{rec_path}')"
+        else:
+            one_step = "read_file de la ruta que intentabas editar"
+        nudge_txt = (
+            "[SYSTEM] edit_file falló: faltan argumentos o old_str no coincide con el disco. "
+            f"PASO ÚNICO: {one_step} → copia old_str literal desde esa salida → vuelve a edit_file "
+            "(o write_file si sustituyes casi todo el fichero). "
+            "No cierres solo con texto; no uses run_shell para leer el archivo."
+        )
+        self.history.append({"role": "user", "content": nudge_txt})
+        self.memory.add_message(self.session_id, "user", nudge_txt)
+        self.console.print(
+            "\n[dim yellow]↪ Reintento guiado:[/dim yellow] "
+            "[dim]fallo de old_str — un turno más con herramientas[/dim]"
+        )
         return True
 
     def _chat_loop(self, task_obj: Any, text: str, intent: Intent, is_resumed: bool):
@@ -3457,6 +4411,8 @@ Discovery actions this session: {discovery_count}
         tools_executed = getattr(self, "_tools_executed_this_session", False)
         has_final_nl_response = self._has_final_nl_response_from_history()
         is_no_op = not made_changes and not tools_executed and not has_final_nl_response
+        existing_verification = getattr(sess, "verification", None)
+        has_executed_verification = _verification_has_executed_checks(existing_verification)
 
         if not hard_abort:
             if is_no_op:
@@ -3469,123 +4425,148 @@ Discovery actions this session: {discovery_count}
                 if getattr(self, "_finalize_skip_integrity_re_verify", False):
                     pass
                 else:
-                    skip_exec, skip_reason, tsd_fin = self._resolve_verify_skip_flags(task_obj)
-                    repo_v2_fin = self._session_repo_v2_dict()
-                    prev_v = getattr(sess, "verification", {}) or {}
-                    failed_names_fin = (
-                        [
-                            c.get("name")
-                            for c in prev_v.get("checks", [])
-                            if c.get("status") in ("failed", "error")
-                        ]
-                        if getattr(sess, "repair_attempt_count", 0) > 0 and prev_v
-                        else None
-                    )
-                    tc_fin = get_task_contract(sess)
-                    v_reused = self.verification_coordinator.try_reuse_stored_verification(
-                        sess,
-                        getattr(sess, "diff_summary", []) or [],
-                        verification_completed=getattr(
-                            self, "_verification_completed_this_session", False
-                        ),
-                    )
-                    if v_reused is not None:
-                        sess.verification = v_reused
-                        sess.verification_justification = v_reused.get("justification", "")
-                        sess.verification_scope = str(v_reused.get("verification_scope") or "")
-                        sess.planned_check_cwds = dict(v_reused.get("planned_check_cwds") or {})
-                        record_verification_metrics(sess, v_reused, reused=True)
-                    else:
-                        if not skip_exec:
-                            check_names = self.verification_coordinator.planned_check_labels(
-                                task_type=task_obj.task_type,
-                                scope=getattr(sess, "task_scope", "") or "unknown",
-                                files_changed=getattr(sess, "diff_summary", []) or [],
-                                budget_remaining=getattr(self.budget_manager, "remaining", 100),
-                                contract_spec=tsd_fin,
-                                repo_v2=repo_v2_fin,
-                                failed_check_names=failed_names_fin,
-                            )
-                            _pytest_ff = list(getattr(sess, "pytest_focus_targets", None) or [])
-                            _vf_b = format_integrity_verify_preamble(
-                                check_names, pytest_focus_n=len(_pytest_ff)
-                            )
-                            self.console.print(f"\n[dim]⚙ Running integrity verification: {_vf_b}[/dim]")
+                    run_finalize_verify = True
+                    if self._current_task_is_bootstrap_scaffold():
+                        ready, reasons = self._bootstrap_scaffold_ready_for_verify()
+                        if not ready:
+                            run_finalize_verify = False
+                            sess.verification = {
+                                "status": "incomplete",
+                                "checks": [],
+                                "steps_executed_count": 0,
+                                "justification": "Greenfield scaffold incomplete before final verification.",
+                                "greenfield_deferred_reasons": list(reasons),
+                            }
+                            sess.reverification_pending = True
                             sess.events.append(
                                 {
-                                    "event": "verify_preamble",
-                                    "text": _vf_b[:500],
-                                    "context_label": "finalize",
+                                    "event": "greenfield_verify_deferred_finalize",
+                                    "reasons": list(reasons),
                                 }
                             )
-                        self.hook_manager.trigger(HookEvents.PRE_VERIFICATION)
-                        self._apply_session_phase(
-                            SessionPhase.VERIFY,
-                            detail="VerificationCoordinator (finalize)"
-                            + ("; skip_exec" if skip_exec else ""),
-                        )
-                        self._trace_phase_start("verification")
-                        _v0f = time.monotonic()
-                        v_res = self.verification_coordinator.run(
-                            diff_summary=getattr(sess, "diff_summary", []) or [],
-                            task_contract=tc_fin,
-                            task_type=task_obj.task_type,
-                            scope=getattr(sess, "task_scope", "") or "unknown",
-                            budget_remaining=getattr(self.budget_manager, "remaining", 100),
-                            history=self.history,
-                            blocked_commands=getattr(self, "_blocked_shell_commands", []),
-                            skip_execution=skip_exec,
-                            skip_reason=skip_reason,
-                            repo_v2=repo_v2_fin,
-                            verify_batch_approval_fn=self._verify_batch_approval_callback(),
-                            session=sess,
-                            reuse_if_verified=False,
-                            failed_check_names=failed_names_fin,
-                            pytest_focus_paths=list(getattr(sess, "pytest_focus_targets", None) or [])
-                            or None,
-                        )
-                        _mgr_vf = getattr(self, "_trace_mgr", None)
-                        if _mgr_vf:
-                            try:
-                                _mgr_vf.record_verification_trace(
-                                    verification_trace_from_result(
-                                        v_res, (time.monotonic() - _v0f) * 1000.0
-                                    )
-                                )
-                            except Exception:
-                                pass
-                        self._trace_phase_end("verification")
-                        self.hook_manager.trigger(HookEvents.POST_VERIFICATION, results=v_res)
-                        self.renderer.render_verification_results(
-                            v_res,
-                            contract_spec=self._session_contract_spec_dict(),
-                        )
-                        sess.verification = v_res
-                        sess.verification_justification = v_res.get("justification", "")
-                        record_verification_metrics(sess, v_res, reused=False)
-                        if str(v_res.get("status") or "") == "success":
-                            sess.last_verify_failure_snapshot = {}
-                            sess.pytest_focus_targets = []
-                            sess.last_repair_causal_digest = ""
-                            if not skip_exec:
-                                sess.last_integrity_ok_write_epoch = int(getattr(sess, "write_epoch", 0) or 0)
-                            _g = self.budget_manager.grant_extension_for_verified_progress(
-                                steps_executed=int(v_res.get("steps_executed_count") or 0),
+                            self.console.print(
+                                "\n[dim yellow]↪ Greenfield scaffold todavía incompleto:[/dim yellow] "
+                                "[dim]se difiere VERIFY hasta que existan los archivos mínimos del proyecto[/dim]"
                             )
-                            if _g:
-                                logger.info("adaptive budget: +%s after finalize verify ok", _g)
-                                append_budget_extension_record(
-                                    sess,
-                                    {
-                                        "points": _g,
-                                        "reason": "verify_executed_ok",
-                                        "detail": "finalize",
-                                        "skipped": "",
-                                    },
+                    if run_finalize_verify:
+                        skip_exec, skip_reason, tsd_fin = self._resolve_verify_skip_flags(task_obj)
+                        repo_v2_fin = self._session_repo_v2_dict()
+                        prev_v = getattr(sess, "verification", {}) or {}
+                        failed_names_fin = (
+                            [
+                                c.get("name")
+                                for c in prev_v.get("checks", [])
+                                if c.get("status") in ("failed", "error")
+                            ]
+                            if getattr(sess, "repair_attempt_count", 0) > 0 and prev_v
+                            else None
+                        )
+                        tc_fin = get_task_contract(sess)
+                        v_reused = self.verification_coordinator.try_reuse_stored_verification(
+                            sess,
+                            getattr(sess, "diff_summary", []) or [],
+                            verification_completed=getattr(
+                                self, "_verification_completed_this_session", False
+                            ),
+                        )
+                        if v_reused is not None:
+                            sess.verification = v_reused
+                            sess.verification_justification = v_reused.get("justification", "")
+                            sess.verification_scope = str(v_reused.get("verification_scope") or "")
+                            sess.planned_check_cwds = dict(v_reused.get("planned_check_cwds") or {})
+                            record_verification_metrics(sess, v_reused, reused=True)
+                        else:
+                            if not skip_exec:
+                                check_names = self.verification_coordinator.planned_check_labels(
+                                    task_type=task_obj.task_type,
+                                    scope=getattr(sess, "task_scope", "") or "unknown",
+                                    files_changed=getattr(sess, "diff_summary", []) or [],
+                                    budget_remaining=getattr(self.budget_manager, "remaining", 100),
+                                    contract_spec=tsd_fin,
+                                    repo_v2=repo_v2_fin,
+                                    failed_check_names=failed_names_fin,
                                 )
-                            self.stagnation_detector.reset_after_verified_progress()
+                                _pytest_ff = list(getattr(sess, "pytest_focus_targets", None) or [])
+                                _vf_b = format_integrity_verify_preamble(
+                                    check_names, pytest_focus_n=len(_pytest_ff)
+                                )
+                                self.console.print(f"\n[dim]⚙ Running integrity verification: {_vf_b}[/dim]")
+                                sess.events.append(
+                                    {
+                                        "event": "verify_preamble",
+                                        "text": _vf_b[:500],
+                                        "context_label": "finalize",
+                                    }
+                                )
+                            self.hook_manager.trigger(HookEvents.PRE_VERIFICATION)
+                            self._apply_session_phase(
+                                SessionPhase.VERIFY,
+                                detail="VerificationCoordinator (finalize)"
+                                + ("; skip_exec" if skip_exec else ""),
+                            )
+                            self._trace_phase_start("verification")
+                            _v0f = time.monotonic()
+                            v_res = self.verification_coordinator.run(
+                                diff_summary=getattr(sess, "diff_summary", []) or [],
+                                task_contract=tc_fin,
+                                task_type=task_obj.task_type,
+                                scope=getattr(sess, "task_scope", "") or "unknown",
+                                budget_remaining=getattr(self.budget_manager, "remaining", 100),
+                                history=self.history,
+                                blocked_commands=getattr(self, "_blocked_shell_commands", []),
+                                skip_execution=skip_exec,
+                                skip_reason=skip_reason,
+                                repo_v2=repo_v2_fin,
+                                verify_batch_approval_fn=self._verify_batch_approval_callback(),
+                                session=sess,
+                                reuse_if_verified=False,
+                                failed_check_names=failed_names_fin,
+                                pytest_focus_paths=list(getattr(sess, "pytest_focus_targets", None) or [])
+                                or None,
+                            )
+                            _mgr_vf = getattr(self, "_trace_mgr", None)
+                            if _mgr_vf:
+                                try:
+                                    _mgr_vf.record_verification_trace(
+                                        verification_trace_from_result(
+                                            v_res, (time.monotonic() - _v0f) * 1000.0
+                                        )
+                                    )
+                                except Exception:
+                                    pass
+                            self._trace_phase_end("verification")
+                            self.hook_manager.trigger(HookEvents.POST_VERIFICATION, results=v_res)
+                            self.renderer.render_verification_results(
+                                v_res,
+                                contract_spec=self._session_contract_spec_dict(),
+                            )
+                            sess.verification = v_res
+                            sess.verification_justification = v_res.get("justification", "")
+                            record_verification_metrics(sess, v_res, reused=False)
+                            if str(v_res.get("status") or "") == "success":
+                                sess.last_verify_failure_snapshot = {}
+                                sess.pytest_focus_targets = []
+                                sess.last_repair_causal_digest = ""
+                                if not skip_exec:
+                                    sess.last_integrity_ok_write_epoch = int(getattr(sess, "write_epoch", 0) or 0)
+                                _g = self.budget_manager.grant_extension_for_verified_progress(
+                                    steps_executed=int(v_res.get("steps_executed_count") or 0),
+                                )
+                                if _g:
+                                    logger.info("adaptive budget: +%s after finalize verify ok", _g)
+                                    append_budget_extension_record(
+                                        sess,
+                                        {
+                                            "points": _g,
+                                            "reason": "verify_executed_ok",
+                                            "detail": "finalize",
+                                            "skipped": "",
+                                        },
+                                    )
+                                self.stagnation_detector.reset_after_verified_progress()
             else:
-                sess.verification = {"status": "skipped", "checks": []}
+                if not has_executed_verification:
+                    sess.verification = {"status": "skipped", "checks": []}
         else:
             ver = getattr(sess, "verification", None)
             if not isinstance(ver, dict) or not ver:
@@ -3782,7 +4763,7 @@ Discovery actions this session: {discovery_count}
                 if func_obj:
                     tc_name = func_obj.get("name")
                     args_raw = func_obj.get("arguments", "{}")
-                    tc_args = json.loads(args_raw) if isinstance(args_raw, str) else args_raw
+                    tc_args = _parse_tool_arguments_payload(args_raw)
                 else:
                     tc_name = tc.get("name")
                     tc_args = tc.get("arguments", {})
@@ -4262,12 +5243,28 @@ Discovery actions this session: {discovery_count}
             and not self._session_has_diff()
         ):
             self._greenfield_bootstrap_nudge_sent = True
-            nudge = (
-                "[SYSTEM] Greenfield scaffold task in a fresh repo. Work from the repository root and create "
-                "the initial project structure directly. Do NOT inspect `.ghost`, `.git`, `ghost_memory.db`, "
-                "handoffs, or prior task artifacts unless the user explicitly asks. Start by writing the minimal "
-                "set of real project files (for example `README.md`, `pyproject.toml`, `src/` package, `tests/`)."
-            )
+            if _looks_like_web_frontend_scaffold_task(
+                self._primary_user_task_text(),
+                self._session_contract_spec_dict(),
+            ):
+                nudge = (
+                    "[SYSTEM] Greenfield web scaffold task in a fresh repo. Work from the repository root; do NOT "
+                    "nest the app in a new subfolder unless the user asks. If you use a framework bootstrap command, "
+                    "use ONE non-interactive attempt only (for Next.js, prefer a create-next-app command with `--yes` "
+                    "and explicit flags). If that fails once, STOP retrying variants and write the app structure "
+                    "manually from repo root. Do NOT inspect `.ghost`, `.git`, `ghost_memory.db`, handoffs, or prior "
+                    "task artifacts unless the user explicitly asks. For current Next.js scaffolds, do NOT add a "
+                    "`next lint` script unless you also configure a working ESLint CLI path; prefer modern tsconfig "
+                    "defaults and avoid deprecated TypeScript options like `target: es5` or `moduleResolution: node`. "
+                    "Before VERIFY, ensure there is a real app entry file plus package/config and requested README/tests."
+                )
+            else:
+                nudge = (
+                    "[SYSTEM] Greenfield scaffold task in a fresh repo. Work from the repository root and create "
+                    "the initial project structure directly. Do NOT inspect `.ghost`, `.git`, `ghost_memory.db`, "
+                    "handoffs, or prior task artifacts unless the user explicitly asks. Start by writing the minimal "
+                    "set of real project files (for example `README.md`, `pyproject.toml`, `src/` package, `tests/`)."
+                )
             self.history.append({"role": "user", "content": nudge})
             self.memory.add_message(self.session_id, "user", nudge)
         max_iter_act = self._effective_iteration_cap()
@@ -4294,6 +5291,96 @@ Discovery actions this session: {discovery_count}
                 return "halt"
             if kind == "tools":
                 self._bump_discovery_from_tools(executed or [])
+                dependency_install_completed = bool(
+                    getattr(self, "_dependency_install_completed", False)
+                )
+                if dependency_install_completed:
+                    changed_install_files = list(
+                        getattr(self, "_dependency_install_changed_files", []) or []
+                    )
+                    self._dependency_install_completed = False
+                    self._dependency_install_changed_files = []
+                    task_text = " ".join(
+                        [
+                            str(getattr(task_obj, "task", "") or ""),
+                            str(getattr(self.current_intent, "task", "") or ""),
+                        ]
+                    ).strip()
+                    if not _task_looks_dependency_only_change(task_text):
+                        if self._inject_dependency_install_continue_nudge(changed_install_files):
+                            return "ok"
+                    logger.info(
+                        "phase transition: ACT -> VERIFY (dependency install completed)"
+                    )
+                    self._record_phase_promotion(
+                        "act_to_verify",
+                        "dependency_install_completed",
+                        SessionPhase.ACT,
+                        SessionPhase.VERIFY,
+                    )
+                    self._apply_session_phase(
+                        SessionPhase.VERIFY,
+                        detail="dependency install complete",
+                        sync_task=True,
+                    )
+                    return "ok"
+                manual_failed_checks = list(
+                    getattr(self, "_last_tool_round_manual_failed_checks", []) or []
+                )
+                manual_verify_bridge_cap = int(
+                    os.getenv("GHOST_MANUAL_VERIFY_REPAIR_MAX_BRIDGES", "1")
+                )
+                if _should_bridge_manual_verify_failure_to_repair(
+                    change_expectation=str(
+                        (self._session_contract_spec_dict() or {}).get("change_expectation") or ""
+                    ),
+                    has_diff=self._session_has_diff(),
+                    failed_checks=manual_failed_checks,
+                    iterations=iterations,
+                    max_iter=max_iter_act,
+                    budget_exhausted=self.budget_manager.is_exhausted(),
+                    bridge_count=int(getattr(self, "_manual_verify_repair_bridge_count", 0) or 0),
+                    bridge_cap=manual_verify_bridge_cap,
+                ):
+                    if self._promote_manual_verify_failures_to_repair(manual_failed_checks):
+                        return "ok"
+                if (
+                    not self._session_has_diff()
+                    and getattr(self, "_pending_edit_recovery", None)
+                    and self._inject_edit_miss_recovery_nudge()
+                ):
+                    return "ok"
+                no_write_cap = int(os.getenv("GHOST_NO_WRITE_SCOPE_MAX_NUDGES", "1"))
+                if _should_retry_must_write_no_diff(
+                    change_expectation=str(
+                        (self._session_contract_spec_dict() or {}).get("change_expectation") or ""
+                    ),
+                    has_diff=False,
+                    already_implemented=bool(self._detect_already_implemented_fast_path()),
+                    iterations=iterations,
+                    max_iter=max_iter_act,
+                    budget_exhausted=self.budget_manager.is_exhausted(),
+                    nudge_count=int(getattr(self, "_no_write_scope_nudge_count", 0) or 0),
+                    nudge_cap=no_write_cap,
+                ):
+                    self._no_write_scope_nudge_count = int(
+                        getattr(self, "_no_write_scope_nudge_count", 0) or 0
+                    ) + 1
+                    nudge_txt = (
+                        "[SYSTEM] Esta tarea sigue requiriendo cambios de código y aún no se aplicó ningún diff. "
+                        "No sigas explorando archivos opcionales. Siguiente paso: usa herramientas para aplicar el "
+                        "próximo write_file/edit_file sobre archivos reales del proyecto o ejecuta el check clave "
+                        "del subproyecto correcto si necesitas una última señal de root cause. "
+                        "Solo responde 'already implemented' si puedes citar archivos exactos y checks exitosos."
+                    )
+                    self.history.append({"role": "user", "content": nudge_txt})
+                    self.memory.add_message(self.session_id, "user", nudge_txt)
+                    self.console.print(
+                        "\n[dim yellow]↪ Reintento guiado:[/dim yellow] "
+                        "[dim]ACT sin diff — deja de explorar y empieza a editar[/dim]"
+                    )
+                    self._apply_session_phase(SessionPhase.ACT, detail="must_write_no_diff_tools", sync_task=True)
+                    return "ok"
                 if self._session_has_diff():
                     if self._maybe_defer_greenfield_verify():
                         logger.info("phase transition: ACT stays in ACT (greenfield scaffold incomplete after tools)")
@@ -4318,6 +5405,8 @@ Discovery actions this session: {discovery_count}
                 and iterations < max_iter_act
                 and not self.budget_manager.is_exhausted()
             ):
+                if self._inject_edit_miss_recovery_nudge():
+                    return "ok"
                 self._edit_miss_nudge_count += 1
                 self._apply_session_phase(SessionPhase.ACT, detail="edit_file old_str miss", sync_task=True)
                 recovery = getattr(self, "_pending_edit_recovery", None) or {}
@@ -4335,7 +5424,7 @@ Discovery actions this session: {discovery_count}
                 else:
                     one_step = "read_file de la ruta que intentabas editar"
                 nudge_txt = (
-                    "[SYSTEM] edit_file falló: old_str no coincide con el disco. "
+                    "[SYSTEM] edit_file falló: faltan argumentos o old_str no coincide con el disco. "
                     f"PASO ÚNICO: {one_step} → copia old_str literal desde esa salida → vuelve a edit_file "
                     "(o write_file si sustituyes casi todo el fichero). "
                     "No cierres solo con texto; no uses run_shell para leer el archivo."
@@ -4360,9 +5449,53 @@ Discovery actions this session: {discovery_count}
                 )
                 self._apply_session_phase(SessionPhase.VERIFY, detail="text turn + diff", sync_task=True)
                 return "ok"
+            already_impl_signal = self._detect_already_implemented_fast_path()
+            no_write_cap = int(os.getenv("GHOST_NO_WRITE_SCOPE_MAX_NUDGES", "1"))
+            if _should_retry_must_write_no_diff(
+                change_expectation=str((self._session_contract_spec_dict() or {}).get("change_expectation") or ""),
+                has_diff=False,
+                already_implemented=bool(already_impl_signal),
+                iterations=iterations,
+                max_iter=max_iter_act,
+                budget_exhausted=self.budget_manager.is_exhausted(),
+                nudge_count=int(getattr(self, "_no_write_scope_nudge_count", 0) or 0),
+                nudge_cap=no_write_cap,
+            ):
+                self._no_write_scope_nudge_count = int(
+                    getattr(self, "_no_write_scope_nudge_count", 0) or 0
+                ) + 1
+                nudge_txt = (
+                    "[SYSTEM] Esta tarea sigue requiriendo cambios de código y aún no se aplicó ningún diff. "
+                    "No cierres con prose genérica. Siguiente paso: usa herramientas para aplicar el próximo "
+                    "write_file/edit_file sobre archivos reales del proyecto. Solo responde 'already implemented' "
+                    "si puedes citar archivos exactos y checks exitosos."
+                )
+                self.history.append({"role": "user", "content": nudge_txt})
+                self.memory.add_message(self.session_id, "user", nudge_txt)
+                self.console.print(
+                    "\n[dim yellow]↪ Reintento guiado:[/dim yellow] "
+                    "[dim]tarea must_write sin diff — un turno más con herramientas[/dim]"
+                )
+                self._apply_session_phase(SessionPhase.ACT, detail="must_write_no_diff", sync_task=True)
+                return "ok"
+            verify_inputs = self._current_verification_input_files()
+            if verify_inputs:
+                logger.info("phase transition: ACT -> VERIFY (explicit verification requested without diff)")
+                self._record_phase_promotion(
+                    "act_to_verify",
+                    "explicit_verify_without_diff",
+                    SessionPhase.ACT,
+                    SessionPhase.VERIFY,
+                    extra={"files": [str(item.get("file") or "") for item in verify_inputs[:6]]},
+                )
+                self._apply_session_phase(
+                    SessionPhase.VERIFY,
+                    detail="explicit verify without diff",
+                    sync_task=True,
+                )
+                return "ok"
             logger.info("phase transition: ACT -> CLOSING (no diff, text-only; terminal at finalize)")
             self._apply_session_phase(SessionPhase.CLOSING, detail="no write scope", sync_task=True)
-            already_impl_signal = self._detect_already_implemented_fast_path()
             if (
                 content
                 and content.strip()
@@ -4402,21 +5535,208 @@ Discovery actions this session: {discovery_count}
             )
         return "\n".join(rows)
 
+    def _promote_manual_verify_failures_to_repair(self, failed_checks: List[Dict[str, Any]]) -> bool:
+        sess = self.artifact_manager.current_session
+        if not sess:
+            return False
+        checks = [dict(c) for c in (failed_checks or []) if isinstance(c, dict)]
+        if not checks:
+            return False
+        names = [str(c.get("name") or "") for c in checks if str(c.get("name") or "").strip()]
+        cwds = {
+            str(c.get("name") or f"Check{i}"): str(c.get("cwd") or ".")
+            for i, c in enumerate(checks)
+        }
+        v_res = attach_coordinator_view(
+            {
+                "status": "failed",
+                "checks": checks,
+                "steps_executed_count": len(checks),
+                "verification_scope": str(checks[0].get("kind") or ""),
+                "planned_check_cwds": cwds,
+                "justification": "manual verification shell failed during ACT before any diff",
+            }
+        )
+        sess.verification = v_res
+        sess.verification_justification = str(v_res.get("justification") or "")
+        sess.verification_scope = str(v_res.get("verification_scope") or "")
+        sess.planned_check_cwds = dict(v_res.get("planned_check_cwds") or {})
+        sess.record_incremental_verification(
+            v_res,
+            diff_summary=getattr(sess, "diff_summary", []) or [],
+            context_label="act:manual_shell_verify_failure",
+        )
+        record_verification_metrics(sess, v_res, reused=False)
+        self._grant_iteration_tailroom(2, reason="manual_verify_repair_bridge")
+        summary = "; ".join([f"{name}: failed" for name in names[:3]]) or "manual verification failed"
+        sess.repair_summary = f"Verification failed ({summary}). Repair attempted."
+        sess.last_failed_check = ", ".join(names[:3])
+        sess.reverification_pending = True
+        self._manual_verify_repair_bridge_count = int(
+            getattr(self, "_manual_verify_repair_bridge_count", 0) or 0
+        ) + 1
+        self.console.print(
+            "\n[dim yellow]↪ Pivoting to repair:[/dim yellow] "
+            "[dim]build/typecheck shell failed before any diff; fixing root cause now[/dim]"
+        )
+        self._record_phase_promotion(
+            "act_to_repair",
+            "manual_verify_failed_no_diff",
+            SessionPhase.ACT,
+            SessionPhase.REPAIR,
+            extra={
+                "failed_checks": names[:5],
+                "check_cwds": cwds,
+                "attempt": int(getattr(self, "_manual_verify_repair_bridge_count", 0) or 0),
+            },
+        )
+        self._apply_session_phase(SessionPhase.REPAIR, detail=summary[:200], sync_task=True)
+        return True
+
     def _bump_session_write_epoch(self) -> None:
         sess = self.artifact_manager.current_session
         if sess:
             sess.write_epoch = int(getattr(sess, "write_epoch", 0) or 0) + 1
+
+    def _current_verification_input_files(self) -> List[Dict[str, Any]]:
+        sess = self.artifact_manager.current_session
+        diff_summary = list(getattr(sess, "diff_summary", []) or []) if sess else []
+        active_workset = dict(getattr(sess, "active_workset", {}) or {}) if sess else {}
+        return _verification_input_files(
+            diff_summary,
+            active_workset,
+            self._session_contract_spec_dict(),
+            self._primary_user_task_text(),
+        )
+
+    def _inject_dependency_install_continue_nudge(self, changed_files: Optional[List[str]] = None) -> bool:
+        cap = int(os.getenv("GHOST_DEP_INSTALL_CONTINUE_NUDGE_MAX", "1"))
+        count = int(getattr(self, "_dependency_install_continue_nudge_count", 0) or 0)
+        if count >= cap:
+            return False
+        self._dependency_install_continue_nudge_count = count + 1
+        changed = [str(x).strip() for x in (changed_files or []) if str(x).strip()]
+        changed_preview = ", ".join(changed[:3]) if changed else "dependency manifests"
+        nudge = (
+            f"Dependency install completed successfully ({changed_preview}). "
+            "Do not stop at installation. Continue implementing the requested source/config/test changes now, "
+            "and run verification only after the code changes are in place."
+        )
+        self.history.append({"role": "user", "content": nudge})
+        self.memory.add_message(self.session_id, "user", nudge)
+        try:
+            sess = self.artifact_manager.current_session
+            if sess and isinstance(getattr(sess, "events", None), list):
+                sess.events.append(
+                    {
+                        "event": "dependency_install_continue_nudge",
+                        "changed_files": changed[:5],
+                        "count": self._dependency_install_continue_nudge_count,
+                    }
+                )
+        except Exception:
+            pass
+        self.console.print(
+            "\n[dim yellow]↪ Dependency install succeeded; continue implementing before verify[/dim yellow]"
+        )
+        return True
+
+    def _maybe_auto_install_missing_local_node_package(self, failed_checks: List[Dict[str, Any]]) -> bool:
+        cap = int(os.getenv("GHOST_AUTO_INSTALL_MISSING_NODE_TOOL_MAX", "3"))
+        count = int(getattr(self, "_auto_install_missing_node_tool_count", 0) or 0)
+        if count >= cap:
+            return False
+        inferred = _infer_missing_local_node_package_from_failed_checks(self.cwd, failed_checks)
+        if not inferred:
+            return False
+        package_name = str(inferred.get("package") or "").strip()
+        attempted_packages = getattr(self, "_auto_install_missing_node_tool_packages", None)
+        if not isinstance(attempted_packages, set):
+            attempted_packages = set()
+        if package_name in attempted_packages:
+            return False
+        project_cwd = str(inferred.get("cwd") or ".").strip() or "."
+        declared = bool(inferred.get("declared"))
+        missing_cmd = str(inferred.get("missing_command") or package_name).strip() or package_name
+        install_cmd = _build_local_package_install_command(
+            self.cwd,
+            project_cwd,
+            package_name,
+            declared=declared,
+        )
+        self._auto_install_missing_node_tool_count = count + 1
+        self.console.print(
+            "\n[dim yellow]↪ Auto-installing missing local tool:[/dim yellow] "
+            f"[dim]{missing_cmd} -> {package_name} ({project_cwd})[/dim]"
+        )
+        result = self._inner_execute_tool(
+            "run_shell",
+            {"command": install_cmd},
+            {"task_type": "repair", "missing_dependency": True},
+            is_authorized=True,
+        )
+        exit_code = result.get("exit_code")
+        try:
+            install_succeeded = int(exit_code) == 0
+        except (TypeError, ValueError):
+            install_succeeded = False
+        if result.get("error") or not install_succeeded:
+            failure_summary = (
+                str(result.get("error") or "").strip()
+                or str(result.get("stderr") or "").strip()
+                or str(result.get("stdout") or "").strip()
+                or f"exit_code={exit_code}"
+            )
+            self.console.print(
+                "\n[dim yellow]↪ Auto-install failed:[/dim yellow] "
+                f"[dim]{failure_summary[:180]}[/dim]"
+            )
+            return False
+        attempted_packages.add(package_name)
+        self._auto_install_missing_node_tool_packages = attempted_packages
+        sess = self.artifact_manager.current_session
+        if sess and isinstance(getattr(sess, "events", None), list):
+            sess.events.append(
+                {
+                    "event": "auto_install_missing_local_node_tool",
+                    "package": package_name,
+                    "cwd": project_cwd,
+                    "command": install_cmd[:240],
+                }
+            )
+        self._record_phase_promotion(
+            "repair_to_verify",
+            "auto_install_missing_local_node_tool",
+            SessionPhase.REPAIR,
+            SessionPhase.VERIFY,
+            extra={"package": package_name, "cwd": project_cwd},
+        )
+        self._apply_session_phase(
+            SessionPhase.VERIFY,
+            detail=f"auto-installed {package_name}",
+            sync_task=True,
+        )
+        return True
 
     def _phase_verify(self, task_obj: Any, context_label: str) -> None:
         """VERIFY: run verify_change only (no LLM). CLOSING defers definitive DONE/ABORTED to finalize."""
         sess = self.artifact_manager.current_session
         if not sess:
             return
+        if self._session_has_diff() and self._maybe_defer_greenfield_verify():
+            logger.info("phase transition: VERIFY -> ACT (greenfield scaffold incomplete before verify)")
+            self._apply_session_phase(
+                SessionPhase.ACT,
+                detail="greenfield scaffold incomplete before VERIFY",
+                sync_task=True,
+            )
+            return
         repair_count = getattr(sess, "repair_attempt_count", 0)
         tsd_loop = self._session_contract_spec_dict()
         skip_exec, skip_reason, _tsd = self._resolve_verify_skip_flags(task_obj)
         tc_sess = get_task_contract(sess)
-        if not skip_exec and not self._session_has_diff():
+        verify_inputs = self._current_verification_input_files()
+        if not skip_exec and not verify_inputs:
             logger.info("phase transition: VERIFY skipped (no diff) -> CLOSING")
             sess.record_incremental_verification(
                 {
@@ -4425,7 +5745,7 @@ Discovery actions this session: {discovery_count}
                     "checks": [],
                     "steps_executed_count": 0,
                 },
-                diff_summary=getattr(sess, "diff_summary", []) or [],
+                diff_summary=verify_inputs,
                 context_label=f"{context_label}:skip_no_diff",
             )
             self._apply_session_phase(SessionPhase.CLOSING, detail="verify skipped no diff", sync_task=True)
@@ -4441,7 +5761,7 @@ Discovery actions this session: {discovery_count}
             check_names = self.verification_coordinator.planned_check_labels(
                 task_type=task_obj.task_type,
                 scope=getattr(sess, "task_scope", "") or "unknown",
-                files_changed=getattr(sess, "diff_summary", []) or [],
+                files_changed=verify_inputs,
                 budget_remaining=getattr(self.budget_manager, "remaining", 100),
                 contract_spec=tsd_loop,
                 repo_v2=self._session_repo_v2_dict(),
@@ -4461,7 +5781,7 @@ Discovery actions this session: {discovery_count}
         self._trace_phase_start("verification")
         _v0 = time.monotonic()
         v_res = self.verification_coordinator.run(
-            diff_summary=getattr(sess, "diff_summary", []) or [],
+            diff_summary=verify_inputs,
             task_contract=tc_sess,
             task_type=task_obj.task_type,
             scope=getattr(sess, "task_scope", "") or "unknown",
@@ -4500,7 +5820,7 @@ Discovery actions this session: {discovery_count}
         sess.planned_check_cwds = dict(v_res.get("planned_check_cwds") or {})
         sess.record_incremental_verification(
             v_res,
-            diff_summary=getattr(sess, "diff_summary", []) or [],
+            diff_summary=verify_inputs,
             context_label=context_label,
         )
         record_verification_metrics(sess, v_res, reused=False)
@@ -4636,10 +5956,28 @@ Discovery actions this session: {discovery_count}
         actionable = coord.get("reparable")
         if actionable is None:
             actionable = any(c.get("name") in ("Build", "TypeCheck", "Lint") for c in failed_checks)
-        if actionable and repair_count < MAX_REPAIR:
+        repair_focus_files = self._repair_focus_files(sess, failed_checks)
+        followup_bonus = _should_allow_followup_repair_attempt(
+            repair_count=repair_count,
+            max_repair=MAX_REPAIR,
+            focus_files=repair_focus_files,
+            diff_summary=getattr(sess, "diff_summary", []) or [],
+            bonus_cap=1,
+        )
+        effective_repair_limit = MAX_REPAIR + (1 if followup_bonus else 0)
+        if followup_bonus:
+            sess.events.append(
+                {
+                    "event": "repair_followup_bonus_granted",
+                    "repair_count": repair_count,
+                    "max_repair": MAX_REPAIR,
+                    "effective_repair_limit": effective_repair_limit,
+                    "focus_files": repair_focus_files[:6],
+                }
+            )
+        if actionable and repair_count < effective_repair_limit:
             err_summary = "; ".join([f"{c.get('name')}: failed" for c in failed_checks[:3]])
             failed_names_list = [c.get("name") for c in failed_checks]
-            repair_focus_files = self._repair_focus_files(sess, failed_checks)
             self._trace_phase_start("repair")
             _rep_t0 = time.monotonic()
             sess.repair_attempt_count = repair_count + 1
@@ -4675,20 +6013,21 @@ Discovery actions this session: {discovery_count}
                 except Exception:
                     pass
             self._trace_phase_end("repair")
+            self._grant_iteration_tailroom(2, reason="verify_failed_to_repair")
             logger.info("phase transition: VERIFY -> REPAIR (%s)", context_label)
             self._record_phase_promotion(
                 "verify_to_repair",
                 "verification_failed_reparable",
-                SessionPhase.VERIFY,
-                SessionPhase.REPAIR,
-                extra={
-                    "context_label": context_label,
-                    "failed_checks": failed_names_list[:5],
-                    "attempt": repair_count + 1,
-                    "failure_set_delta": _failure_set_delta,
-                    "max_repair": MAX_REPAIR,
-                },
-            )
+                    SessionPhase.VERIFY,
+                    SessionPhase.REPAIR,
+                    extra={
+                        "context_label": context_label,
+                        "failed_checks": failed_names_list[:5],
+                        "attempt": repair_count + 1,
+                        "failure_set_delta": _failure_set_delta,
+                        "max_repair": effective_repair_limit,
+                    },
+                )
             self._apply_session_phase(SessionPhase.REPAIR, detail=err_summary[:200], sync_task=True)
             return
         logger.info("phase transition: VERIFY -> CLOSING (%s, verification failed)", context_label)
@@ -4711,6 +6050,8 @@ Discovery actions this session: {discovery_count}
             failed_checks = list(fc_coord)
         else:
             failed_checks = [c for c in checks if c.get("status") in ("failed", "error")]
+        if self._maybe_auto_install_missing_local_node_package(failed_checks):
+            return
         diff_summary = list(getattr(sess, "diff_summary", []) or [])
         diff_summary_for_repair = self._filter_diff_summary_for_repair(sess, failed_checks, diff_summary)
         repair_focus_files = self._repair_focus_files(sess, failed_checks)
@@ -4741,6 +6082,7 @@ Discovery actions this session: {discovery_count}
                 last_main_turn_prompt_chars=self._last_main_turn_prompt_chars,
                 ghost_server_url=self.server_url,
                 ghost_api_key=self.api_key,
+                repo_root=self.cwd,
                 causal_signature_text=causal_sig_text,
                 error_signature_delta=err_sig_delta,
             )
@@ -4764,9 +6106,10 @@ Discovery actions this session: {discovery_count}
             if res.provider_ok and res.parse_ok and res.edits_to_apply:
                 metadata: Dict[str, Any] = {}
                 for ed in res.edits_to_apply:
+                    tool_name, tool_args = _repair_apply_tool_for_edit(self.cwd, ed)
                     r = self._inner_execute_tool(
-                        "edit_file",
-                        {"path": ed["path"], "old_str": ed["old_str"], "new_str": ed["new_str"]},
+                        tool_name,
+                        tool_args,
                         metadata,
                         is_authorized=True,
                     )
@@ -4899,6 +6242,11 @@ Discovery actions this session: {discovery_count}
                                 "confidence": _rp_conf,
                             },
                         )
+                if _should_grant_structured_repair_tailroom(
+                    int(getattr(self, "_session_loop_iteration", 0) or 0),
+                    self._current_iteration_cap(),
+                ):
+                    self._grant_iteration_tailroom(2, reason="structured_repair_verify_bridge")
                 sess.last_repair_extra_causal_attempt = False
                 self.console.print(
                     f"[dim]Repair Specialist:[/dim] {res.root_cause or 'applied minimal edits'} "
@@ -5179,6 +6527,10 @@ Discovery actions this session: {discovery_count}
                         try:
                             obj = json.loads(text[start:i + 1])
                             if isinstance(obj, dict) and "name" in obj and "arguments" in obj:
+                                obj = dict(obj)
+                                obj["arguments"] = _sanitize_tool_arguments_payload(
+                                    obj.get("arguments", {})
+                                )
                                 calls.append(obj)
                         except Exception:
                             pass
@@ -5190,12 +6542,22 @@ Discovery actions this session: {discovery_count}
         matches = re.findall(r"<tool_call>(.*?)</tool_call>", text, re.DOTALL)
         for m in matches:
             try:
-                calls.append(json.loads(m.strip()))
+                obj = json.loads(m.strip())
+                if isinstance(obj, dict) and "name" in obj and "arguments" in obj:
+                    obj = dict(obj)
+                    obj["arguments"] = _sanitize_tool_arguments_payload(obj.get("arguments", {}))
+                    calls.append(obj)
             except Exception:
                 try:
                     inner_match = re.search(r"\{.*\}", m, re.DOTALL)
                     if inner_match:
-                        calls.append(json.loads(inner_match.group(0)))
+                        obj = json.loads(inner_match.group(0))
+                        if isinstance(obj, dict) and "name" in obj and "arguments" in obj:
+                            obj = dict(obj)
+                            obj["arguments"] = _sanitize_tool_arguments_payload(
+                                obj.get("arguments", {})
+                            )
+                            calls.append(obj)
                 except Exception:
                     pass
         if not calls:
@@ -5858,6 +7220,22 @@ Discovery actions this session: {discovery_count}
             return True, ""
         if name == "run_shell":
             cmd0 = str(args.get("command") or "").strip()
+            workset_paths = _active_workset_candidate_paths(sess)
+            scoped_cmd0, scoped_cwd0 = _scope_package_manager_command_to_project(
+                self.cwd,
+                cmd0,
+                workset_paths,
+            )
+            if _local_package_install_already_satisfied(
+                self.cwd,
+                scoped_cmd0,
+                project_cwd=scoped_cwd0 or ".",
+            ):
+                return (
+                    False,
+                    "Local package install is redundant: dependency already exists in package.json and node_modules. "
+                    "Continue with edits or verification instead of reinstalling it.",
+                )
             ts0 = contract_spec_dict_from_session(sess) or {}
             if cmd0 and batch_exec.is_verification_shell_command(cmd0):
                 _ig = str(ts0.get("intent") or "").strip().lower()
@@ -5963,17 +7341,26 @@ Discovery actions this session: {discovery_count}
 
     def _execute_tool(self, call: Dict[str, Any], is_authorized: bool = False) -> Dict[str, Any]:
         """Defensive Tool Execution Engine."""
-        name, args = call.get("name"), call.get("arguments", {})
+        name = call.get("name")
+        args = _sanitize_tool_arguments_payload(call.get("arguments", {}))
         target = self._tool_trace_target(name, args)
 
         # Trigger PreToolUse Hook
         self.hook_manager.trigger(HookEvents.PRE_TOOL_USE, name=name, arguments=args)
         
+        current_mode = getattr(self, "mode", "Chat")
+        intent_task_type = self.current_intent.task_type if hasattr(self, "current_intent") else "ask"
+        bootstrap_scaffold = bool(self._current_task_is_bootstrap_scaffold())
         metadata = {
-            "task_type": self.current_intent.task_type if hasattr(self, "current_intent") else "ask",
-            "mode": getattr(self, "mode", "Chat"),
+            "task_type": _effective_tool_task_type(
+                current_mode,
+                intent_task_type,
+                bootstrap_scaffold=bootstrap_scaffold,
+            ),
+            "mode": current_mode,
             "role": self.role,
-            "is_swarm_worker": self.is_swarm_worker
+            "is_swarm_worker": self.is_swarm_worker,
+            "greenfield_scaffold": bootstrap_scaffold,
         }
         
         t_tool_iso = trace_timestamp_iso()
@@ -6118,7 +7505,29 @@ Discovery actions this session: {discovery_count}
             
         elif name == "edit_file":
             old_str, new_str = args.get("old_str"), args.get("new_str")
-            if not all([path, old_str is not None, new_str is not None]): return {"error": "Missing required arguments."}
+            if not all([path, old_str is not None, new_str is not None]):
+                error = {"error": "Missing required arguments."}
+                self._pending_edit_recovery = None
+                norm_path = PathComposer.normalize_path_segments(path) if path else ""
+                if norm_path:
+                    full_path = PathComposer.compose(self.cwd, norm_path)
+                    if os.path.isfile(full_path):
+                        content, read_err = _read_utf8_text_for_tool(full_path)
+                        if content is not None:
+                            recovery = _suggest_edit_file_required_arg_recovery(norm_path, content)
+                            if recovery:
+                                self._pending_edit_recovery = {
+                                    "next_tool": "read_file",
+                                    "arguments": dict(recovery),
+                                }
+                                error["recovery"] = {
+                                    "next_tool": "read_file",
+                                    "arguments": recovery,
+                                    "hint": "Read the exact file slice from disk, then retry edit_file with literal old_str and new_str.",
+                                }
+                        elif read_err:
+                            error["read_error"] = read_err
+                return error
             path = PathComposer.normalize_path_segments(path)
             if not is_authorized and not self.policy_gate.check_permission("Patch File", path, getattr(self, "mode", "Chat"), metadata):
                 return {"error": "Action denied by user or policy."}
@@ -6197,7 +7606,27 @@ Discovery actions this session: {discovery_count}
             
             original_context = cmd if was_changed else None
             effective_cmd = norm_cmd if was_changed else cmd
-            
+            install_snapshot: Optional[Dict[str, str]] = None
+            install_project_cwd = "."
+            sess_for_shell = self.artifact_manager.current_session
+            workset_paths = _active_workset_candidate_paths(sess_for_shell)
+            effective_cmd, scoped_cwd = _scope_package_manager_command_to_project(
+                self.cwd,
+                effective_cmd,
+                workset_paths,
+            )
+            is_local_install = _is_local_package_install_command(effective_cmd)
+            install_project_cwd = scoped_cwd or "."
+            if is_local_install:
+                install_snapshot = _snapshot_local_package_install_state(
+                    self.cwd,
+                    install_project_cwd,
+                )
+            if scoped_cwd:
+                self.console.print(
+                    f" [dim]↪ Scoped package-manager command to project root: [bold white]{scoped_cwd}[/bold white][/dim]"
+                )
+             
             if was_changed:
                 self.console.print(f" [dim]⚡ Auto-normalized Unix command to PowerShell: [bold white]{norm_cmd}[/bold white][/dim]")
             
@@ -6211,21 +7640,69 @@ Discovery actions this session: {discovery_count}
             ):
                 return {"error": "Action denied by user or policy."}
             
-            res = subprocess.run(effective_cmd, shell=True, capture_output=True, text=True, env=os.environ.copy(), cwd=self.cwd)
-            
+            res = subprocess.run(
+                effective_cmd,
+                shell=True,
+                capture_output=True,
+                text=False,
+                env=os.environ.copy(),
+                cwd=self.cwd,
+            )
+            stdout_text = _decode_subprocess_output(res.stdout)
+            stderr_text = _decode_subprocess_output(res.stderr)
+            changed_install_files: List[str] = []
+            if res.returncode == 0 and is_local_install:
+                changed_install_files = _collect_changed_local_package_install_files(
+                    self.cwd,
+                    install_project_cwd,
+                    install_snapshot,
+                )
+                for changed_path in changed_install_files:
+                    full_changed_path = PathComposer.compose(self.cwd, changed_path)
+                    content_sha = None
+                    if os.path.isfile(full_changed_path):
+                        try:
+                            with open(full_changed_path, "rb") as fh:
+                                content_sha = hashlib.sha256(fh.read()).hexdigest()
+                        except OSError:
+                            content_sha = None
+                    self.artifact_manager.add_diff(
+                        changed_path,
+                        "Shell Install",
+                        content_sha256=content_sha,
+                    )
+                if changed_install_files:
+                    self._bump_session_write_epoch()
+                self._dependency_install_completed = True
+                self._dependency_install_changed_files = changed_install_files
+                sess = self.artifact_manager.current_session
+                if sess and isinstance(getattr(sess, "events", None), list):
+                    sess.events.append(
+                        {
+                            "event": "dependency_install_completed",
+                            "command": effective_cmd[:240],
+                            "changed_files": changed_install_files[:5],
+                        }
+                    )
+             
             # GEP-3.1: Terminal Failure for Exact Commands
             is_exact = getattr(self.current_intent, "is_exact_command", False)
             if res.returncode != 0 and is_exact:
                 self.console.print(f"\n [bold red]TERMINAL FAIL:[/bold red] Exact command failed with exit code {res.returncode}.")
                 return {
-                    "stdout": res.stdout,
-                    "stderr": res.stderr,
+                    "stdout": stdout_text,
+                    "stderr": stderr_text,
                     "exit_code": res.returncode,
                     "terminal": True,
                     "error": "Exact command execution failed. Terminal stop triggered."
                 }
                 
-            return {"stdout": res.stdout, "stderr": res.stderr, "exit_code": res.returncode}
+            return {
+                "stdout": stdout_text,
+                "stderr": stderr_text,
+                "exit_code": res.returncode,
+                "changed_files": changed_install_files,
+            }
             
         elif name == "delete_file":
             evidence = args.get("evidence", "")

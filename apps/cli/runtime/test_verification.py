@@ -6,8 +6,11 @@ import unittest
 
 from apps.cli.runtime.verification import (
     CHECK_DENIED,
+    CHECK_BLOCKED,
     PROVENANCE_DENIED_BY_USER,
+    PROVENANCE_PLANNED_UNAVAILABLE,
     VerificationManager,
+    _decode_subprocess_output,
     _shrink_verification_stream,
     parse_pytest_focus_targets,
 )
@@ -38,6 +41,14 @@ class TestVerificationManager(unittest.TestCase):
     def tearDown(self):
         shutil.rmtree(self.test_dir, ignore_errors=True)
 
+    def test_decode_subprocess_output_handles_utf8_bytes(self):
+        self.assertEqual(_decode_subprocess_output("ok \u2713".encode("utf-8")), "ok \u2713")
+
+    def test_decode_subprocess_output_replaces_undecodable_bytes(self):
+        decoded = _decode_subprocess_output(b"\x8fabc")
+        self.assertIsInstance(decoded, str)
+        self.assertIn("abc", decoded)
+
     def test_detect_root_node_with_build(self):
         pkg = {"scripts": {"build": "echo building"}}
         with open(os.path.join(self.test_dir, "package.json"), "w", encoding="utf-8") as f:
@@ -61,6 +72,72 @@ class TestVerificationManager(unittest.TestCase):
         self.assertEqual(checks[0]["name"], "TypeCheck")
         self.assertEqual(checks[0]["command"], "npx tsc --noEmit")
         self.assertEqual(checks[0]["cwd"], ".")
+
+    def test_detect_nested_node_project_checks_from_changed_files(self):
+        os.makedirs(os.path.join(self.test_dir, "notes-app"), exist_ok=True)
+        with open(os.path.join(self.test_dir, "notes-app", "package.json"), "w", encoding="utf-8") as f:
+            json.dump({"scripts": {"build": "next build", "lint": "next lint"}}, f)
+        with open(os.path.join(self.test_dir, "notes-app", "tsconfig.json"), "w", encoding="utf-8") as f:
+            f.write("{}")
+        os.makedirs(os.path.join(self.test_dir, "notes-app", "node_modules", "next"), exist_ok=True)
+        with open(
+            os.path.join(self.test_dir, "notes-app", "node_modules", "next", "package.json"),
+            "w",
+            encoding="utf-8",
+        ) as f:
+            json.dump({"version": "16.2.1"}, f)
+
+        checks = self.manager.get_applicable_checks(files_changed=[{"file": "notes-app/pages/index.tsx"}])
+        by_name = {c["name"]: c for c in checks}
+        self.assertEqual(by_name["TypeCheck"]["cwd"], "notes-app")
+        self.assertEqual(by_name["Build"]["cwd"], "notes-app")
+        self.assertNotIn("Lint", by_name)
+
+    def test_detect_nested_node_project_keeps_non_next_lint_script(self):
+        os.makedirs(os.path.join(self.test_dir, "notes-app"), exist_ok=True)
+        with open(os.path.join(self.test_dir, "notes-app", "package.json"), "w", encoding="utf-8") as f:
+            json.dump({"scripts": {"build": "next build", "lint": "eslint ."}}, f)
+        with open(os.path.join(self.test_dir, "notes-app", "tsconfig.json"), "w", encoding="utf-8") as f:
+            f.write("{}")
+
+        checks = self.manager.get_applicable_checks(files_changed=[{"file": "notes-app/pages/index.tsx"}])
+        by_name = {c["name"]: c for c in checks}
+        self.assertEqual(by_name["Lint"]["cwd"], "notes-app")
+
+    def test_detect_single_nested_node_project_without_diff_summary(self):
+        os.makedirs(os.path.join(self.test_dir, "notes-app"), exist_ok=True)
+        with open(os.path.join(self.test_dir, "notes-app", "package.json"), "w", encoding="utf-8") as f:
+            json.dump({"scripts": {"build": "next build"}}, f)
+        with open(os.path.join(self.test_dir, "notes-app", "tsconfig.json"), "w", encoding="utf-8") as f:
+            f.write("{}")
+
+        checks = self.manager.get_applicable_checks(files_changed=[])
+        by_name = {c["name"]: c for c in checks}
+        self.assertEqual(by_name["TypeCheck"]["cwd"], "notes-app")
+        self.assertEqual(by_name["Build"]["cwd"], "notes-app")
+
+    def test_resolve_ordered_checks_uses_nested_node_project_cwd(self):
+        os.makedirs(os.path.join(self.test_dir, "notes-app"), exist_ok=True)
+        with open(os.path.join(self.test_dir, "notes-app", "package.json"), "w", encoding="utf-8") as f:
+            json.dump({"scripts": {"build": "next build"}}, f)
+        with open(os.path.join(self.test_dir, "notes-app", "tsconfig.json"), "w", encoding="utf-8") as f:
+            f.write("{}")
+
+        ordered, scope = self.manager.resolve_ordered_checks(
+            files_changed=[{"file": "notes-app/pages/index.tsx"}],
+            contract_spec={
+                "verification_policy": {
+                    "required": True,
+                    "typecheck": False,
+                    "build": True,
+                    "lint": False,
+                    "tests": False,
+                }
+            },
+        )
+        self.assertEqual(scope, "node")
+        self.assertEqual(ordered[0]["name"], "Build")
+        self.assertEqual(ordered[0]["cwd"], "notes-app")
 
     def test_detect_python_tests_for_cli_target(self):
         with open(os.path.join(self.test_dir, "pyproject.toml"), "w", encoding="utf-8") as f:
@@ -237,6 +314,38 @@ class TestVerificationManager(unittest.TestCase):
         denied = [c for c in res["checks"] if c["status"] == CHECK_DENIED]
         self.assertEqual(len(denied), 2)
         self.assertTrue(all(c["provenance"] == PROVENANCE_DENIED_BY_USER for c in denied))
+
+    def test_verify_change_blocks_when_required_tests_are_unavailable(self):
+        with open(os.path.join(self.test_dir, "package.json"), "w", encoding="utf-8") as f:
+            json.dump({}, f)
+
+        self.manager.set_repo_verification_commands(
+            {
+                "build": {"command": 'python -c "print(\'build ok\')"', "cwd": "."},
+            }
+        )
+
+        res = self.manager.verify_change(
+            files_changed=[{"file": "src/index.ts"}],
+            contract_spec={
+                "verification_policy": {
+                    "required": True,
+                    "typecheck": False,
+                    "build": True,
+                    "lint": False,
+                    "tests": True,
+                }
+            },
+        )
+
+        self.assertEqual(res["status"], CHECK_BLOCKED)
+        build_row = next(c for c in res["checks"] if c["name"] == "Build")
+        tests_row = next(c for c in res["checks"] if c["name"] == "Tests")
+        self.assertEqual(build_row["status"], "passed")
+        self.assertEqual(tests_row["status"], CHECK_BLOCKED)
+        self.assertEqual(tests_row["provenance"], PROVENANCE_PLANNED_UNAVAILABLE)
+        self.assertEqual(tests_row["cause"], "required_check_unavailable")
+        self.assertIn("missing_required=Tests", res["justification"])
 
 
 class TestVerificationStreamCap(unittest.TestCase):

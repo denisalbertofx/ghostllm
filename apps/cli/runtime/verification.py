@@ -1,10 +1,12 @@
 import json
+import locale
 import logging
 import os
 import re
 import subprocess
 from dataclasses import dataclass
 from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
+from collections.abc import Mapping
 
 logger = logging.getLogger(__name__)
 
@@ -40,6 +42,92 @@ def _shrink_verification_result_rows(rows: List[Dict[str, Any]]) -> None:
             row["stderr"] = _shrink_verification_stream(row.get("stderr"), cap)
 
 
+def _read_json_file(path: str) -> Dict[str, Any]:
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        return data if isinstance(data, dict) else {}
+    except Exception:
+        return {}
+
+
+def _decode_subprocess_output(data: Any) -> str:
+    if data is None:
+        return ""
+    if isinstance(data, str):
+        return data
+    if not isinstance(data, (bytes, bytearray)):
+        return str(data)
+    blob = bytes(data)
+    if not blob:
+        return ""
+    tried: List[str] = []
+    for encoding in ("utf-8", locale.getpreferredencoding(False), "cp1252"):
+        enc = str(encoding or "").strip()
+        if not enc:
+            continue
+        key = enc.lower()
+        if key in tried:
+            continue
+        tried.append(key)
+        try:
+            return blob.decode(enc)
+        except UnicodeDecodeError:
+            continue
+        except LookupError:
+            continue
+    return blob.decode("utf-8", errors="replace")
+
+
+def _parse_semver_major(value: Any) -> Optional[int]:
+    text = str(value or "").strip()
+    if not text:
+        return None
+    match = re.search(r"(\d+)", text)
+    if not match:
+        return None
+    try:
+        return int(match.group(1))
+    except (TypeError, ValueError):
+        return None
+
+
+def _resolve_next_major_version(abs_dir: str, pkg: Dict[str, Any]) -> Optional[int]:
+    installed_pkg = os.path.join(abs_dir, "node_modules", "next", "package.json")
+    installed = _read_json_file(installed_pkg)
+    major = _parse_semver_major(installed.get("version"))
+    if major is not None:
+        return major
+    for section in ("dependencies", "devDependencies"):
+        deps = pkg.get(section) or {}
+        if not isinstance(deps, dict):
+            continue
+        major = _parse_semver_major(deps.get("next"))
+        if major is not None:
+            return major
+    return None
+
+
+def _should_skip_node_lint_check(pkg: Dict[str, Any], abs_dir: str) -> bool:
+    scripts = pkg.get("scripts") or {}
+    if not isinstance(scripts, dict):
+        return False
+    lint_script = str(scripts.get("lint") or "").strip().lower()
+    if not lint_script.startswith("next lint"):
+        return False
+    next_major = _resolve_next_major_version(abs_dir, pkg)
+    if next_major is not None:
+        return next_major >= 16
+    for section in ("dependencies", "devDependencies"):
+        deps = pkg.get(section) or {}
+        if not isinstance(deps, dict):
+            continue
+        raw = str(deps.get("next") or "").strip().lower()
+        if raw in {"latest", "canary", "next"}:
+            return True
+    return False
+
+
 # Check statuses used by VerificationCoordinator.attach_coordinator_view
 CHECK_BLOCKED = "blocked"
 CHECK_DENIED = "denied"
@@ -48,6 +136,7 @@ CHECK_FAILED = "failed"
 
 PROVENANCE_EXECUTED = "executed"
 PROVENANCE_DENIED_BY_USER = "denied_by_user"
+PROVENANCE_PLANNED_UNAVAILABLE = "planned_unavailable"
 
 _CHECK_KIND_TYPECHECK = "typecheck"
 _CHECK_KIND_BUILD = "build"
@@ -179,8 +268,8 @@ def choose_verification_plan_from_contract_spec(
     repo_v2: Optional[Dict[str, Any]] = None,
 ) -> ChosenVerificationPlan:
     _ = task_type, scope, files_changed, budget_remaining, failed_check_names, repo_v2
-    vp = spec.get("verification_policy")
-    if not isinstance(vp, dict):
+    vp = spec.get("verification_policy") if isinstance(spec, Mapping) else None
+    if not isinstance(vp, Mapping):
         return ChosenVerificationPlan(check_names=())
     names: List[str] = []
     if bool(vp.get("typecheck")):
@@ -234,6 +323,26 @@ def filter_plan_to_available_checks(
     }
     ordered = tuple(n for n in plan.check_names if _canonical_check_key(n) in available)
     return ChosenVerificationPlan(check_names=ordered)
+
+
+def _missing_required_check_names(
+    plan: ChosenVerificationPlan,
+    all_checks: Sequence[Dict[str, Any]],
+) -> List[str]:
+    available = {
+        _canonical_check_key(c.get("kind") or c.get("name"))
+        for c in all_checks
+        if c.get("name")
+    }
+    missing: List[str] = []
+    for name in plan.check_names:
+        key = _canonical_check_key(name)
+        if not key or key in available:
+            continue
+        display = _normalize_repo_vc_key(str(name))
+        if display not in missing:
+            missing.append(display)
+    return missing
 
 
 def adjust_verification_plan_for_ux_level(
@@ -347,6 +456,55 @@ def _infer_verification_targets(
             add_family("node")
 
     return families
+
+
+def _candidate_node_project_dirs(
+    cwd: str,
+    files_changed: Optional[List[Dict[str, Any]]] = None,
+) -> List[str]:
+    candidates: List[str] = []
+
+    def add_candidate(rel_dir: str) -> None:
+        rel = _normalize_rel_path(rel_dir)
+        rel = "." if rel in ("", ".") else rel
+        if rel not in candidates:
+            candidates.append(rel)
+
+    if os.path.exists(os.path.join(cwd, "package.json")):
+        add_candidate(".")
+    if os.path.exists(os.path.join(cwd, "apps", "web", "package.json")):
+        add_candidate("apps/web")
+
+    for path in _files_changed_paths(files_changed):
+        current = os.path.dirname(path)
+        seen: set[str] = set()
+        while current and current not in seen:
+            seen.add(current)
+            if os.path.exists(os.path.join(cwd, current, "package.json")):
+                add_candidate(current)
+                break
+            parent = os.path.dirname(current)
+            if parent == current:
+                break
+            current = parent
+
+    if not candidates:
+        nested_dirs: List[str] = []
+        try:
+            for entry in os.scandir(cwd):
+                if not entry.is_dir():
+                    continue
+                name = str(entry.name or "").strip()
+                if not name or name.startswith("."):
+                    continue
+                if os.path.exists(os.path.join(entry.path, "package.json")):
+                    nested_dirs.append(name.replace("\\", "/"))
+        except OSError:
+            nested_dirs = []
+        if len(nested_dirs) == 1:
+            add_candidate(nested_dirs[0])
+
+    return candidates
 
 
 def _scope_label_from_families(families: Sequence[str]) -> str:
@@ -594,22 +752,22 @@ class VerificationManager:
         if commands:
             self._repo_vc.update(commands)
 
-    def _get_node_checks_from_root_package(self) -> List[Dict[str, Any]]:
+    def _get_node_checks_from_package_dir(self, check_cwd: str = ".") -> List[Dict[str, Any]]:
         checks: List[Dict[str, Any]] = []
-        pkg_path = os.path.join(self.cwd, "package.json")
+        abs_dir = _absolute_check_cwd(self.cwd, check_cwd)
+        pkg_path = os.path.join(abs_dir, "package.json")
         if not os.path.exists(pkg_path):
             return checks
         try:
-            with open(pkg_path, "r", encoding="utf-8") as f:
-                pkg = json.load(f)
+            pkg = _read_json_file(pkg_path)
             scripts = pkg.get("scripts", {}) or {}
-            if os.path.exists(os.path.join(self.cwd, "tsconfig.json")):
+            if os.path.exists(os.path.join(abs_dir, "tsconfig.json")):
                 checks.append(
                     {
                         "name": "TypeCheck",
                         "kind": _CHECK_KIND_TYPECHECK,
                         "command": "npx tsc --noEmit",
-                        "cwd": ".",
+                        "cwd": check_cwd,
                         "source": ["root_package_json"],
                     }
                 )
@@ -619,27 +777,27 @@ class VerificationManager:
                         "name": "Build",
                         "kind": _CHECK_KIND_BUILD,
                         "command": "npm run build",
-                        "cwd": ".",
+                        "cwd": check_cwd,
                         "source": ["root_package_json"],
                     }
                 )
-            elif not checks and os.path.exists(os.path.join(self.cwd, "tsconfig.json")):
+            elif not checks and os.path.exists(os.path.join(abs_dir, "tsconfig.json")):
                 checks.append(
                     {
                         "name": "TypeCheck",
                         "kind": _CHECK_KIND_TYPECHECK,
                         "command": "npx tsc --noEmit",
-                        "cwd": ".",
+                        "cwd": check_cwd,
                         "source": ["root_package_json"],
                     }
                 )
-            if "lint" in scripts:
+            if "lint" in scripts and not _should_skip_node_lint_check(pkg, abs_dir):
                 checks.append(
                     {
                         "name": "Lint",
                         "kind": _CHECK_KIND_LINT,
                         "command": "npm run lint",
-                        "cwd": ".",
+                        "cwd": check_cwd,
                         "source": ["root_package_json"],
                     }
                 )
@@ -649,7 +807,7 @@ class VerificationManager:
                         "name": "Tests",
                         "kind": _CHECK_KIND_TESTS,
                         "command": "npm run test",
-                        "cwd": ".",
+                        "cwd": check_cwd,
                         "source": ["root_package_json"],
                     }
                 )
@@ -705,7 +863,12 @@ class VerificationManager:
                 checks.append(py_check)
 
         if "node" in families:
-            node_checks = self._get_node_checks_from_repo_profile() or self._get_node_checks_from_root_package()
+            node_checks = self._get_node_checks_from_repo_profile()
+            if not node_checks:
+                for candidate_cwd in _candidate_node_project_dirs(self.cwd, files_changed):
+                    node_checks = self._get_node_checks_from_package_dir(candidate_cwd)
+                    if node_checks:
+                        break
             checks.extend(node_checks)
 
         if not checks:
@@ -716,7 +879,13 @@ class VerificationManager:
             )
             if py_check:
                 checks.append(py_check)
-            checks.extend(self._get_node_checks_from_repo_profile() or self._get_node_checks_from_root_package())
+            fallback_node_checks = self._get_node_checks_from_repo_profile()
+            if not fallback_node_checks:
+                for candidate_cwd in _candidate_node_project_dirs(self.cwd, files_changed):
+                    fallback_node_checks = self._get_node_checks_from_package_dir(candidate_cwd)
+                    if fallback_node_checks:
+                        break
+            checks.extend(fallback_node_checks)
 
         by_kind: Dict[str, Dict[str, Any]] = {}
         ordered: List[Dict[str, Any]] = []
@@ -815,6 +984,25 @@ class VerificationManager:
         families = _infer_verification_targets(files_changed=files_changed, scope=scope, cwd=self.cwd)
         verification_scope = _scope_label_from_families(families)
 
+        all_checks = self.get_applicable_checks(
+            task_type=task_type or None,
+            scope=scope or None,
+            files_changed=files_changed,
+            contract_spec=contract_spec,
+        )
+        missing_required_checks: List[str] = []
+        if contract_spec is not None:
+            required_plan = choose_verification_plan_from_contract_spec(
+                contract_spec,
+                task_type=task_type,
+                scope=scope,
+                files_changed=files_changed,
+                budget_remaining=budget_remaining,
+                failed_check_names=failed_check_names,
+                repo_v2=repo_v2,
+            )
+            missing_required_checks = _missing_required_check_names(required_plan, all_checks)
+
         if skip_execution:
             return {
                 "status": "incomplete",
@@ -834,7 +1022,7 @@ class VerificationManager:
             contract_spec=contract_spec,
             repo_v2=repo_v2,
         )
-        if not ordered:
+        if not ordered and not missing_required_checks:
             return {
                 "status": "skipped",
                 "reason": "No supported stack detected for auto-verification.",
@@ -847,6 +1035,9 @@ class VerificationManager:
         planned_check_cwds = {
             str(check["name"]): str(check.get("cwd") or ".") for check in ordered if check.get("name")
         }
+        default_check_cwd = next((str(check.get("cwd") or ".") for check in ordered if check.get("name")), ".")
+        for missing_name in missing_required_checks:
+            planned_check_cwds.setdefault(missing_name, default_check_cwd)
 
         if verify_batch_approval_fn and ordered:
             approval_cmds = [
@@ -886,15 +1077,18 @@ class VerificationManager:
             abs_cwd_local: str,
             env_local: Dict[str, str],
         ) -> subprocess.CompletedProcess[str]:
-            return subprocess.run(
+            proc = subprocess.run(
                 run_cmd,
                 shell=True,
                 capture_output=True,
-                text=True,
+                text=False,
                 cwd=abs_cwd_local,
                 timeout=300,
                 env=env_local,
             )
+            proc.stdout = _decode_subprocess_output(proc.stdout)
+            proc.stderr = _decode_subprocess_output(proc.stderr)
+            return proc
 
         for check in ordered:
             name = str(check["name"])
@@ -1036,15 +1230,39 @@ class VerificationManager:
                     }
                 )
 
+        if missing_required_checks:
+            overall_success = False
+            for missing_name in missing_required_checks:
+                results.append(
+                    {
+                        "name": missing_name,
+                        "kind": _canonical_check_key(missing_name),
+                        "command": "",
+                        "cwd": planned_check_cwds.get(missing_name) or default_check_cwd,
+                        "status": CHECK_BLOCKED,
+                        "provenance": PROVENANCE_PLANNED_UNAVAILABLE,
+                        "cause": "required_check_unavailable",
+                        "error": "Required verification check is unavailable for this project.",
+                    }
+                )
+
         check_summary = ", ".join(
             f"{row['name']}@{row.get('cwd') or '.'}" for row in results[:6]
         )
         _shrink_verification_result_rows(results)
+        final_status = "success" if overall_success else "failed"
+        if missing_required_checks and not any(
+            row.get("status") in (CHECK_FAILED, CHECK_ERROR) for row in results
+        ):
+            final_status = CHECK_BLOCKED
+        justification = f"verification_scope={verification_scope}; checks={check_summary}"
+        if missing_required_checks:
+            justification += f"; missing_required={', '.join(missing_required_checks)}"
         return {
-            "status": "success" if overall_success else "failed",
+            "status": final_status,
             "checks": results,
             "steps_executed_count": steps_executed,
             "verification_scope": verification_scope,
             "planned_check_cwds": planned_check_cwds,
-            "justification": f"verification_scope={verification_scope}; checks={check_summary}",
+            "justification": justification,
         }

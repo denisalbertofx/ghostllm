@@ -77,3 +77,70 @@ Format:
 - Problem: a planning/audit run on the completed demo repo surfaced two residual product issues: planner model resolution drifted to `openai/gpt-oss-120b`, and the run aborted with provider/read-only tool issues instead of returning a clean plan.
 - Fix: not solved in this benchmark cycle.
 - Result: the software-creation benchmark succeeded, but `plan` remains the next product-grade fix to make the full CLI story feel complete.
+
+## 2026-03-28
+
+### 14. `safe` / architect profile still routed planner-strength roles to a non-coder model
+- Problem: even after moving the coding stack to Qwen3 Coder, the `strong` tier inside operational profiles still mapped to `smart`, so planning and repair paths could drift back to `openai/gpt-oss-120b`.
+- Fix: changed the default `strong` tier to `coder` and added regression coverage for `Profile.architect` / `safe`.
+- Result: planner, execution, and repair now stay aligned on `qwen/qwen3-coder-480b-a35b-instruct`.
+
+### 15. Greenfield API scaffold counted `tests/__init__.py` as a real test suite
+- Problem: in `ghost-bench-api`, Ghost created `README.md`, `pyproject.toml`, `src/main.py`, and `tests/__init__.py`, then promoted to verify even though there were no actual test cases yet.
+- Fix: tightened scaffold verify readiness so package markers like `tests/__init__.py` and `conftest.py` do not satisfy the "tests exist" requirement; also added an optional project-config requirement when the prompt explicitly asks for `pyproject` / `uv`.
+- Result: greenfield Python/API scaffolds now stay in `ACT` until they contain real test files and the requested config scaffolding.
+
+### 16. Failed pytest checks were treated as non-repairable
+- Problem: verification coordinator only marked `Build`, `TypeCheck`, and `Lint` failures as repairable, so a failed `Python Tests (uv)` batch could close the session instead of entering repair.
+- Fix: extended the coordinator to classify executed test failures as repairable too.
+- Result: Ghost can now enter the repair phase after real test failures instead of immediately aborting the session.
+
+### 17. Top-level `ghost fix` did not accept a natural-language task
+- Problem: `ghost fix` only exposed flags and always used the hard-coded task `"Busca errores y corrígelos."`, which broke the benchmark workflow for targeted fixes from plain-language prompts.
+- Fix: added an optional positional `task` argument to `ghost fix` and covered it with CLI tests.
+- Result: `ghost fix -y "..."` now works as a real natural-language entrypoint, consistent with `ghost do` and `ghost plan`.
+
+### 18. Verification failure summaries for pytest preferred harmless stderr warnings over the real test failure
+- Problem: when pytest failed, outcome synthesis often used `stderr` first, so the `next_action` could blame `requires-python` warnings instead of the actual failing assertion that lived in pytest `stdout`.
+- Fix: outcome synthesis now prefers `stdout` for test-family checks and added regression coverage around pytest failures with warning-only stderr.
+- Result: failed test sessions now point at the actual broken assertion or failing test node instead of a misleading environment warning.
+
+### 19. `already_implemented` could close a fix task even when the prompt explicitly demanded verification
+- Problem: a `ghost fix` prompt that said "verifica con pytest dos veces seguidas" could still close as `already_implemented` after read-only exploration, with verify skipped.
+- Fix: added a guard so implementation/modification tasks that explicitly request structured verification cannot close as `already_implemented` when zero checks actually ran.
+- Result: Ghost no longer treats "verify skipped" as a valid successful close for prompts that explicitly required verification.
+
+### 20. Second benchmark reached a stable FastAPI + SQLite app through repeated natural-language `do`/`fix`
+- Problem: the first API scaffold was incomplete, then the first repair made tests flaky on reruns, and later fixes still needed targeted prompts to normalize API responses and repeated verification behavior.
+- Fix: iterated with Ghost using plain-language prompts until the app returned created ticket IDs, the test suite became repeatable, and `pyproject.toml` declared `requires-python`.
+- Result: `ghost-bench-api` now passes `uv run python -m pytest` twice consecutively, which gives a second end-to-end demo app created and repaired through Ghost CLI.
+
+### 21. Auto-install for missing local Node tools fired but silently succeeded on Windows
+- Problem: when verify reported `"jest" no se reconoce...`, Ghost launched an auto-install, but the generated command used PowerShell syntax (`Set-Location ...; npm install`) while the runtime actually executes through `cmd.exe`. The failed install was also treated as success because only `error` was checked, not `exit_code`.
+- Fix: switched scoped install commands to `cd /d "...\" && ...`, and made the auto-install bridge require `exit_code == 0` before promoting back to `VERIFY`.
+- Result: Ghost can now install missing local CLI tools like `jest` instead of fake-progressing to verify.
+
+### 22. Shell verification could crash on Windows Unicode output
+- Problem: `run_shell` and the verification subprocess runner both captured output with `text=True`, so Windows `cp1252` decoding could explode on UTF-8 bytes emitted by Jest/Next output.
+- Fix: both shell paths now capture raw bytes and decode with a fallback chain (`utf-8`, locale, `cp1252`, replacement).
+- Result: Ghost can read real build/test failures instead of losing the session to a decode crash.
+
+### 23. Recoverable `edit_file` tool calls could abort a repair session
+- Problem: if the model emitted `edit_file` without `old_str/new_str`, Ghost returned `Missing required arguments` and the session could terminate even though a simple `read_file` retry would recover it.
+- Fix: missing-argument `edit_file` failures now attach a recovery payload, set `_pending_edit_recovery`, and participate in the same guided-retry path already used for `old_str` mismatches.
+- Result: malformed patch attempts no longer hard-stop the session; Ghost can self-correct by rereading the file and retrying the patch.
+
+### 24. Repair Specialist misdiagnosed Jest TypeScript failures and over-focused on the test file
+- Problem: when Jest failed with `Jest encountered an unexpected token` on `.ts/.tsx`, the primary-failure summary collapsed to `SyntaxError: Missing semicolon`, and the allowlist only exposed the failing test file. The repair loop kept mutating the test instead of configuring Jest.
+- Fix: added a Jest/TypeScript transform heuristic to the repair specialist. It now summarizes this class of failure as a missing Jest TS/TSX transform/config issue, and extends the allowlist with `package.json`, `jest.config.js`, `jest.setup.js`, and `tsconfig.json` inside the subproject.
+- Result: Ghost started editing Jest configuration instead of chasing bogus semicolon fixes in the test source.
+
+### 25. Missing Jest presets/modules were not treated as auto-installable dependencies
+- Problem: after Ghost created `jest.config.js`, verify failed on `Preset ts-jest not found`, but the auto-install bridge only recognized missing shell commands, not missing Node packages referenced from config/runtime output.
+- Fix: extended dependency inference to parse errors like `Preset ts-jest not found`, `Cannot find module 'ts-jest'`, and missing Jest environments; also raised the per-session auto-install cap to allow multiple distinct package installs.
+- Result: Ghost can now automatically install packages like `ts-jest` during the same repair flow.
+
+### 26. Structured repairs applied near the iteration cap could die before re-verification
+- Problem: Ghost could apply the correct last-mile repair, set the `REPAIR -> ACT -> VERIFY` bridge, and still terminate because the loop had no remaining iterations to actually run the final verify.
+- Fix: when a structured repair applies a patch at the edge of the current cap, Ghost now grants tailroom specifically for the verify bridge.
+- Result: the web benchmark was able to continue past `ts-jest` installation, fix the final `window is not defined` issue in the test, and close as `implemented` with `TypeCheck`, `Build`, and `Tests` all passing in `ghost-bench-web/notes-app`.
