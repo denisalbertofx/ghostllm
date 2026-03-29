@@ -16,7 +16,27 @@ from ghostllm_core.memory import MemoryStore
 
 def test_memory_store_uses_versioned_schema(tmp_path: Path) -> None:
     store = MemoryStore(str(tmp_path / "ghost_memory.db"))
-    assert store.get_schema_version() == 2
+    assert store.get_schema_version() == 3
+
+
+def test_memory_store_tracks_pending_filesystem_intents(tmp_path: Path) -> None:
+    store = MemoryStore(str(tmp_path / "ghost_memory.db"))
+    store.begin_filesystem_intent(
+        intent_id="intent_1",
+        session_id="sess_1",
+        op_type="write_file",
+        relpath="demo.txt",
+        payload={"path": "demo.txt", "old_content": "", "had_existing_file": False},
+        reversible=True,
+    )
+
+    pending = store.list_pending_filesystem_intents()
+    assert len(pending) == 1
+    assert pending[0]["intent_id"] == "intent_1"
+    assert pending[0]["reversible"] is True
+
+    store.update_filesystem_intent_status("intent_1", "completed")
+    assert store.list_pending_filesystem_intents() == []
 
 
 def test_task_manager_persists_tasks_in_sqlite(tmp_path: Path) -> None:

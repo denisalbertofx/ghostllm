@@ -123,6 +123,43 @@ class TestModelRegistryConfig(unittest.TestCase):
             "qwen/qwen3-coder-480b-a35b-instruct",
         )
 
+    def test_load_config_reports_line_for_schema_validation_error(self) -> None:
+        from ghostllm_core.config import ConfigValidationError, load_config
+
+        bad = """server:\n  hots: 127.0.0.1\n  port: 8000\nupstream:\n  base_url: https://integrate.api.nvidia.com/v1\n  nvidia_api_key: key\nmodels:\n  allowlist: []\nmonitoring:\n  log_format: json\n  log_level: INFO\n  prometheus_port: 9090\n"""
+        with tempfile.NamedTemporaryFile(
+            mode="w", suffix=".yaml", delete=False, encoding="utf-8"
+        ) as f:
+            f.write(bad)
+            path = f.name
+        try:
+            with self.assertRaises(ConfigValidationError) as ctx:
+                load_config(path)
+            msg = str(ctx.exception)
+            self.assertIn(path, msg)
+            self.assertIn(":2", msg)
+            self.assertIn("Did you mean 'host'", msg)
+        finally:
+            os.unlink(path)
+
+    def test_load_registry_reports_line_for_schema_validation_error(self) -> None:
+        from ghostllm_core.config import ConfigValidationError, load_registry
+
+        bad = """models:\n  - nmae: planner\n    upstream_id: vendor/model\n"""
+        with tempfile.NamedTemporaryFile(
+            mode="w", suffix=".yaml", delete=False, encoding="utf-8"
+        ) as f:
+            f.write(bad)
+            path = f.name
+        try:
+            with self.assertRaises(ConfigValidationError) as ctx:
+                load_registry(path)
+            msg = str(ctx.exception)
+            self.assertIn(":2", msg)
+            self.assertIn("Did you mean 'name'", msg)
+        finally:
+            os.unlink(path)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

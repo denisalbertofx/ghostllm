@@ -259,3 +259,40 @@ def test_doctor_reports_health_but_not_ready() -> None:
         assert "Reachable" in result.stdout or "reachable" in result.stdout.lower()
         # Debe reportar el estado "healthy but not ready"
         assert "healthy but not ready" in result.stdout.lower() or "Gateway healthy but not ready" in result.stdout
+
+
+def test_recover_pending_filesystem_intent_can_revert(tmp_path, monkeypatch) -> None:
+    from apps.cli import main as cli_main
+
+    target = tmp_path / "demo.txt"
+    target.write_text("new", encoding="utf-8")
+    store = cli_main._memory_store_for_cwd(str(tmp_path))
+    store.begin_filesystem_intent(
+        intent_id="intent_revert",
+        session_id="sess",
+        op_type="write_file",
+        relpath="demo.txt",
+        payload={"path": "demo.txt", "had_existing_file": False, "old_content": ""},
+        reversible=True,
+    )
+    monkeypatch.setenv("GHOST_PENDING_INTENT_DECISION", "revert")
+
+    cli_main._recover_pending_filesystem_intents(str(tmp_path))
+
+    assert not target.exists()
+    assert store.list_pending_filesystem_intents() == []
+
+
+def test_preflight_attempts_autostart_when_gateway_is_down() -> None:
+    from apps.cli.main import _ensure_gateway_process
+
+    pf_bad = SimpleNamespace(base_url="http://127.0.0.1:8000", ok=False, error="down")
+    pf_ok = SimpleNamespace(base_url="http://127.0.0.1:8000", ok=True)
+    with patch("apps.cli.main.probe_gateway", side_effect=[pf_bad, pf_ok]) as probe_mock, patch(
+        "apps.cli.main._has_provider_credentials_configured", return_value=True
+    ), patch("apps.cli.main._start_daemon_process", return_value=True) as start_mock:
+        result = _ensure_gateway_process()
+
+    assert result.ok is True
+    start_mock.assert_called_once_with(quiet=True)
+    assert probe_mock.call_count == 2

@@ -208,6 +208,10 @@ from apps.cli.runtime.iteration_budget import (
     global_iteration_cap,
     plan_iteration_hard_cap,
 )
+from apps.cli.runtime.filesystem_intents import (
+    likely_mutating_shell_command,
+    new_intent_id,
+)
 from apps.cli.runtime.narrow_factual_chat import (
     factual_explore_iterations_remaining,
     suppress_tools_on_last_factual_iteration,
@@ -8074,13 +8078,28 @@ Discovery actions this session: {discovery_count}
                 return {"error": "Action denied by user or policy."}
             full_path = PathComposer.compose(self.cwd, path)
             old_content = ""
-            if os.path.exists(full_path):
+            had_existing_file = os.path.exists(full_path)
+            if had_existing_file:
                 with open(full_path, "r", encoding="utf-8", errors="ignore") as f: old_content = f.read()
-            
+
+            intent_id = new_intent_id()
+            self.memory.begin_filesystem_intent(
+                intent_id=intent_id,
+                session_id=self.session_id,
+                op_type="write_file",
+                relpath=path,
+                payload={
+                    "path": path,
+                    "had_existing_file": had_existing_file,
+                    "old_content": old_content,
+                },
+                reversible=True,
+            )
             target_dir = os.path.dirname(full_path)
             if target_dir: os.makedirs(target_dir, exist_ok=True)
-            
+
             with open(full_path, "w", encoding="utf-8") as f: f.write(content)
+            self.memory.update_filesystem_intent_status(intent_id, "completed")
             self.renderer.render_diff(path, "".join(difflib.unified_diff(old_content.splitlines(keepends=True), content.splitlines(keepends=True), fromfile=f"a/{path}", tofile=f"b/{path}")))
             self.artifact_manager.add_diff(
                 path, "Write File", content_sha256=_sha256_utf8(content)
@@ -8129,6 +8148,19 @@ Discovery actions this session: {discovery_count}
             content, read_error = _read_utf8_text_for_tool(full_path)
             if content is None:
                 return {"error": read_error or f"Unable to read file: {path}"}
+            intent_id = new_intent_id()
+            self.memory.begin_filesystem_intent(
+                intent_id=intent_id,
+                session_id=self.session_id,
+                op_type="edit_file",
+                relpath=path,
+                payload={
+                    "path": path,
+                    "had_existing_file": True,
+                    "old_content": content,
+                },
+                reversible=True,
+            )
             match_mode = "exact"
             if old_str in content:
                 replacement = new_str
@@ -8160,6 +8192,7 @@ Discovery actions this session: {discovery_count}
                         }
                     return error
             with open(full_path, "w", encoding="utf-8", newline="") as f: f.write(new_content)
+            self.memory.update_filesystem_intent_status(intent_id, "completed")
             self.renderer.render_diff(path, "".join(difflib.unified_diff(content.splitlines(keepends=True), new_content.splitlines(keepends=True), fromfile=f"a/{path}", tofile=f"b/{path}")))
             self.artifact_manager.add_diff(
                 path, "Edit File", content_sha256=_sha256_utf8(new_content)
@@ -8234,7 +8267,21 @@ Discovery actions this session: {discovery_count}
                 batch_preapproved=bool(is_authorized),
             ):
                 return {"error": "Action denied by user or policy."}
-            
+
+            shell_intent_id = ""
+            if likely_mutating_shell_command(effective_cmd):
+                shell_intent_id = new_intent_id()
+                self.memory.begin_filesystem_intent(
+                    intent_id=shell_intent_id,
+                    session_id=self.session_id,
+                    op_type="run_shell",
+                    relpath=str(scoped_cwd or "."),
+                    payload={
+                        "command": effective_cmd,
+                        "cwd": str(scoped_cwd or "."),
+                    },
+                    reversible=False,
+                )
             res = subprocess.run(
                 effective_cmd,
                 shell=True,
@@ -8243,6 +8290,8 @@ Discovery actions this session: {discovery_count}
                 env=os.environ.copy(),
                 cwd=self.cwd,
             )
+            if shell_intent_id:
+                self.memory.update_filesystem_intent_status(shell_intent_id, "completed")
             stdout_text = _decode_subprocess_output(res.stdout)
             stderr_text = _decode_subprocess_output(res.stderr)
             changed_install_files: List[str] = []
@@ -8309,7 +8358,23 @@ Discovery actions this session: {discovery_count}
             full_path = PathComposer.compose(self.cwd, path)
             if not os.path.exists(full_path): return {"error": f"File not found: {path}"}
             if self.auto_approve or self.policy_gate.confirm_action("Delete File", f"Evidence: {evidence}"):
+                old_content, read_error = _read_utf8_text_for_tool(full_path)
+                if old_content is None:
+                    return {"error": read_error or f"Unable to read file: {path}"}
+                intent_id = new_intent_id()
+                self.memory.begin_filesystem_intent(
+                    intent_id=intent_id,
+                    session_id=self.session_id,
+                    op_type="delete_file",
+                    relpath=path,
+                    payload={
+                        "path": path,
+                        "old_content": old_content,
+                    },
+                    reversible=True,
+                )
                 os.remove(full_path)
+                self.memory.update_filesystem_intent_status(intent_id, "completed")
                 self.artifact_manager.add_diff(
                     path,
                     "Delete File",

@@ -17,7 +17,14 @@ if str(root_dir) not in sys.path:
 if str(root_dir / "packages" / "py-core") not in sys.path:
     sys.path.insert(0, str(root_dir / "packages" / "py-core"))
 
-from ghostllm_core.config import resolve_gateway_model_id, resolve_config_path
+from ghostllm_core.config import (
+    ConfigValidationError,
+    load_config,
+    load_registry,
+    resolve_gateway_model_id,
+    resolve_config_path,
+)
+from ghostllm_core.memory import MemoryStore
 
 from apps.cli.runtime.gateway_endpoint import (
     GatewayPreflightResult,
@@ -26,6 +33,7 @@ from apps.cli.runtime.gateway_endpoint import (
     resolve_cli_gateway_url,
 )
 from apps.cli.runtime.http_client import get as http_get
+from apps.cli.runtime.filesystem_intents import revert_filesystem_intent, summarize_filesystem_intent
 from apps.cli.runtime.ghost_profile import apply_operational_profile_to_environment
 from apps.cli.runtime.runtime_env import (
     enrich_prep_after_operational_profile,
@@ -77,18 +85,88 @@ def _write_local_config(data: dict) -> None:
         yaml.safe_dump(data, f, sort_keys=False)
 
 
+def _memory_store_for_cwd(cwd: Optional[str] = None) -> MemoryStore:
+    base = os.path.abspath(cwd or os.getcwd())
+    return MemoryStore(os.path.join(base, "ghost_memory.db"))
+
+
+def _option_was_explicit(flag: str) -> bool:
+    return any(str(arg).strip().startswith(flag) for arg in sys.argv[1:])
+
+
+def _has_provider_credentials_configured() -> bool:
+    env_key = (
+        os.getenv("GHOST_NVIDIA_API_KEY", "").strip()
+        or os.getenv("NVIDIA_API_KEY", "").strip()
+    )
+    if env_key:
+        return True
+    try:
+        upstream = dict(_load_raw_config_template().get("upstream") or {})
+    except Exception:
+        return False
+    config_key = str(upstream.get("nvidia_api_key") or "").strip()
+    return bool(config_key and "set-me" not in config_key.lower())
+
+
+def _recover_pending_filesystem_intents(cwd: Optional[str] = None) -> None:
+    store = _memory_store_for_cwd(cwd)
+    pending = store.list_pending_filesystem_intents()
+    if not pending:
+        return
+    intent = pending[0]
+    summary = summarize_filesystem_intent(intent)
+    decision = os.getenv("GHOST_PENDING_INTENT_DECISION", "").strip().lower()
+    if decision not in {"continue", "revert"}:
+        if sys.stdin.isatty():
+            decision = (
+                typer.prompt(
+                    f"Encontré una operación incompleta ({summary}). Escribe 'continue' o 'revert'",
+                    default="continue",
+                )
+                .strip()
+                .lower()
+            )
+        else:
+            decision = "continue"
+
+    if decision == "revert":
+        ok, detail = revert_filesystem_intent(os.path.abspath(cwd or os.getcwd()), intent)
+        if ok:
+            store.update_filesystem_intent_status(intent["intent_id"], "reverted")
+            typer.secho(f"Recovered pending filesystem intent: {detail}", fg=typer.colors.YELLOW)
+            return
+        typer.secho(f"Could not revert pending filesystem intent: {detail}", fg=typer.colors.RED)
+        raise typer.Exit(code=1)
+
+    store.update_filesystem_intent_status(intent["intent_id"], "continued")
+    typer.secho(f"Continuing after pending filesystem intent: {summary}", fg=typer.colors.YELLOW)
+
+
+def _ensure_gateway_process() -> GatewayPreflightResult:
+    base = _effective_gateway_url()
+    result = probe_gateway(base, api_key=get_api_key())
+    if result.ok:
+        return result
+    if not _has_provider_credentials_configured():
+        return result
+    typer.secho(
+        "Ghost gateway is not reachable; starting the background gateway automatically...",
+        fg=typer.colors.YELLOW,
+    )
+    _start_daemon_process(quiet=True)
+    return probe_gateway(base, api_key=get_api_key())
+
+
 def _load_local_registry_alias_map() -> dict[str, str]:
     try:
-        with open(REGISTRY_PATH, "r", encoding="utf-8") as f:
-            raw = yaml.safe_load(f) or {}
+        registry = load_registry(REGISTRY_PATH)
     except Exception:
         return {}
     out: dict[str, str] = {}
-    for row in raw.get("models") or []:
-        if not isinstance(row, dict):
-            continue
-        name = str(row.get("name") or "").strip()
-        upstream = str(row.get("upstream_id") or "").strip()
+    for row in registry.models:
+        name = str(row.name or "").strip()
+        upstream = str(row.upstream_id or "").strip()
         if name and upstream:
             out[name] = upstream
     return out
@@ -185,8 +263,13 @@ def _preflight_gateway_or_exit() -> GatewayPreflightResult:
     from rich.console import Console
 
     base = _effective_gateway_url()
-    result = probe_gateway(base, api_key=get_api_key())
+    result = _ensure_gateway_process()
     if not result.ok:
+        if not _has_provider_credentials_configured():
+            Console(file=sys.stderr).print(
+                "[bold yellow]Ghost is installed but not initialized[/bold yellow]\n"
+                "[dim]Run `ghost init` to configure your NVIDIA API key and start the gateway.[/dim]\n"
+            )
         Console(file=sys.stderr).print(format_preflight_failure_console(result))
         raise typer.Exit(code=2)
     require_provider_for_assistant(base)
@@ -506,8 +589,22 @@ def init(
         raise typer.Exit(code=1)
 
     api_key = (nvidia_api_key or os.getenv("GHOST_NVIDIA_API_KEY") or os.getenv("NVIDIA_API_KEY") or "").strip()
-    if not api_key:
-        api_key = typer.prompt("NVIDIA NIM API key", hide_input=True).strip()
+    if sys.stdin.isatty() and not api_key:
+        api_key = typer.prompt("1/3 NVIDIA NIM API key", hide_input=True).strip()
+    resolved_base_url = base_url.strip() or "https://integrate.api.nvidia.com/v1"
+    if sys.stdin.isatty() and not _option_was_explicit("--base-url"):
+        resolved_base_url = typer.prompt(
+            "2/3 Upstream base URL",
+            default=resolved_base_url,
+        ).strip()
+    resolved_port = int(port)
+    if sys.stdin.isatty() and not _option_was_explicit("--port"):
+        resolved_port = int(
+            typer.prompt(
+                "3/3 Local gateway port",
+                default=str(port),
+            ).strip()
+        )
     if not api_key:
         typer.secho("A valid NVIDIA API key is required.", fg=typer.colors.RED)
         raise typer.Exit(code=1)
@@ -518,8 +615,8 @@ def init(
     monitoring = dict(data.get("monitoring") or {})
     models = data.get("models") or {}
 
-    server.update({"host": host, "port": port, "api_key": "ghost-local-..."})
-    upstream.update({"base_url": base_url.strip(), "nvidia_api_key": api_key})
+    server.update({"host": host, "port": resolved_port, "api_key": "ghost-local-..."})
+    upstream.update({"base_url": resolved_base_url, "nvidia_api_key": api_key})
     monitoring.setdefault("log_format", "json")
     monitoring.setdefault("log_level", "INFO")
     monitoring.setdefault("prometheus_port", 9090)
@@ -533,10 +630,12 @@ def init(
     _write_local_config(payload)
 
     typer.secho(f"Ghost local config written to {LOCAL_CONFIG_PATH}", fg=typer.colors.GREEN)
-    typer.echo("Next steps:")
-    typer.echo("  ghost start")
-    typer.echo("  ghost doctor")
-    typer.echo("  ghost codex")
+    if is_running():
+        _stop_daemon_process(quiet=True)
+        time.sleep(0.4)
+    _start_daemon_process(quiet=True)
+    typer.echo("Ghost is initialized and the gateway has been started.")
+    doctor()
 
 
 @app.command()
@@ -605,6 +704,12 @@ def doctor():
     table.add_row("Gateway URL (efectiva)", gw)
     table.add_row("Provider (CLI transport)", "[cyan]openai_compatible[/cyan]")
 
+    try:
+        load_config(str(_active_config_path()))
+        config_status = "[bold green]Valid[/bold green]"
+    except ConfigValidationError as exc:
+        config_status = f"[bold red]Invalid[/bold red] [dim]{str(exc)[:120]}[/dim]"
+
     pf = probe_gateway(gw, api_key=get_api_key(), timeout_sec=1.5)
     daemon_running = is_running() or pf.ok
     d_status = "[bold green]Running[/bold green]" if daemon_running else "[bold red]Stopped[/bold red]"
@@ -632,6 +737,7 @@ def doctor():
     else:
         sync_status = f"[bold yellow]Stale[/bold yellow] [dim]{sync_detail[:120]}[/dim]"
     table.add_row("Model registry sync", sync_status)
+    table.add_row("Config", config_status)
 
     # Environment
     table.add_row("Project", os.path.basename(os.getcwd()))
@@ -649,10 +755,9 @@ def claude(
     )
 ):
     """Launch Claude Code integrated with Ghost backend."""
-    if not is_running():
-        start()
+    _recover_pending_filesystem_intents()
     gw = _effective_gateway_url()
-    pf = probe_gateway(gw, api_key=get_api_key())
+    pf = _ensure_gateway_process()
     if not pf.ok:
         from rich.console import Console
 
@@ -683,8 +788,7 @@ def dev(model: str = typer.Option("coder", help="Model to use"),
             help="Validate the Ghost Dev command path without entering the runtime loop.",
         )):
     """Launch the Ghost Dev main runtime."""
-    if not is_running():
-        start()
+    _recover_pending_filesystem_intents()
     pf = _preflight_gateway_or_exit()
     if _handle_preflight_only("Ghost Dev preflight OK", preflight_only):
         return
@@ -724,8 +828,7 @@ def plan(
     ),
 ):
     """Plan a task without changes."""
-    if not is_running():
-        start()
+    _recover_pending_filesystem_intents()
     pf = _preflight_gateway_or_exit()
     if _handle_preflight_only("Ghost Plan preflight OK", preflight_only):
         return
@@ -756,8 +859,7 @@ def do(task: str = typer.Argument(...),
            help="Validate the execute command path without entering the runtime loop.",
        )):
     """Execute a task with autonomous actions."""
-    if not is_running():
-        start()
+    _recover_pending_filesystem_intents()
     pf = _preflight_gateway_or_exit()
     if _handle_preflight_only("Ghost Execute preflight OK", preflight_only):
         return
@@ -788,8 +890,7 @@ def edit(
     ),
 ):
     """Edit a file."""
-    if not is_running():
-        start()
+    _recover_pending_filesystem_intents()
     pf = _preflight_gateway_or_exit()
     if _handle_preflight_only("Ghost Patch preflight OK", preflight_only):
         return
@@ -818,8 +919,7 @@ def fix(
     ),
 ):
     """Find and fix project issues."""
-    if not is_running():
-        start()
+    _recover_pending_filesystem_intents()
     pf = _preflight_gateway_or_exit()
     if _handle_preflight_only("Ghost Fix preflight OK", preflight_only):
         return
@@ -838,5 +938,9 @@ def fix(
     assistant.run(initial_task=initial_task, keep_open=False)
 
 
-if __name__ == "__main__":
+def main() -> None:
     app()
+
+
+if __name__ == "__main__":
+    main()

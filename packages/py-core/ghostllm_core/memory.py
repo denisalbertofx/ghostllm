@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 
 class MemoryStore:
@@ -96,6 +96,21 @@ class MemoryStore:
                     relpath TEXT NOT NULL DEFAULT '',
                     status TEXT NOT NULL DEFAULT '',
                     task_title TEXT NOT NULL DEFAULT '',
+                    updated_at TEXT NOT NULL
+                )
+                """
+            )
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS filesystem_intents (
+                    intent_id TEXT PRIMARY KEY,
+                    session_id TEXT NOT NULL,
+                    op_type TEXT NOT NULL,
+                    relpath TEXT NOT NULL DEFAULT '',
+                    payload TEXT NOT NULL,
+                    reversible INTEGER NOT NULL DEFAULT 1,
+                    status TEXT NOT NULL DEFAULT 'pending',
+                    created_at TEXT NOT NULL,
                     updated_at TEXT NOT NULL
                 )
                 """
@@ -336,3 +351,84 @@ class MemoryStore:
             "task_title": str(row["task_title"] or ""),
             "updated_at": str(row["updated_at"] or ""),
         }
+
+    def begin_filesystem_intent(
+        self,
+        *,
+        intent_id: str,
+        session_id: str,
+        op_type: str,
+        relpath: str,
+        payload: Dict[str, Any],
+        reversible: bool,
+    ) -> None:
+        now = self._now_iso()
+        with self._connect() as conn:
+            conn.execute(
+                """
+                INSERT OR REPLACE INTO filesystem_intents(
+                    intent_id,
+                    session_id,
+                    op_type,
+                    relpath,
+                    payload,
+                    reversible,
+                    status,
+                    created_at,
+                    updated_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, ?)
+                """,
+                (
+                    intent_id,
+                    session_id,
+                    op_type,
+                    relpath,
+                    self._dump(payload),
+                    1 if reversible else 0,
+                    now,
+                    now,
+                ),
+            )
+            conn.commit()
+
+    def update_filesystem_intent_status(self, intent_id: str, status: str) -> None:
+        now = self._now_iso()
+        with self._connect() as conn:
+            conn.execute(
+                """
+                UPDATE filesystem_intents
+                SET status = ?, updated_at = ?
+                WHERE intent_id = ?
+                """,
+                (status, now, intent_id),
+            )
+            conn.commit()
+
+    def list_pending_filesystem_intents(self) -> List[Dict[str, Any]]:
+        with self._connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT intent_id, session_id, op_type, relpath, payload, reversible, status, created_at, updated_at
+                FROM filesystem_intents
+                WHERE status = 'pending'
+                ORDER BY updated_at DESC, created_at DESC
+                """
+            ).fetchall()
+        out: List[Dict[str, Any]] = []
+        for row in rows:
+            payload = self._load(row["payload"], {})
+            out.append(
+                {
+                    "intent_id": str(row["intent_id"] or ""),
+                    "session_id": str(row["session_id"] or ""),
+                    "op_type": str(row["op_type"] or ""),
+                    "relpath": str(row["relpath"] or ""),
+                    "payload": payload if isinstance(payload, dict) else {},
+                    "reversible": bool(row["reversible"]),
+                    "status": str(row["status"] or ""),
+                    "created_at": str(row["created_at"] or ""),
+                    "updated_at": str(row["updated_at"] or ""),
+                }
+            )
+        return out

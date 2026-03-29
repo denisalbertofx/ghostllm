@@ -1,0 +1,85 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ghostllm.local/ghost.schema.json",
+  "title": "Ghost Configuration Schema",
+  "$defs": {
+    "modelMapping": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "upstream_id": { "type": "string", "minLength": 1 },
+        "description": { "type": "string" },
+        "enabled": { "type": "boolean" },
+        "expensive": { "type": "boolean" },
+        "tool_calling": { "type": "boolean" }
+      },
+      "required": ["name", "upstream_id"]
+    },
+    "modelRegistry": {
+      "type": "object",
+      "properties": {
+        "models": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/modelMapping" }
+        },
+        "profiles": { "type": "object" },
+        "profile_tiers": { "type": "object" },
+        "defaults": { "type": "object" }
+      },
+      "required": ["models"],
+      "additionalProperties": false
+    },
+    "serverConfig": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "host": { "type": "string", "minLength": 1 },
+        "port": { "type": "integer", "minimum": 1, "maximum": 65535 },
+        "api_key": { "type": ["string", "null"] }
+      },
+      "required": ["host", "port"]
+    },
+    "upstreamConfig": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "nvidia_api_key": { "type": "string", "minLength": 1 },
+        "base_url": { "type": "string", "minLength": 1 }
+      },
+      "required": ["nvidia_api_key", "base_url"]
+    },
+    "modelsConfig": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "allowlist": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/modelMapping" }
+        }
+      },
+      "required": ["allowlist"]
+    },
+    "monitoringConfig": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "prometheus_port": { "type": "integer", "minimum": 1, "maximum": 65535 },
+        "log_level": { "type": "string", "minLength": 1 },
+        "log_format": { "type": "string", "minLength": 1 }
+      },
+      "required": ["prometheus_port", "log_level", "log_format"]
+    },
+    "ghostConfig": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "server": { "$ref": "#/$defs/serverConfig" },
+        "upstream": { "$ref": "#/$defs/upstreamConfig" },
+        "models": { "$ref": "#/$defs/modelsConfig" },
+        "monitoring": { "$ref": "#/$defs/monitoringConfig" }
+      },
+      "required": ["server", "upstream", "models", "monitoring"]
+    }
+  }
+}

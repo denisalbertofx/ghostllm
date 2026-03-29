@@ -17,12 +17,17 @@ CLI resolution chain:
 
 from __future__ import annotations
 
+import difflib
+import json
 import os
+import re
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import yaml
+from jsonschema import Draft202012Validator
 from pydantic import BaseModel, ConfigDict
+from yaml.nodes import MappingNode, Node, SequenceNode
 
 
 # ---------------------------------------------------------------------------
@@ -90,6 +95,10 @@ class GhostConfig(BaseModel):
     upstream: UpstreamConfig
     models: ModelsConfig
     monitoring: MonitoringConfig
+
+
+class ConfigValidationError(ValueError):
+    pass
 
 
 # ---------------------------------------------------------------------------
@@ -165,23 +174,182 @@ def _apply_env_overrides(data: Dict) -> Dict:
     return data
 
 
+def _schema_path() -> Path:
+    here = Path(__file__).resolve()
+    for parent in [here.parent, *here.parents]:
+        candidate = parent / "ghost.schema.json"
+        if candidate.exists():
+            return candidate
+    return here.parents[3] / "ghost.schema.json"
+
+
+def _load_schema_document() -> Dict[str, Any]:
+    with open(_schema_path(), "r", encoding="utf-8") as f:
+        return json.load(f)
+
+
+def _schema_for_kind(kind: str) -> Dict[str, Any]:
+    schema = _load_schema_document()
+    defs = schema.get("$defs") or {}
+    selected = defs.get(kind)
+    if not isinstance(selected, dict):
+        raise ConfigValidationError(f"Schema definition '{kind}' not found in {_schema_path()}")
+    return {
+        "$schema": schema.get("$schema", "https://json-schema.org/draft/2020-12/schema"),
+        "$ref": f"#/$defs/{kind}",
+        "$defs": defs,
+    }
+
+
+def _build_yaml_line_map(raw: str) -> Dict[Tuple[Any, ...], int]:
+    root = yaml.compose(raw)
+    if root is None:
+        return {(): 1}
+
+    line_map: Dict[Tuple[Any, ...], int] = {(): 1}
+
+    def walk(node: Node, path: Tuple[Any, ...]) -> None:
+        line_map[path] = int(node.start_mark.line) + 1
+        if isinstance(node, MappingNode):
+            for key_node, value_node in node.value:
+                key = str(getattr(key_node, "value", ""))
+                key_path = path + (key,)
+                line_map[key_path] = int(key_node.start_mark.line) + 1
+                walk(value_node, key_path)
+        elif isinstance(node, SequenceNode):
+            for idx, child in enumerate(node.value):
+                item_path = path + (idx,)
+                line_map[item_path] = int(child.start_mark.line) + 1
+                walk(child, item_path)
+
+    walk(root, ())
+    return line_map
+
+
+def _best_line_for_path(line_map: Dict[Tuple[Any, ...], int], path: Tuple[Any, ...]) -> int:
+    probe = tuple(path)
+    while probe:
+        if probe in line_map:
+            return line_map[probe]
+        probe = probe[:-1]
+    return line_map.get((), 1)
+
+
+def _schema_node_for_path(schema: Dict[str, Any], path: Tuple[Any, ...]) -> Dict[str, Any]:
+    current: Dict[str, Any] = dict(schema or {})
+    for part in path:
+        if isinstance(part, int):
+            items = current.get("items")
+            if not isinstance(items, dict):
+                break
+            current = items
+            continue
+        props = current.get("properties")
+        if isinstance(props, dict) and isinstance(props.get(part), dict):
+            current = props[part]
+            continue
+        break
+    return current
+
+
+def _additional_property_name(message: str) -> str:
+    match = re.search(r"'([^']+)'", message or "")
+    return match.group(1) if match else ""
+
+
+def _format_validation_error(
+    *,
+    path: str,
+    kind: str,
+    schema: Dict[str, Any],
+    line_map: Dict[Tuple[Any, ...], int],
+    data: Dict[str, Any],
+    error: Any,
+) -> str:
+    error_path = tuple(error.absolute_path)
+    line = _best_line_for_path(line_map, error_path)
+    path_str = ".".join(str(part) for part in error_path) if error_path else "<root>"
+    message = str(error.message or "invalid configuration")
+    suggestion = ""
+    schema_node = _schema_node_for_path(schema, error_path[:-1] if error.validator == "additionalProperties" else error_path)
+
+    if error.validator == "additionalProperties":
+        bad_key = _additional_property_name(message)
+        allowed = sorted((schema_node.get("properties") or {}).keys())
+        if bad_key and allowed:
+            close = difflib.get_close_matches(bad_key, allowed, n=1)
+            if close:
+                suggestion = f" Did you mean '{close[0]}'?"
+            else:
+                suggestion = f" Allowed keys here: {', '.join(allowed)}."
+    elif error.validator == "required":
+        missing = _additional_property_name(message)
+        if missing:
+            parent = data
+            for part in error_path:
+                if isinstance(parent, dict):
+                    parent = parent.get(part)
+                elif isinstance(parent, list) and isinstance(part, int) and 0 <= part < len(parent):
+                    parent = parent[part]
+                else:
+                    parent = None
+                    break
+            close = []
+            if isinstance(parent, dict):
+                close = difflib.get_close_matches(missing, list(parent.keys()), n=1)
+            if close:
+                suggestion = f" Did you mean '{missing}'? Found similar key '{close[0]}'."
+            else:
+                suggestion = f" Add the required key '{missing}' under '{path_str}'."
+    elif error.validator == "type":
+        expected = error.validator_value
+        suggestion = f" Expected type: {expected}."
+
+    return f"Invalid {kind} config at {path}:{line} [{path_str}]: {message}.{suggestion}".rstrip()
+
+
+def _load_validated_yaml_mapping(path: str, *, kind: str) -> Dict[str, Any]:
+    if not os.path.exists(path):
+        raise FileNotFoundError(f"Config file not found at {path}")
+    with open(path, "r", encoding="utf-8") as f:
+        raw = f.read()
+    data = yaml.safe_load(raw) or {}
+    if not isinstance(data, dict):
+        raise ConfigValidationError(f"Invalid {kind} config at {path}: top-level document must be a mapping.")
+    schema = _schema_for_kind(kind)
+    validator = Draft202012Validator(schema)
+    line_map = _build_yaml_line_map(raw)
+    errors = sorted(
+        validator.iter_errors(data),
+        key=lambda err: (tuple(str(part) for part in err.absolute_path), err.message),
+    )
+    if errors:
+        raise ConfigValidationError(
+            _format_validation_error(
+                path=path,
+                kind=kind,
+                schema=schema,
+                line_map=line_map,
+                data=data,
+                error=errors[0],
+            )
+        )
+    return data
+
+
 # ---------------------------------------------------------------------------
 # I/O helpers
 # ---------------------------------------------------------------------------
 
 def load_config(path: str) -> GhostConfig:
-    if not os.path.exists(path):
-        raise FileNotFoundError(f"Config file not found at {path}")
-    with open(path, "r", encoding="utf-8") as f:
-        data = yaml.safe_load(f)
+    data = _load_validated_yaml_mapping(path, kind="ghostConfig")
     return GhostConfig(**_apply_env_overrides(data))
 
 
 def load_registry(path: str) -> ModelRegistry:
     if not os.path.exists(path):
         return ModelRegistry(models=[])
-    with open(path, "r", encoding="utf-8") as f:
-        data = yaml.safe_load(f)
+    data = _load_validated_yaml_mapping(path, kind="modelRegistry")
     if not data:
         return ModelRegistry(models=[])
     if not isinstance(data, dict):
