@@ -6,7 +6,7 @@ import sys
 import os
 import unittest
 from types import SimpleNamespace
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from typer.testing import CliRunner
 
@@ -149,17 +149,13 @@ class TestProviderInitialization(unittest.TestCase):
 
         assistant = CodexAssistant("http://localhost:11434", "key", "coder")
         assistant.history = [{"role": "user", "content": "hello"}]
+        assistant._should_use_stream = MagicMock(return_value=False)
+        mock_resp = MagicMock()
+        mock_resp.status_code = 500
+        mock_resp.text = '{"detail":"NVIDIA Provider not initialized"}'
+        mock_resp.json.return_value = {"detail": "NVIDIA Provider not initialized"}
         with patch.object(assistant.console, "print"):  # Avoid Windows encoding issues with Unicode chars
-            with patch("apps.cli.assistant.requests.post") as mock_post:
-                mock_resp = MagicMock()
-                mock_resp.status_code = 500
-                mock_resp.text = '{"detail":"NVIDIA Provider not initialized"}'
-                mock_resp.json.return_value = {"detail": "NVIDIA Provider not initialized"}
-                mock_resp.__enter__ = MagicMock(return_value=mock_resp)
-                mock_resp.__exit__ = MagicMock(return_value=None)
-                mock_resp.iter_lines.return_value = []
-                mock_post.return_value = mock_resp
-
+            with patch.object(assistant, "_post_chat_completions_async", AsyncMock(return_value=mock_resp)):
                 result = assistant._execute_stream_request(parent_status=None)
 
                 self.assertTrue(getattr(assistant, "_fatal_provider_error", False))
@@ -171,23 +167,21 @@ class TestProviderInitialization(unittest.TestCase):
 
         assistant = CodexAssistant("http://localhost:11434", "key", "coder")
         assistant.history = [{"role": "user", "content": "hello"}]
+        assistant._should_use_stream = MagicMock(return_value=False)
 
         call_count = 0
 
-        def mock_post(*args, **kwargs):
+        async def mock_post(*args, **kwargs):
             nonlocal call_count
             call_count += 1
             r = MagicMock()
             r.status_code = 500
             r.text = '{"detail":"NVIDIA Provider not initialized"}'
             r.json.return_value = {"detail": "NVIDIA Provider not initialized"}
-            r.__enter__ = MagicMock(return_value=r)
-            r.__exit__ = MagicMock(return_value=None)
-            r.iter_lines.return_value = []
             return r
 
         with patch.object(assistant.console, "print"):
-            with patch("apps.cli.assistant.requests.post", side_effect=mock_post):
+            with patch.object(assistant, "_post_chat_completions_async", side_effect=mock_post):
                 result = assistant._stream_completion(parent_status=None)
 
         self.assertEqual(result, {})

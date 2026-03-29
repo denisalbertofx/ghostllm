@@ -8,13 +8,14 @@ import time
 import random
 import logging
 import locale
+import asyncio
 import subprocess
 import difflib
 import shlex
 from collections.abc import Mapping
 from pathlib import Path
-from typing import List, Dict, Any, Optional, Tuple
-import requests
+from typing import Callable, List, Dict, Any, Optional, Tuple
+import httpx
 from dataclasses import asdict
 from rich.live import Live
 from rich.status import Status
@@ -70,6 +71,14 @@ _PLAN_EVIDENCE_FILE_RE = re.compile(
     r"(?i)\b[\w./\\-]+\.(?:py|ts|tsx|js|jsx|json|md|yaml|yml|toml|sql|go|rs|java|rb|php|sh|bat)\b"
 )
 _PLAN_EVIDENCE_CODEISH_RE = re.compile(r"[()=><{}\[\]\"']|\w+\.\w+\(")
+
+
+class _ChatCompletionHTTPError(Exception):
+    def __init__(self, status_code: int, detail: str):
+        self.status_code = int(status_code)
+        self.detail = str(detail or "")
+        super().__init__(self.detail)
+
 from apps.cli.runtime.shell_normalizer import ShellNormalizer
 from apps.cli.runtime.repo_profile import scan_repo_profile
 from apps.cli.runtime.decision_planner import (
@@ -1607,7 +1616,6 @@ Discovery actions this session: {discovery_count}
         self._last_main_turn_prompt_chars: int = 0
         self._history_rollup: str = ""
         self._tool_output_seq: int = 0
-        self._http_session = requests.Session()
         self._answer_now_nudge_pending: bool = False
         self._answer_now_synthesis_context: Optional[str] = None
         self._answer_now_pressure_injected_key: Optional[Tuple[int, int]] = None
@@ -6963,65 +6971,112 @@ Discovery actions this session: {discovery_count}
                 }
             )
 
-    def _post_chat_completions(
+    async def _post_chat_completions_async(
         self,
         *,
         json_payload: Dict[str, Any],
-        stream: bool,
         connect_t: int,
         read_t: int,
-    ):
-        """Single chat/completions POST with keep-alive session + exponential backoff + jitter."""
+    ) -> httpx.Response:
+        """Single non-stream chat/completions POST with async retries."""
         url = f"{self.server_url}/v1/chat/completions"
         headers = {"Authorization": f"Bearer {self.api_key}", "Content-Type": "application/json"}
         max_retries = max(1, int(os.getenv("GHOST_HTTP_MAX_RETRIES", "3")))
         base = float(os.getenv("GHOST_HTTP_RETRY_BASE_SEC", "0.55"))
         max_wait = float(os.getenv("GHOST_HTTP_RETRY_MAX_WAIT_SEC", "32"))
         jitter = float(os.getenv("GHOST_HTTP_RETRY_JITTER_SEC", "0.35"))
+        timeout = httpx.Timeout(
+            connect=float(connect_t),
+            read=float(read_t),
+            write=float(read_t),
+            pool=float(connect_t),
+        )
         last_exc: Optional[Exception] = None
-        for attempt in range(max_retries):
-            try:
-                r = requests.post(
-                    url,
-                    headers=headers,
-                    json=json_payload,
-                    stream=stream,
-                    timeout=(connect_t, read_t),
-                )
-                if r.status_code in (429, 502, 503, 504) and attempt < max_retries - 1:
-                    try:
-                        r.close()
-                    except Exception:
-                        pass
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            for attempt in range(max_retries):
+                try:
+                    r = await client.post(url, headers=headers, json=json_payload)
+                    if r.status_code in (429, 502, 503, 504) and attempt < max_retries - 1:
+                        delay = min(
+                            max_wait,
+                            base * (2**attempt) + random.uniform(0, jitter * (attempt + 1)),
+                        )
+                        await asyncio.sleep(delay)
+                        continue
+                    return r
+                except (httpx.ConnectError, httpx.TimeoutException, httpx.NetworkError, httpx.RemoteProtocolError) as e:
+                    last_exc = e
+                    if isinstance(e, httpx.ConnectError):
+                        err_s = str(e).lower()
+                        if (
+                            "connection refused" in err_s
+                            or "actively refused" in err_s
+                            or "10061" in err_s
+                            or "deneg" in err_s
+                            or "nodename nor servname" in err_s
+                        ):
+                            raise
+                    if attempt >= max_retries - 1:
+                        raise
                     delay = min(
                         max_wait,
                         base * (2**attempt) + random.uniform(0, jitter * (attempt + 1)),
                     )
-                    time.sleep(delay)
-                    continue
-                return r
-            except (requests.exceptions.ConnectionError, requests.exceptions.Timeout) as e:
-                last_exc = e
-                if isinstance(e, requests.exceptions.ConnectionError):
-                    err_s = str(e).lower()
-                    if (
-                        "connection refused" in err_s
-                        or "actively refused" in err_s
-                        or "10061" in err_s
-                        or "deneg" in err_s
-                        or "nodename nor servname" in err_s
-                    ):
-                        raise
-                if attempt >= max_retries - 1:
-                    raise
-                delay = min(
-                    max_wait,
-                    base * (2**attempt) + random.uniform(0, jitter * (attempt + 1)),
-                )
-                time.sleep(delay)
+                    await asyncio.sleep(delay)
         if last_exc:
             raise last_exc
         raise RuntimeError("GHOST: HTTP retry exhausted")
+
+    async def _stream_chat_completions_async(
+        self,
+        *,
+        json_payload: Dict[str, Any],
+        connect_t: int,
+        read_t: int,
+        on_line: Callable[[str], None],
+    ) -> None:
+        """Stream SSE lines asynchronously and forward them to a sync callback."""
+        url = f"{self.server_url}/v1/chat/completions"
+        headers = {"Authorization": f"Bearer {self.api_key}", "Content-Type": "application/json"}
+        max_retries = max(1, int(os.getenv("GHOST_HTTP_MAX_RETRIES", "3")))
+        base = float(os.getenv("GHOST_HTTP_RETRY_BASE_SEC", "0.55"))
+        max_wait = float(os.getenv("GHOST_HTTP_RETRY_MAX_WAIT_SEC", "32"))
+        jitter = float(os.getenv("GHOST_HTTP_RETRY_JITTER_SEC", "0.35"))
+        timeout = httpx.Timeout(
+            connect=float(connect_t),
+            read=float(read_t),
+            write=float(read_t),
+            pool=float(connect_t),
+        )
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            for attempt in range(max_retries):
+                try:
+                    async with client.stream("POST", url, headers=headers, json=json_payload) as response:
+                        if response.status_code in (429, 502, 503, 504) and attempt < max_retries - 1:
+                            await response.aread()
+                            delay = min(
+                                max_wait,
+                                base * (2**attempt) + random.uniform(0, jitter * (attempt + 1)),
+                            )
+                            await asyncio.sleep(delay)
+                            continue
+                        if response.status_code != 200:
+                            err_text = (await response.aread()).decode("utf-8", errors="replace")
+                            raise _ChatCompletionHTTPError(response.status_code, err_text)
+                        async for line in response.aiter_lines():
+                            if line:
+                                on_line(line)
+                        return
+                except _ChatCompletionHTTPError:
+                    raise
+                except (httpx.ConnectError, httpx.TimeoutException, httpx.NetworkError, httpx.RemoteProtocolError) as e:
+                    if attempt >= max_retries - 1:
+                        raise
+                    delay = min(
+                        max_wait,
+                        base * (2**attempt) + random.uniform(0, jitter * (attempt + 1)),
+                    )
+                    await asyncio.sleep(delay)
 
     def _stream_completion(
         self,
@@ -7043,7 +7098,7 @@ Discovery actions this session: {discovery_count}
                 if getattr(self, "_fatal_provider_error", False):
                     return {}
                 return result
-            except (requests.exceptions.RequestException, Exception) as e:
+            except (httpx.RequestError, httpx.TimeoutException, httpx.RemoteProtocolError, Exception) as e:
                 err_str = str(e).lower()
                 if self.PROVIDER_NOT_INITIALIZED.lower() in err_str:
                     self._fatal_provider_error = True
@@ -7238,11 +7293,12 @@ Discovery actions this session: {discovery_count}
 
         try:
             if not use_stream:
-                r = self._post_chat_completions(
-                    json_payload=payload,
-                    stream=False,
-                    connect_t=connect_t,
-                    read_t=read_t,
+                r = asyncio.run(
+                    self._post_chat_completions_async(
+                        json_payload=payload,
+                        connect_t=connect_t,
+                        read_t=read_t,
+                    )
                 )
                 if r.status_code != 200:
                     err_msg = r.text
@@ -7282,94 +7338,101 @@ Discovery actions this session: {discovery_count}
                 for idx, tc in enumerate(tcs_raw):
                     tool_calls_buffer[idx] = {"id": tc.get("id"), "function": {"name": tc.get("function", {}).get("name", ""), "arguments": tc.get("function", {}).get("arguments", "")}, "type": "function"}
             else:
-                with self._post_chat_completions(
-                    json_payload=payload,
-                    stream=True,
-                    connect_t=connect_t,
-                    read_t=read_t,
-                ) as r:
-                    if r.status_code != 200:
-                        err_msg = r.text
-                        try:
-                            j = r.json()
-                            err_msg = j.get("detail")
-                            if err_msg is None and isinstance(j.get("error"), dict):
-                                err_msg = j["error"].get("message", r.text)
-                            if err_msg is None:
-                                err_msg = r.text
-                        except Exception:
-                            pass
-                        if r.status_code == 429: raise Exception(f"429: {err_msg}")
-                        if r.status_code == 500 and self.PROVIDER_NOT_INITIALIZED.lower() in str(err_msg).lower():
-                            self._fatal_provider_error = True
-                            self._render_provider_recovery(err_msg)
-                            if status: status.stop()
-                            tr_err = str(err_msg or "provider_init")
-                            return {}
-                        hint = self._api_failure_user_hint(r.status_code, err_msg)
-                        self._last_api_error_hint = hint
-                        self.console.print(f"[bold red]✘ API Error ({r.status_code}):[/bold red] {err_msg}")
-                        if hint:
-                            self.console.print(f"[dim]{hint}[/dim]")
-                        tr_err = str(err_msg or "api_error")
-                        return {}
-                    in_xml_tool_call = False
+                in_xml_tool_call = False
+
+                def _handle_stream_line(line_str: str) -> None:
+                    nonlocal tr_first_mono, tr_first_iso, status, response_text, in_xml_tool_call, tr_err
+                    line_str = str(line_str or "").strip()
+                    if not line_str.startswith("data: "):
+                        return
+                    data_content = line_str[6:].strip()
+                    if data_content == "[DONE]":
+                        return
                     try:
-                        for line in r.iter_lines():
-                            if not line: continue
-                            line_str = line.decode("utf-8").strip()
-                            if line_str.startswith("data: "):
-                                data_content = line_str[6:].strip()
-                                if data_content == "[DONE]": break
-                                try:
-                                    data = json.loads(data_content)
-                                    if "error" in data:
-                                        if "429" in data["error"] or "retry" in data["error"].lower():
-                                            raise Exception(f"429: {data['error']}")
-                                        self.console.print(f"[bold red]✘ Stream Error:[/bold red] {data['error']}")
-                                        tr_err = str(data["error"])
-                                        break
-                                    choice = data["choices"][0]
-                                    delta = choice.get("delta", {})
-                                    
-                                    content = delta.get("content", "")
-                                    if content:
-                                        if tr_first_mono is None:
-                                            tr_first_mono = time.monotonic()
-                                            tr_first_iso = trace_timestamp_iso()
-                                        if status:
-                                            self.renderer.update_status(
-                                                status, "building", phase=self.session_phase.value
-                                            )
-                                            status.stop()
-                                            status = None
-                                        response_text += content
-                                        if "<tool_call>" in content or re.search(r'\{\s*"name"\s*:', content):
-                                            in_xml_tool_call = True
-                                        if "</tool_call>" in content:
-                                            in_xml_tool_call = False
-                                        if not defer_analysis_grounding_print and not self._is_tool_call_chunk(
-                                            content, in_xml_tool_call
-                                        ):
-                                            self.console.print(escape(content), end="")
-                                    
-                                    tcs = delta.get("tool_calls", [])
-                                    for tc in tcs:
-                                        if status:
-                                            self.renderer.update_status(
-                                                status, "tool_exec", phase=self.session_phase.value
-                                            )
-                                        idx = tc.get("index", 0)
-                                        if idx not in tool_calls_buffer: tool_calls_buffer[idx] = {"id": tc.get("id"), "function": {"name": "", "arguments": ""}, "type": "function"}
-                                        if tc.get("id"): tool_calls_buffer[idx]["id"] = tc.get("id")
-                                        fn = tc.get("function", {})
-                                        if fn.get("name"): tool_calls_buffer[idx]["function"]["name"] += fn.get("name")
-                                        if fn.get("arguments"): tool_calls_buffer[idx]["function"]["arguments"] += fn.get("arguments")
-                                except Exception as e:
-                                    if "429" in str(e): raise
-                                    pass
-                    except (requests.exceptions.ChunkedEncodingError, requests.exceptions.ConnectionError) as e:
-                        raise Exception(f"Stream interrupted prematurely: {e}")
+                        data = json.loads(data_content)
+                        if "error" in data:
+                            if "429" in data["error"] or "retry" in data["error"].lower():
+                                raise Exception(f"429: {data['error']}")
+                            self.console.print(f"[bold red]✘ Stream Error:[/bold red] {data['error']}")
+                            tr_err = str(data["error"])
+                            return
+                        choice = data["choices"][0]
+                        delta = choice.get("delta", {})
+
+                        content = delta.get("content", "")
+                        if content:
+                            if tr_first_mono is None:
+                                tr_first_mono = time.monotonic()
+                                tr_first_iso = trace_timestamp_iso()
+                            if status:
+                                self.renderer.update_status(
+                                    status, "building", phase=self.session_phase.value
+                                )
+                                status.stop()
+                                status = None
+                            response_text += content
+                            if "<tool_call>" in content or re.search(r'\{\s*"name"\s*:', content):
+                                in_xml_tool_call = True
+                            if "</tool_call>" in content:
+                                in_xml_tool_call = False
+                            if not defer_analysis_grounding_print and not self._is_tool_call_chunk(
+                                content, in_xml_tool_call
+                            ):
+                                self.console.print(escape(content), end="")
+
+                        tcs = delta.get("tool_calls", [])
+                        for tc in tcs:
+                            if status:
+                                self.renderer.update_status(
+                                    status, "tool_exec", phase=self.session_phase.value
+                                )
+                            idx = tc.get("index", 0)
+                            if idx not in tool_calls_buffer:
+                                tool_calls_buffer[idx] = {
+                                    "id": tc.get("id"),
+                                    "function": {"name": "", "arguments": ""},
+                                    "type": "function",
+                                }
+                            if tc.get("id"):
+                                tool_calls_buffer[idx]["id"] = tc.get("id")
+                            fn = tc.get("function", {})
+                            if fn.get("name"):
+                                tool_calls_buffer[idx]["function"]["name"] += fn.get("name")
+                            if fn.get("arguments"):
+                                tool_calls_buffer[idx]["function"]["arguments"] += fn.get("arguments")
+                    except Exception as e:
+                        if "429" in str(e):
+                            raise
+
+                try:
+                    asyncio.run(
+                        self._stream_chat_completions_async(
+                            json_payload=payload,
+                            connect_t=connect_t,
+                            read_t=read_t,
+                            on_line=_handle_stream_line,
+                        )
+                    )
+                except _ChatCompletionHTTPError as e:
+                    err_msg = e.detail
+                    if e.status_code == 429:
+                        raise Exception(f"429: {err_msg}")
+                    if e.status_code == 500 and self.PROVIDER_NOT_INITIALIZED.lower() in str(err_msg).lower():
+                        self._fatal_provider_error = True
+                        self._render_provider_recovery(err_msg)
+                        if status:
+                            status.stop()
+                        tr_err = str(err_msg or "provider_init")
+                        return {}
+                    hint = self._api_failure_user_hint(e.status_code, err_msg)
+                    self._last_api_error_hint = hint
+                    self.console.print(f"[bold red]✘ API Error ({e.status_code}):[/bold red] {err_msg}")
+                    if hint:
+                        self.console.print(f"[dim]{hint}[/dim]")
+                    tr_err = str(err_msg or "api_error")
+                    return {}
+                except (httpx.ReadError, httpx.ConnectError, httpx.TimeoutException, httpx.RemoteProtocolError) as e:
+                    raise Exception(f"Stream interrupted prematurely: {e}")
                 if use_stream and not defer_analysis_grounding_print:
                     print("\n")
         
