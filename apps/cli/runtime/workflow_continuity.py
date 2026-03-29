@@ -1,8 +1,4 @@
-"""
-Continuidad entre sesiones: planes, handoffs versionados, índice ligero, contrato estable.
-
-Persistencia bajo .ghost/ (sin server/database). Preparado para multiagente / PR-style review.
-"""
+"""Continuidad entre sesiones: SQLite como fuente de verdad; `.ghost/` solo como salida auditiva."""
 from __future__ import annotations
 
 import hashlib
@@ -348,20 +344,15 @@ def _write_json_atomic(path: Path, data: Dict[str, Any]) -> None:
 
 
 def read_continuity_index(cwd: str) -> Dict[str, Any]:
-    db_index = _state_store(cwd).get_continuity_index()
-    by_t = db_index.get("by_task_id")
-    if isinstance(by_t, dict) and by_t:
-        return db_index
-    p = _continuity_index_path(cwd)
-    if not p.is_file():
-        return {"format_version": 2, "updated_at": "", "by_task_id": {}}
-    raw = _read_json_file(p)
-    if not isinstance(raw, dict):
-        return {"format_version": 2, "updated_at": "", "by_task_id": {}, "index_corrupt": True}
-    by_t = raw.get("by_task_id")
-    if not isinstance(by_t, dict):
-        raw["by_task_id"] = {}
-    return raw
+    try:
+        return _state_store(cwd).get_continuity_index()
+    except Exception as exc:
+        return {
+            "format_version": 2,
+            "updated_at": "",
+            "by_task_id": {},
+            "sqlite_error": f"{type(exc).__name__}: {exc}",
+        }
 
 
 def write_continuity_index(cwd: str, data: Dict[str, Any]) -> None:
@@ -519,7 +510,7 @@ def save_operational_plan(
     status: str,
     task_title: str = "",
 ) -> str:
-    """Escribe plan markdown versionado + latest; devuelve ruta relativa al repo."""
+    """Persiste primero en SQLite y luego emite markdown versionado; devuelve ruta relativa al repo."""
     d = ghost_subdir(cwd, _PLANS_DIR)
     tid_c = _clean_identifier(task_id)
     sid_c = _clean_identifier(session_id)
@@ -542,11 +533,6 @@ def save_operational_plan(
     )
     body = (plan_body or "").strip()
     content = header + body
-    path.write_text(content, encoding="utf-8")
-    try:
-        latest.write_text(content, encoding="utf-8")
-    except OSError:
-        pass
     root = _repo_root(cwd)
     try:
         rel = str(path.relative_to(root)).replace("\\", "/")
@@ -560,6 +546,11 @@ def save_operational_plan(
         status=status,
         task_title=task_title,
     )
+    path.write_text(content, encoding="utf-8")
+    try:
+        latest.write_text(content, encoding="utf-8")
+    except OSError:
+        pass
     return rel
 
 
@@ -649,11 +640,6 @@ def save_handoff_versioned(cwd: str, payload: Dict[str, Any], *, update_index: b
     versioned = d / f"{slug}__{tag}.json"
     latest = d / f"{slug}__latest.json"
     text = json.dumps(payload, indent=2, ensure_ascii=False)
-    versioned.write_text(text, encoding="utf-8")
-    try:
-        latest.write_text(text, encoding="utf-8")
-    except OSError:
-        pass
     root = _repo_root(cwd)
     try:
         vrel = str(versioned.relative_to(root)).replace("\\", "/")
@@ -663,6 +649,11 @@ def save_handoff_versioned(cwd: str, payload: Dict[str, Any], *, update_index: b
         lrel = str(latest).replace("\\", "/")
 
     _state_store(cwd).upsert_handoff(tid, payload, source=vrel)
+    versioned.write_text(text, encoding="utf-8")
+    try:
+        latest.write_text(text, encoding="utf-8")
+    except OSError:
+        pass
 
     plan_ref = str(payload.get("plan_reference") or "")
     if update_index:
@@ -720,121 +711,36 @@ def _try_load_handoff_file(
 
 
 def load_handoff_for_task(cwd: str, task_id: str) -> Tuple[Dict[str, Any], List[str], str]:
-    """
-    Carga handoff activo para task_id: índice → versionado; fallback latest; fallback glob por mtime.
-    """
-    root = _repo_root(cwd)
-    slug = _safe_slug(task_id or "task")
-    idx = read_continuity_index(cwd)
-    by_t = idx.get("by_task_id") if isinstance(idx.get("by_task_id"), dict) else {}
-    entry = _continuity_index_entry(by_t, task_id)
+    """Carga handoff activo para task_id solo desde SQLite."""
     warnings: List[str] = []
-
     task_id_clean = _clean_identifier(task_id)
-    if task_id_clean:
+    if not task_id_clean:
+        return {}, ["missing_task_id"], ""
+    try:
         db_handoff, db_source = _state_store(cwd).get_handoff(task_id_clean)
-        if isinstance(db_handoff, dict) and db_handoff:
-            norm, hw = normalize_handoff_document(db_handoff, expected_task_id=task_id_clean or None)
-            warnings.extend(hw)
-            if norm:
-                return norm, warnings, db_source or "sqlite"
-
-    candidates: List[Tuple[str, Path]] = []
-
-    if isinstance(entry, dict):
-        ep = str(entry.get("active_envelope_relpath") or "").strip()
-        if ep:
-            p = _resolve_under_root(cwd, ep)
-            if p.is_file():
-                env, ew = load_delegation_envelope(cwd, ep)
-                inner = env.get("handoff_payload") if isinstance(env, dict) else None
-                if isinstance(inner, dict):
-                    norm, hw = normalize_handoff_document(inner, expected_task_id=task_id or None)
-                    warnings.extend(ew + hw)
-                    if norm:
-                        return norm, warnings, f"index_envelope:{p.name}"
-                warnings.extend(ew)
-
-        hp = str(entry.get("active_handoff_relpath") or "").strip()
-        if hp:
-            p = _resolve_under_root(cwd, hp)
-            if p.is_file():
-                candidates.append(("index_active", p))
-
-    latest_p = root / ".ghost" / _HANDOFFS_DIR / f"{slug}__latest.json"
-    candidates.append(("latest_copy", latest_p))
-
-    seen: set[str] = set()
-    for label, p in candidates:
-        key = str(p)
-        if key in seen or not p.is_file():
-            continue
-        seen.add(key)
-        h, w, src = _try_load_handoff_file(cwd, p, task_id)
-        warnings.extend(w)
-        if h:
-            return h, warnings, f"{label}:{src}"
-
-    # Glob versionados (excl. latest), más reciente primero
-    hd = root / ".ghost" / _HANDOFFS_DIR
-    if hd.is_dir():
-        vers = [
-            p
-            for p in hd.glob(f"{slug}__*.json")
-            if p.name != f"{slug}__latest.json"
-        ]
-        vers.sort(key=_handoff_path_sort_key)
-        for p in vers:
-            key = str(p)
-            if key in seen:
-                continue
-            seen.add(key)
-            h, w, src = _try_load_handoff_file(cwd, p, task_id)
-            warnings.extend(w)
-            if h:
-                return h, warnings, f"glob:{src}"
-
+    except Exception as exc:
+        return {}, [f"sqlite_unavailable:{type(exc).__name__}"], ""
+    if isinstance(db_handoff, dict) and db_handoff:
+        norm, hw = normalize_handoff_document(db_handoff, expected_task_id=task_id_clean or None)
+        warnings.extend(hw)
+        if norm:
+            return norm, warnings, db_source or "sqlite"
     return {}, warnings, ""
 
 
 def load_continuity_for_task(cwd: str, task_id: str) -> ContinuityLoadResult:
-    """Plan latest por slug + handoff resuelto para task_id (normalizado)."""
-    root = _repo_root(cwd)
-    slug = _safe_slug(task_id or "task")
-    plan_path = root / ".ghost" / _PLANS_DIR / f"{slug}__latest.md"
+    """Plan + handoff resueltos solo desde SQLite; `.ghost/*` no se usa como fallback de lectura."""
     plan_body = ""
     rel_plan = ""
     task_id_clean = _clean_identifier(task_id)
     if task_id_clean:
-        plan_row = _state_store(cwd).get_plan(task_id_clean)
+        try:
+            plan_row = _state_store(cwd).get_plan(task_id_clean)
+        except Exception:
+            plan_row = None
         if isinstance(plan_row, dict):
             plan_body = str(plan_row.get("plan_body") or "")
             rel_plan = str(plan_row.get("relpath") or "")
-    if plan_path.is_file():
-        try:
-            raw = plan_path.read_text(encoding="utf-8", errors="replace")
-            if not plan_body:
-                plan_body = raw
-            if not rel_plan:
-                rel_plan = str(plan_path.relative_to(root)).replace("\\", "/")
-        except OSError:
-            pass
-
-    # Enriquecer plan desde índice si latest falta
-    if not plan_body:
-        idx = read_continuity_index(cwd)
-        by_t = idx.get("by_task_id") if isinstance(idx.get("by_task_id"), dict) else {}
-        ent = _continuity_index_entry(by_t, task_id)
-        if isinstance(ent, dict):
-            pr = str(ent.get("latest_plan_relpath") or "").strip()
-            if pr:
-                pp = _resolve_under_root(cwd, pr)
-                if pp.is_file():
-                    try:
-                        plan_body = pp.read_text(encoding="utf-8", errors="replace")
-                        rel_plan = str(pp.relative_to(root)).replace("\\", "/")
-                    except OSError:
-                        pass
 
     h, hw, _src = load_handoff_for_task(cwd, task_id)
     return ContinuityLoadResult(
@@ -847,51 +753,15 @@ def load_continuity_for_task(cwd: str, task_id: str) -> ContinuityLoadResult:
 
 
 def load_latest_handoff_any(cwd: str) -> Tuple[Dict[str, Any], str]:
-    """
-    Sin task_id en memoria: elige tarea con `updated_at` más reciente en el índice
-    y carga su handoff activo; si el índice vacío, fallback a `*__latest.json` por mtime.
-    """
-    db_handoff, db_source = _state_store(cwd).get_latest_handoff()
+    """Sin task_id en memoria: elige el handoff más reciente solo desde SQLite."""
+    try:
+        db_handoff, db_source = _state_store(cwd).get_latest_handoff()
+    except Exception:
+        return {}, ""
     if isinstance(db_handoff, dict) and db_handoff:
         norm, _ = normalize_handoff_document(db_handoff, expected_task_id=None)
         if norm:
             return norm, db_source or "sqlite_latest"
-
-    idx = read_continuity_index(cwd)
-    by_t = idx.get("by_task_id") if isinstance(idx.get("by_task_id"), dict) else {}
-    best_tid = ""
-    rows: List[Tuple[str, float, str]] = []
-    if isinstance(by_t, dict):
-        for tid, row in by_t.items():
-            if not isinstance(row, dict):
-                continue
-            u = row.get("updated_at_unix")
-            unix = float(u) if isinstance(u, (int, float)) else 0.0
-            iso = str(row.get("updated_at") or "")
-            rows.append((str(tid), unix, iso))
-    rows.sort(key=lambda x: (x[1], x[2]), reverse=True)
-    if rows:
-        best_tid = rows[0][0]
-
-    for tid, _unix, _iso in rows:
-        h, _w, src = load_handoff_for_task(cwd, tid)
-        if h:
-            return h, src or tid
-
-    root = _repo_root(cwd)
-    d = root / ".ghost" / _HANDOFFS_DIR
-    if not d.is_dir():
-        return {}, ""
-    latest_files = list(d.glob("*__latest.json"))
-    latest_files.sort(key=_handoff_path_sort_key)
-    for best in latest_files:
-        raw = _read_json_file(best)
-        if not isinstance(raw, dict):
-            continue
-        raw = unwrap_handoff_raw(raw)
-        norm, _ = normalize_handoff_document(raw, expected_task_id=None)
-        if norm:
-            return norm, best.name
     return {}, ""
 
 

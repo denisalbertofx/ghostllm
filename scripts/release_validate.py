@@ -24,7 +24,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-import requests
+import httpx
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
@@ -113,11 +113,11 @@ def _wait_for_http(url: str, *, timeout_s: float = 20.0) -> Tuple[bool, str]:
     last_error = "timeout"
     while time.monotonic() < deadline:
         try:
-            r = requests.get(url, timeout=1.5)
+            r = httpx.get(url, timeout=1.5)
             if r.status_code < 500:
                 return True, f"HTTP {r.status_code}"
             last_error = f"HTTP {r.status_code}"
-        except requests.RequestException as e:
+        except httpx.HTTPError as e:
             last_error = str(e)
         time.sleep(0.4)
     return False, last_error
@@ -132,8 +132,8 @@ def _request_json(
     timeout_s: float = 8.0,
 ) -> Tuple[bool, str, Optional[Dict[str, Any]]]:
     try:
-        r = requests.request(method, url, headers=headers, json=json_body, timeout=timeout_s)
-    except requests.RequestException as e:
+        r = httpx.request(method, url, headers=headers, json=json_body, timeout=timeout_s)
+    except httpx.HTTPError as e:
         return False, str(e), None
     try:
         payload = r.json()

@@ -66,6 +66,7 @@ def _ensure_utf8_stdio() -> None:
 
 
 _ensure_utf8_stdio()
+_CLI_BOOTSTRAP_T0 = time.perf_counter()
 
 
 def _effective_gateway_url() -> str:
@@ -298,6 +299,23 @@ def _doctor_artifact_persistence(cwd: str) -> tuple[bool, str]:
         return True, ""
     except Exception as exc:
         return False, f"{type(exc).__name__}: {exc}"
+
+
+def _doctor_sqlite_state(cwd: str) -> tuple[bool, str]:
+    try:
+        store = _memory_store_for_cwd(cwd)
+        version = store.get_schema_version()
+        pending = len(store.list_pending_filesystem_intents())
+        detail = f"schema={version}"
+        if pending:
+            detail += f", pending_intents={pending}"
+        return True, detail
+    except Exception as exc:
+        return False, f"{type(exc).__name__}: {exc}"
+
+
+def _bootstrap_elapsed_ms() -> float:
+    return round((time.perf_counter() - _CLI_BOOTSTRAP_T0) * 1000.0, 2)
 
 
 def _format_project_routing_summary(routing: dict[str, str]) -> str:
@@ -887,6 +905,14 @@ def doctor():
         fixes.append("Fix project filesystem permissions or run Ghost from a writable workspace.")
     table.add_row("Project filesystem", fs_status)
 
+    sqlite_ok, sqlite_detail = _doctor_sqlite_state(os.getcwd())
+    if sqlite_ok:
+        sqlite_status = f"[bold green]Healthy[/bold green] [dim]{sqlite_detail[:120]}[/dim]"
+    else:
+        sqlite_status = f"[bold red]Failed[/bold red] [dim]{sqlite_detail[:120]}[/dim]"
+        fixes.append("Repair or recreate ghost_memory.db so Ghost can recover continuity and intents.")
+    table.add_row("SQLite state", sqlite_status)
+
     runtime_config = load_and_validate_project_runtime_config(os.getcwd())
     if not runtime_config.exists:
         routing_status = "[dim]No project routing[/dim]"
@@ -945,6 +971,7 @@ def doctor():
             sync_ok,
             "Ready" in str(tool_status),
             fs_ok,
+            sqlite_ok,
             intents_ok,
             artifact_ok,
             (not policy_validation.exists or policy_validation.valid),
@@ -958,6 +985,7 @@ def doctor():
         else "[bold yellow]Not ready[/bold yellow] [dim]Foundations for programmable project routing/policy are incomplete[/dim]"
     )
     table.add_row("Programmable-ready", programmable_status)
+    table.add_row("CLI bootstrap", f"[dim]{_bootstrap_elapsed_ms()} ms[/dim]")
 
     # Environment
     table.add_row("Project", os.path.basename(os.getcwd()))

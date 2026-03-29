@@ -31,6 +31,7 @@ from apps.cli.runtime.planning_task import (
     detect_broad_readonly_plan_request,
     detect_strategy_plan_request,
 )
+from apps.cli.runtime.http_client import post as http_post
 from apps.cli.runtime.repo_profile import RepoProfile
 from apps.cli.runtime.repo_overview_task import detect_repo_overview_question
 
@@ -101,6 +102,54 @@ _CLI_COMMAND_TARGETS = {
     "models list": ["apps/cli/main.py"],
 }
 
+_ROOT_LEVEL_PATH_PREFIXES = (
+    "apps/",
+    "packages/",
+    "configs/",
+    "docs/",
+    "scripts/",
+)
+_SUBPROJECT_RELATIVE_PREFIXES = (
+    "app/",
+    "pages/",
+    "src/",
+    "lib/",
+    "components/",
+    "types/",
+    "public/",
+    "styles/",
+    "tests/",
+    "__tests__/",
+)
+_PROMPT_SUBPROJECT_PATTERNS = (
+    re.compile(
+        r"\b(?:trabaja|trabajen|trabajen|work)\s+(?:solo\s+)?(?:dentro|inside|within)\s+de\s+([A-Za-z0-9._/-]+)",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"\b(?:solo|only)\s+(?:en|inside|within)\s+([A-Za-z0-9._/-]+)",
+        re.IGNORECASE,
+    ),
+)
+
+
+def _explicit_verification_hints_from_prompt(user_prompt: str) -> Dict[str, bool]:
+    t = (user_prompt or "").strip().lower()
+    if not t:
+        return {"typecheck": False, "build": False, "lint": False, "tests": False}
+    return {
+        "typecheck": bool(
+            re.search(r"\b(typecheck|tsc|typescript|tsconfig|type check)\b", t)
+        ),
+        "build": bool(
+            re.search(r"\b(build|compila|compilar|next build|npm run build|pnpm build|yarn build)\b", t)
+        ),
+        "lint": bool(re.search(r"\b(lint|eslint|ruff|mypy)\b", t)),
+        "tests": bool(
+            re.search(r"\b(test|tests|pytest|jest|vitest|unit test|unit tests|pruebas)\b", t)
+        ),
+    }
+
 
 def _looks_like_greenfield_scaffold(prompt: str) -> bool:
     t = (prompt or "").strip().lower()
@@ -132,6 +181,29 @@ def _looks_like_greenfield_scaffold(prompt: str) -> bool:
     continuation_targets = ("cli", "app", "aplicacion", "aplicación", "python", "sqlite", "pytest", "readme")
     return any(marker in t for marker in continuation_markers) and any(
         marker in t for marker in continuation_targets
+    )
+
+
+def _looks_like_web_greenfield_scaffold(prompt: str) -> bool:
+    t = (prompt or "").strip().lower()
+    if not t or not _looks_like_greenfield_scaffold(t):
+        return False
+    return any(
+        marker in t
+        for marker in (
+            "next.js",
+            "nextjs",
+            "react",
+            "typescript",
+            "tsx",
+            "web app",
+            "app web",
+            "frontend",
+            "interfaz",
+            "sitio web",
+            "página web",
+            "pagina web",
+        )
     )
 
 
@@ -181,6 +253,91 @@ def infer_cli_maintenance_targets(prompt: str) -> List[str]:
             if target not in seen:
                 seen.add(target)
                 out.append(target)
+    return out
+
+
+def _extract_prompt_subproject_scope(prompt: str) -> str:
+    text = str(prompt or "").strip()
+    if not text:
+        return ""
+    for pattern in _PROMPT_SUBPROJECT_PATTERNS:
+        match = pattern.search(text)
+        if not match:
+            continue
+        candidate = str(match.group(1) or "").strip().replace("\\", "/").strip("./")
+        candidate = candidate.rstrip(".,:;)")
+        if not candidate or "/" in candidate or "." in candidate and not candidate.endswith((".js", ".ts", ".tsx", ".py")):
+            # Directory hints like notes-app are valid; deeper paths are intentionally ignored here.
+            pass
+        if candidate and "/" not in candidate:
+            return candidate
+    return ""
+
+
+def _repo_has_path_hint(repo: RepoProfile, rel_path: str) -> bool:
+    norm = str(rel_path or "").replace("\\", "/").strip().strip("./").lower()
+    if not norm:
+        return False
+    hints: List[str] = []
+    v2 = getattr(repo, "v2", None)
+    if v2 is not None:
+        hints.extend(str(x).replace("\\", "/").strip().lower() for x in (getattr(v2, "key_files", []) or []))
+        hints.extend(str(x).replace("\\", "/").strip().lower() for x in (getattr(v2, "important_folders", []) or []))
+    hints.extend(str(x).replace("\\", "/").strip().lower() for x in (repo.important_folders or []))
+    for item in hints:
+        item = item.strip("./")
+        if not item:
+            continue
+        if item == norm:
+            return True
+        if item.startswith(norm + "/") or norm.startswith(item + "/"):
+            return True
+    return False
+
+
+def _target_looks_subproject_relative(path: str) -> bool:
+    norm = str(path or "").replace("\\", "/").strip().strip("./").lower()
+    if not norm:
+        return False
+    if re.match(r"^[a-z]:/", norm):
+        return False
+    if norm.startswith(_ROOT_LEVEL_PATH_PREFIXES):
+        return False
+    if norm in ("package.json", "package-lock.json", "pnpm-lock.yaml", "yarn.lock", "tsconfig.json", "readme.md"):
+        return True
+    return norm.startswith(_SUBPROJECT_RELATIVE_PREFIXES)
+
+
+def _rebase_targets_to_prompt_subproject(
+    targets: List[str],
+    *,
+    prompt: str,
+    repo: RepoProfile,
+) -> List[str]:
+    prefix = _extract_prompt_subproject_scope(prompt)
+    if not prefix:
+        return list(targets or [])
+    prefix_norm = prefix.replace("\\", "/").strip().strip("./")
+    if not prefix_norm:
+        return list(targets or [])
+    out: List[str] = []
+    seen: set[str] = set()
+    for raw in targets or []:
+        target = str(raw or "").replace("\\", "/").strip().strip("./")
+        if not target:
+            continue
+        chosen = target
+        if not (target == prefix_norm or target.startswith(prefix_norm + "/")):
+            prefixed = f"{prefix_norm}/{target}".strip("/")
+            prefixed_hint = _repo_has_path_hint(repo, prefixed)
+            bare_hint = _repo_has_path_hint(repo, target)
+            if prefixed_hint and not bare_hint:
+                chosen = prefixed
+            elif _target_looks_subproject_relative(target):
+                chosen = prefixed
+        if chosen not in seen:
+            seen.add(chosen)
+            out.append(chosen)
     return out
 
 
@@ -309,6 +466,8 @@ def _build_verification_policy(
         marker in prompt_lower
         for marker in ("python", "sqlite", "pytest", "pyproject", "requirements.txt")
     )
+    web_greenfield = _looks_like_web_greenfield_scaffold(prompt_lower)
+    prompt_verify = _explicit_verification_hints_from_prompt(prompt_lower)
     explicit_test_request = any(
         marker in prompt_lower
         for marker in ("pytest", "tests", "test suite", "unit test", "unit tests")
@@ -343,8 +502,26 @@ def _build_verification_policy(
         INTENT_MODIFICATION,
         INTENT_BUGFIX,
         INTENT_REFACTOR,
+    ) and explicit_test_request:
+        vp["tests"] = True
+    if intent in (
+        INTENT_IMPLEMENTATION,
+        INTENT_MODIFICATION,
+        INTENT_BUGFIX,
+        INTENT_REFACTOR,
     ) and python_greenfield and explicit_test_request:
         vp["tests"] = True
+    if intent in (
+        INTENT_IMPLEMENTATION,
+        INTENT_MODIFICATION,
+        INTENT_BUGFIX,
+        INTENT_REFACTOR,
+    ) and web_greenfield:
+        vp["build"] = True
+        if any(marker in prompt_lower for marker in ("typescript", "tsx", "type script")):
+            vp["typecheck"] = True
+        if explicit_test_request:
+            vp["tests"] = True
     if intent == INTENT_BUGFIX:
         if not any(vp[k] for k in ("typecheck", "build", "lint", "tests")):
             vp["tests"] = bool(vhints.get("tests", False))
@@ -352,6 +529,9 @@ def _build_verification_policy(
                 vp["typecheck"] = bool(vhints.get("typecheck", False))
             if not any(vp[k] for k in ("typecheck", "build", "lint", "tests")):
                 vp["build"] = bool(vhints.get("build", False))
+    for key, enabled in prompt_verify.items():
+        if enabled:
+            vp[key] = True
     return vp
 
 
@@ -517,6 +697,7 @@ def _draft_from_classifier(
     scope_list = _scope_string_to_list(pre.scope, repo, pre.intent)
     ce = _enforce_intent_change_expectation(pre.intent, pre.change_expectation)
     targets = extract_target_files_from_prompt(user_prompt)
+    targets = _rebase_targets_to_prompt_subproject(targets, prompt=user_prompt, repo=repo)
     cli_targets = infer_cli_maintenance_targets(user_prompt)
     if cli_targets:
         seen = set(targets)
@@ -544,6 +725,26 @@ def _draft_from_classifier(
     if greenfield_scaffold:
         draft.setdefault("reasoning_lines", []).append(
             "Greenfield scaffold detected -> do not assume existing app structure; create files from repo root."
+        )
+        if _looks_like_web_greenfield_scaffold(user_prompt):
+            bp = dict(draft.get("budget_policy") or {})
+            bp["max_shell_calls"] = max(int(bp.get("max_shell_calls") or 0), 8)
+            bp["max_tool_calls"] = max(int(bp.get("max_tool_calls") or 0), 32)
+            bp["reserved_write_tool_calls"] = max(int(bp.get("reserved_write_tool_calls") or 0), 6)
+            draft["budget_policy"] = bp
+            draft.setdefault("reasoning_lines", []).append(
+                "Greenfield web scaffold detected -> allow a deeper shell/bootstrap pass and require build-oriented verification."
+            )
+    prompt_verify = _explicit_verification_hints_from_prompt(user_prompt)
+    explicit_verify_count = sum(1 for enabled in prompt_verify.values() if enabled)
+    if ce in ("must_write", "may_write") and explicit_verify_count >= 2:
+        bp = dict(draft.get("budget_policy") or {})
+        bp["max_shell_calls"] = max(int(bp.get("max_shell_calls") or 0), 8)
+        bp["max_tool_calls"] = max(int(bp.get("max_tool_calls") or 0), 32)
+        bp["reserved_write_tool_calls"] = max(int(bp.get("reserved_write_tool_calls") or 0), 6)
+        draft["budget_policy"] = bp
+        draft.setdefault("reasoning_lines", []).append(
+            "Explicit build/typecheck/test verification requested -> deeper shell/write budget enabled."
         )
     if repo_overview:
         draft["budget_policy"] = {"max_shell_calls": 0, "max_tool_calls": 4}
@@ -715,21 +916,19 @@ def taskspec_llm_via_openai_compatible(
             "temperature": 0.1,
             "response_format": {"type": "json_object"},
         }
-        r = httpx.post(
+        r = http_post(
             url,
-            json=body,
+            json_payload=body,
             headers={"Authorization": f"Bearer {api_key}"},
             timeout=120,
-            follow_redirects=True,
         )
         if r.status_code >= 400:
             body.pop("response_format", None)
-            r = httpx.post(
+            r = http_post(
                 url,
-                json=body,
+                json_payload=body,
                 headers={"Authorization": f"Bearer {api_key}"},
                 timeout=120,
-                follow_redirects=True,
             )
         r.raise_for_status()
         raw = r.json()

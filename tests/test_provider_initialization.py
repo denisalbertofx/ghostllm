@@ -175,6 +175,8 @@ class TestProviderInitialization(unittest.TestCase):
         ), patch(
             "apps.cli.main._doctor_artifact_persistence", return_value=(True, "")
         ), patch(
+            "apps.cli.main._doctor_sqlite_state", return_value=(True, "schema=3")
+        ), patch(
             "apps.cli.main.load_and_validate_project_runtime_config", return_value=runtime_config
         ), patch(
             "apps.cli.main.load_and_validate_project_policy", return_value=policy
@@ -186,12 +188,14 @@ class TestProviderInitialization(unittest.TestCase):
         self.assertEqual(result.exit_code, 0, result.stdout)
         self.assertIn("Tool calling", result.stdout)
         self.assertIn("Project filesystem", result.stdout)
+        self.assertIn("SQLite state", result.stdout)
         self.assertIn("Project routing", result.stdout)
         self.assertIn("Project policy", result.stdout)
         self.assertIn("Transactional intents", result.stdout)
         self.assertIn("Artifact persistence", result.stdout)
         self.assertIn("Sandbox readiness", result.stdout)
         self.assertIn("Programmable-ready", result.stdout)
+        self.assertIn("CLI bootstrap", result.stdout)
 
     def test_assistant_detects_provider_not_initialized_and_sets_fatal_flag(self):
         """Assistant detects 500 with 'NVIDIA Provider not initialized' and sets _fatal_provider_error."""

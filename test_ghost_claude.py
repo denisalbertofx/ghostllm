@@ -1,5 +1,5 @@
-import requests
 import json
+import httpx
 
 base_url = "http://127.0.0.1:11434"
 api_key = "fg-SP32l6ibdFIXEQyk1Nov1KqQYhKHxM0jM1T2amKu--s" # Hardcoded default admin key from setup
@@ -17,7 +17,7 @@ def test_count_tokens():
         "model": "coder",
         "messages": [{"role": "user", "content": "Hello, how are you?"}]
     }
-    resp = requests.post(f"{base_url}/v1/messages/count_tokens", headers=headers, json=payload)
+    resp = httpx.post(f"{base_url}/v1/messages/count_tokens", headers=headers, json=payload, timeout=30.0)
     print(f"Status: {resp.status_code}")
     print(f"Response: {resp.json()}\n")
 
@@ -28,7 +28,7 @@ def test_messages():
         "messages": [{"role": "user", "content": "Say 'hello world' and nothing else."}],
         "max_tokens": 100
     }
-    resp = requests.post(f"{base_url}/v1/messages", headers=headers, json=payload)
+    resp = httpx.post(f"{base_url}/v1/messages", headers=headers, json=payload, timeout=30.0)
     print(f"Status: {resp.status_code}")
     print("Headers:", resp.headers)
     print(f"Response: {resp.json()}\n")

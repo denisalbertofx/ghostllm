@@ -96,6 +96,7 @@ from apps.cli.runtime.pipeline_preamble import (
     run_planner_and_retrieval_parallel,
 )
 from apps.cli.runtime.text_files import read_text_file_with_fallback
+from apps.cli.runtime.http_client import post_async as http_post_async, stream_lines_async as http_stream_lines_async
 from apps.cli.runtime.repo_retrieval import (
     _derive_nested_project_forbidden_roots,
     build_retrieval_prompt_block,
@@ -7317,51 +7318,12 @@ Discovery actions this session: {discovery_count}
         """Single non-stream chat/completions POST with async retries."""
         url = f"{self.server_url}/v1/chat/completions"
         headers = {"Authorization": f"Bearer {self.api_key}", "Content-Type": "application/json"}
-        max_retries = max(1, int(os.getenv("GHOST_HTTP_MAX_RETRIES", "3")))
-        base = float(os.getenv("GHOST_HTTP_RETRY_BASE_SEC", "0.55"))
-        max_wait = float(os.getenv("GHOST_HTTP_RETRY_MAX_WAIT_SEC", "32"))
-        jitter = float(os.getenv("GHOST_HTTP_RETRY_JITTER_SEC", "0.35"))
-        timeout = httpx.Timeout(
-            connect=float(connect_t),
-            read=float(read_t),
-            write=float(read_t),
-            pool=float(connect_t),
+        return await http_post_async(
+            url,
+            timeout=(connect_t, read_t),
+            headers=headers,
+            json_payload=json_payload,
         )
-        last_exc: Optional[Exception] = None
-        async with httpx.AsyncClient(timeout=timeout) as client:
-            for attempt in range(max_retries):
-                try:
-                    r = await client.post(url, headers=headers, json=json_payload)
-                    if r.status_code in (429, 502, 503, 504) and attempt < max_retries - 1:
-                        delay = min(
-                            max_wait,
-                            base * (2**attempt) + random.uniform(0, jitter * (attempt + 1)),
-                        )
-                        await asyncio.sleep(delay)
-                        continue
-                    return r
-                except (httpx.ConnectError, httpx.TimeoutException, httpx.NetworkError, httpx.RemoteProtocolError) as e:
-                    last_exc = e
-                    if isinstance(e, httpx.ConnectError):
-                        err_s = str(e).lower()
-                        if (
-                            "connection refused" in err_s
-                            or "actively refused" in err_s
-                            or "10061" in err_s
-                            or "deneg" in err_s
-                            or "nodename nor servname" in err_s
-                        ):
-                            raise
-                    if attempt >= max_retries - 1:
-                        raise
-                    delay = min(
-                        max_wait,
-                        base * (2**attempt) + random.uniform(0, jitter * (attempt + 1)),
-                    )
-                    await asyncio.sleep(delay)
-        if last_exc:
-            raise last_exc
-        raise RuntimeError("GHOST: HTTP retry exhausted")
 
     async def _stream_chat_completions_async(
         self,
@@ -7374,45 +7336,18 @@ Discovery actions this session: {discovery_count}
         """Stream SSE lines asynchronously and forward them to a sync callback."""
         url = f"{self.server_url}/v1/chat/completions"
         headers = {"Authorization": f"Bearer {self.api_key}", "Content-Type": "application/json"}
-        max_retries = max(1, int(os.getenv("GHOST_HTTP_MAX_RETRIES", "3")))
-        base = float(os.getenv("GHOST_HTTP_RETRY_BASE_SEC", "0.55"))
-        max_wait = float(os.getenv("GHOST_HTTP_RETRY_MAX_WAIT_SEC", "32"))
-        jitter = float(os.getenv("GHOST_HTTP_RETRY_JITTER_SEC", "0.35"))
-        timeout = httpx.Timeout(
-            connect=float(connect_t),
-            read=float(read_t),
-            write=float(read_t),
-            pool=float(connect_t),
+        async def _raise_error_response(response: httpx.Response) -> None:
+            err_text = (await response.aread()).decode("utf-8", errors="replace")
+            raise _ChatCompletionHTTPError(response.status_code, err_text)
+
+        await http_stream_lines_async(
+            url,
+            timeout=(connect_t, read_t),
+            headers=headers,
+            json_payload=json_payload,
+            on_line=on_line,
+            on_error_response=_raise_error_response,
         )
-        async with httpx.AsyncClient(timeout=timeout) as client:
-            for attempt in range(max_retries):
-                try:
-                    async with client.stream("POST", url, headers=headers, json=json_payload) as response:
-                        if response.status_code in (429, 502, 503, 504) and attempt < max_retries - 1:
-                            await response.aread()
-                            delay = min(
-                                max_wait,
-                                base * (2**attempt) + random.uniform(0, jitter * (attempt + 1)),
-                            )
-                            await asyncio.sleep(delay)
-                            continue
-                        if response.status_code != 200:
-                            err_text = (await response.aread()).decode("utf-8", errors="replace")
-                            raise _ChatCompletionHTTPError(response.status_code, err_text)
-                        async for line in response.aiter_lines():
-                            if line:
-                                on_line(line)
-                        return
-                except _ChatCompletionHTTPError:
-                    raise
-                except (httpx.ConnectError, httpx.TimeoutException, httpx.NetworkError, httpx.RemoteProtocolError) as e:
-                    if attempt >= max_retries - 1:
-                        raise
-                    delay = min(
-                        max_wait,
-                        base * (2**attempt) + random.uniform(0, jitter * (attempt + 1)),
-                    )
-                    await asyncio.sleep(delay)
 
     def _stream_completion(
         self,

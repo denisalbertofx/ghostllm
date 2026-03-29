@@ -40,6 +40,15 @@ def test_plan_preflight_only_exits_before_runtime_loop() -> None:
         assert "Ghost Plan preflight OK" in result.stdout
 
 
+def test_help_does_not_import_assistant_stack() -> None:
+    sys.modules.pop("apps.cli.assistant", None)
+
+    result = runner.invoke(app, ["--help"])
+
+    assert result.exit_code == 0, result.stdout
+    assert "apps.cli.assistant" not in sys.modules
+
+
 def test_fix_accepts_task_argument_and_runs_with_it() -> None:
     pf = SimpleNamespace(base_url="http://127.0.0.1:8000", ok=True)
     runtime_prep = SimpleNamespace(active_feature_flags={}, operational_profile="dev")

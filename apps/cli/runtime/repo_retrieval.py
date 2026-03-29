@@ -228,25 +228,21 @@ class NvidiaNimEmbeddingProvider:
     def embed(self, texts: Sequence[str]) -> List[List[float]]:
         if not texts:
             return []
-        try:
-            import httpx
-        except ImportError:
-            logger.warning("httpx not available; embeddings skipped")
-            return [[] for _ in texts]
         url = f"{self._base}/v1/embeddings"
         headers = {"Authorization": f"Bearer {self._api_key}", "Content-Type": "application/json"}
         out: List[List[float]] = []
         for t in texts:
             payload = {"model": self._model, "input": t[:8000]}
             try:
-                with httpx.Client(timeout=self._timeout) as client:
-                    r = client.post(url, headers=headers, json=payload)
-                    r.raise_for_status()
-                    data = r.json()
-                    vec = data["data"][0]["embedding"]
-                    if not self._dim:
-                        self._dim = len(vec)
-                    out.append([float(x) for x in vec])
+                from apps.cli.runtime.http_client import post as http_post
+
+                r = http_post(url, headers=headers, json_payload=payload, timeout=self._timeout)
+                r.raise_for_status()
+                data = r.json()
+                vec = data["data"][0]["embedding"]
+                if not self._dim:
+                    self._dim = len(vec)
+                out.append([float(x) for x in vec])
             except Exception as e:
                 logger.warning("NIM embedding failed: %s", e)
                 out.append([])
