@@ -8,6 +8,8 @@ from dataclasses import dataclass
 from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 from collections.abc import Mapping
 
+from apps.cli.runtime.text_files import normalize_text_file_to_utf8, path_looks_textual, read_text_file_with_fallback
+
 logger = logging.getLogger(__name__)
 
 
@@ -44,8 +46,10 @@ def _shrink_verification_result_rows(rows: List[Dict[str, Any]]) -> None:
 
 def _read_json_file(path: str) -> Dict[str, Any]:
     try:
-        with open(path, "r", encoding="utf-8") as f:
-            data = json.load(f)
+        text, _encoding, error = read_text_file_with_fallback(path)
+        if text is None or error:
+            return {}
+        data = json.loads(text)
         return data if isinstance(data, dict) else {}
     except Exception:
         return {}
@@ -187,6 +191,93 @@ _EXPLICIT_PYTEST_START_RE = re.compile(r"(?i)\b((?:uv run )?python -m pytest)\b"
 _PYTEST_FAILED_LINE_RE = re.compile(r"(?m)^FAILED\s+(\S+)")
 _PYTEST_ERROR_COLLECT_RE = re.compile(r"(?mi)^ERROR\s+collecting\s+(\S+)")
 _PYTEST_ERRORS_NODE_RE = re.compile(r"(?m)^ERROR\s+(\S+::\S+)")
+
+_VERIFICATION_NORMALIZE_BASENAMES = (
+    "pyproject.toml",
+    "requirements.txt",
+    "setup.cfg",
+    "setup.py",
+    "pytest.ini",
+    "tox.ini",
+    "package.json",
+    "package-lock.json",
+    "tsconfig.json",
+    "tsconfig.app.json",
+    "tsconfig.base.json",
+    "tsconfig.node.json",
+)
+
+
+def _normalize_relpath(raw: Any) -> str:
+    text = str(raw or "").replace("\\", "/").strip()
+    while text.startswith("./"):
+        text = text[2:]
+    while "//" in text:
+        text = text.replace("//", "/")
+    return text.strip("/")
+
+
+def _path_is_under(abs_root: str, abs_child: str) -> bool:
+    try:
+        return os.path.commonpath([abs_root, abs_child]) == abs_root
+    except ValueError:
+        return False
+
+
+def _iter_verification_text_paths(
+    repo_root: str,
+    *,
+    check_cwd: str,
+    files_changed: Optional[List[Dict[str, Any]]] = None,
+) -> List[Tuple[str, str]]:
+    abs_cwd = _absolute_check_cwd(repo_root, check_cwd)
+    seen: set[str] = set()
+    out: List[Tuple[str, str]] = []
+    for basename in _VERIFICATION_NORMALIZE_BASENAMES:
+        abs_path = os.path.join(abs_cwd, basename)
+        if not os.path.isfile(abs_path):
+            continue
+        key = os.path.normcase(os.path.abspath(abs_path))
+        if key in seen:
+            continue
+        seen.add(key)
+        rel = os.path.relpath(abs_path, repo_root).replace("\\", "/")
+        out.append((abs_path, rel))
+    for item in files_changed or []:
+        rel = _normalize_relpath((item or {}).get("file") or (item or {}).get("path"))
+        if not rel or not path_looks_textual(rel):
+            continue
+        abs_path = os.path.abspath(os.path.join(repo_root, rel.replace("/", os.sep)))
+        if not os.path.isfile(abs_path):
+            continue
+        if not _path_is_under(abs_cwd, abs_path):
+            continue
+        key = os.path.normcase(abs_path)
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append((abs_path, rel))
+    return out
+
+
+def _normalize_check_workspace_text_files(
+    repo_root: str,
+    *,
+    check_cwd: str,
+    files_changed: Optional[List[Dict[str, Any]]] = None,
+) -> List[Dict[str, str]]:
+    normalized: List[Dict[str, str]] = []
+    for abs_path, rel in _iter_verification_text_paths(repo_root, check_cwd=check_cwd, files_changed=files_changed):
+        changed, encoding, error = normalize_text_file_to_utf8(abs_path)
+        if error or not changed:
+            continue
+        normalized.append(
+            {
+                "path": rel,
+                "from_encoding": str(encoding or "").strip() or "legacy",
+            }
+        )
+    return normalized
 
 
 def _extract_explicit_pytest_command_from_text(text: str) -> Optional[str]:
@@ -1068,6 +1159,7 @@ class VerificationManager:
         results: List[Dict[str, Any]] = []
         overall_success = True
         steps_executed = 0
+        normalized_cwds: Dict[str, List[Dict[str, str]]] = {}
 
         focus_list = [str(x).strip() for x in (pytest_focus_paths or []) if str(x).strip()]
 
@@ -1095,6 +1187,17 @@ class VerificationManager:
             cmd = str(check["command"])
             check_cwd = str(check.get("cwd") or ".")
             abs_cwd = _absolute_check_cwd(self.cwd, check_cwd)
+            if check_cwd not in normalized_cwds:
+                normalized_cwds[check_cwd] = _normalize_check_workspace_text_files(
+                    self.cwd,
+                    check_cwd=check_cwd,
+                    files_changed=files_changed,
+                )
+                if normalized_cwds[check_cwd]:
+                    logger.info(
+                        "Normalized legacy text files to UTF-8 before verification",
+                        extra={"cwd": check_cwd, "files": normalized_cwds[check_cwd]},
+                    )
             env = os.environ.copy()
             extra_env = check.get("env") or {}
             if isinstance(extra_env, dict):

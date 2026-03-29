@@ -3,6 +3,7 @@ import os
 import shutil
 import tempfile
 import unittest
+import codecs
 
 from apps.cli.runtime.verification import (
     CHECK_DENIED,
@@ -10,6 +11,7 @@ from apps.cli.runtime.verification import (
     PROVENANCE_DENIED_BY_USER,
     PROVENANCE_PLANNED_UNAVAILABLE,
     VerificationManager,
+    _normalize_check_workspace_text_files,
     _decode_subprocess_output,
     _shrink_verification_stream,
     parse_pytest_focus_targets,
@@ -246,6 +248,22 @@ class TestVerificationManager(unittest.TestCase):
         self.assertNotIn("Build", names)
         self.assertNotIn("Lint", names)
         self.assertNotIn("TypeCheck", names)
+
+    def test_normalize_check_workspace_text_files_rewrites_utf16_pyproject(self):
+        pyproject_path = os.path.join(self.test_dir, "pyproject.toml")
+        with open(pyproject_path, "w", encoding="utf-16") as f:
+            f.write("[project]\nname='x'\n")
+        changed = _normalize_check_workspace_text_files(
+            self.test_dir,
+            check_cwd=".",
+            files_changed=[{"file": "src/main.py"}],
+        )
+        self.assertEqual(changed[0]["path"], "pyproject.toml")
+        with open(pyproject_path, "rb") as f:
+            blob = f.read()
+        self.assertFalse(blob.startswith(codecs.BOM_UTF16_LE))
+        self.assertFalse(blob.startswith(codecs.BOM_UTF16_BE))
+        self.assertEqual(blob.decode("utf-8").replace("\r\n", "\n"), "[project]\nname='x'\n")
 
     def test_node_target_uses_repo_profile_cwd(self):
         self.manager.set_repo_verification_commands(

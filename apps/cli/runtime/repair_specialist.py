@@ -23,6 +23,7 @@ from apps.cli.runtime.execution_agent import (
 )
 from apps.cli.runtime.nim_provider import ProviderRequest, ProviderResponse, nim_chat_complete
 from apps.cli.runtime.outcome_engine import _collect_paths_from_failed_checks
+from apps.cli.runtime.text_files import read_text_file_with_fallback
 
 ENV_USE_REPAIR_SPECIALIST = "GHOST_USE_REPAIR_SPECIALIST"
 ENV_REPAIR_CONTEXT_FRACTION = "GHOST_REPAIR_CONTEXT_FRACTION"
@@ -799,10 +800,8 @@ def _load_repair_file_excerpt(repo_root: str, rel_path: str, *, max_chars: int) 
     abs_path = os.path.join(repo_root, path.replace("/", os.sep))
     if not os.path.isfile(abs_path):
         return ""
-    try:
-        with open(abs_path, "r", encoding="utf-8") as fh:
-            content = fh.read()
-    except Exception:
+    content, _encoding, error = read_text_file_with_fallback(abs_path)
+    if content is None or error:
         return ""
     content = content.strip()
     if not content:

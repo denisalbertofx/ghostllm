@@ -77,6 +77,7 @@ from apps.cli.runtime.pipeline_preamble import (
     parallel_preamble_eligible,
     run_planner_and_retrieval_parallel,
 )
+from apps.cli.runtime.text_files import read_text_file_with_fallback
 from apps.cli.runtime.repo_retrieval import build_retrieval_prompt_block, run_retrieval_for_session
 from apps.cli.runtime.exploration_planner import path_under_ui_roots
 from apps.cli.runtime.taskspec_adapter import (
@@ -1013,13 +1014,8 @@ def _should_skip_manual_only_verify(
 
 
 def _read_utf8_text_for_tool(full_path: str) -> Tuple[Optional[str], Optional[str]]:
-    try:
-        with open(full_path, "r", encoding="utf-8-sig", newline="") as f:
-            return f.read(), None
-    except UnicodeDecodeError:
-        return None, f"File is not UTF-8 text: {os.path.basename(full_path)}"
-    except OSError as exc:
-        return None, str(exc)
+    content, _encoding, error = read_text_file_with_fallback(full_path)
+    return content, error
 
 
 def _decode_subprocess_output(data: Any) -> str:
@@ -7556,7 +7552,9 @@ Discovery actions this session: {discovery_count}
                 return {"error": "Action denied by user or policy."}
             full_path = PathComposer.compose(self.cwd, path)
             if not os.path.exists(full_path): return {"error": f"File not found: {path}"}
-            with open(full_path, "r", encoding="utf-8-sig", newline="") as f: content = f.read()
+            content, read_error = _read_utf8_text_for_tool(full_path)
+            if content is None:
+                return {"error": read_error or f"Unable to read file: {path}"}
             match_mode = "exact"
             if old_str in content:
                 replacement = new_str

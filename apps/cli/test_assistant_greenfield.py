@@ -108,6 +108,15 @@ class TestAssistantGreenfieldHelpers(unittest.TestCase):
             self.assertIsNone(content)
             self.assertIn("not UTF-8 text", err or "")
 
+    def test_read_utf8_text_for_tool_accepts_utf16_text_file(self) -> None:
+        with TemporaryDirectory() as tmp:
+            fp = os.path.join(tmp, "pyproject.toml")
+            with open(fp, "w", encoding="utf-16") as fh:
+                fh.write("[project]\nname='demo'\n")
+            content, err = _read_utf8_text_for_tool(fp)
+            self.assertIsNone(err)
+            self.assertIn("[project]", content or "")
+
     def test_decode_subprocess_output_handles_utf8_bytes(self) -> None:
         self.assertEqual(_decode_subprocess_output("ok \u2713".encode("utf-8")), "ok \u2713")
 
