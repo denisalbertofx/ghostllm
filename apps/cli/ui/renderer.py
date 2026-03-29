@@ -227,6 +227,9 @@ def _plan_mode_clean_items(items: List[str], *, limit: int = 6) -> List[str]:
         s = str(raw or "").strip()
         if not s:
             continue
+        s = re.sub(r"^\s*(?:[-*]\s+|\d+[.)]\s+)+", "", s).strip()
+        if not s:
+            continue
         low = s.lower()
         if any(low.startswith(pref) for pref in meta_prefixes):
             continue

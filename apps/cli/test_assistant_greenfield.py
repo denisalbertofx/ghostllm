@@ -207,12 +207,56 @@ class TestAssistantGreenfieldHelpers(unittest.TestCase):
         with TemporaryDirectory() as tmp:
             assistant = self._make_readonly_nested_project_assistant(tmp)
             assistant._is_broad_plan_mode_task = MagicMock(return_value=True)
+            assistant.artifact_manager.current_session.read_grounding_ledger = [
+                {
+                    "path": "task_manager.py",
+                    "windows": [
+                        'def add_task(self, description):\n    cursor.execute("INSERT INTO tasks (description) VALUES (?)", (description,))'
+                    ],
+                }
+            ]
             self.assertFalse(
                 assistant._broad_plan_synthesis_needs_retry(
                     "Conclusion: Hay dos riesgos plausibles sin bug confirmado.\n\n"
                     "Findings:\n- task_manager.py usa sqlite3 directo sin manejo de excepciones alrededor de connect().\n\n"
-                    "Evidence:\n- task_manager.py:10-17 abre la conexion con sqlite3.connect(self.db_path) sin try/except.\n\n"
+                    'Evidence:\n- task_manager.py: `cursor.execute("INSERT INTO tasks (description) VALUES (?)", (description,))`\n\n'
                     "Steps:\n1. Confirmar el comportamiento con un test de I/O.\n\n"
+                    "Next:\n- Ejecutar una verificacion dirigida."
+                )
+            )
+
+    def test_broad_plan_synthesis_needs_retry_for_findings_without_file_paths(self) -> None:
+        with TemporaryDirectory() as tmp:
+            assistant = self._make_readonly_nested_project_assistant(tmp)
+            assistant._is_broad_plan_mode_task = MagicMock(return_value=True)
+            self.assertTrue(
+                assistant._broad_plan_synthesis_needs_retry(
+                    "Conclusion: Hay riesgos plausibles.\n\n"
+                    "Findings:\n- Falta validacion de entradas.\n\n"
+                    'Evidence:\n- task_manager.py: `cursor.execute("INSERT INTO tasks (description) VALUES (?)", (description,))`\n\n'
+                    "Steps:\n1. Agregar casos invalidos.\n\n"
+                    "Next:\n- Ejecutar una verificacion dirigida."
+                )
+            )
+
+    def test_broad_plan_synthesis_needs_retry_for_sql_injection_without_literal_signal(self) -> None:
+        with TemporaryDirectory() as tmp:
+            assistant = self._make_readonly_nested_project_assistant(tmp)
+            assistant._is_broad_plan_mode_task = MagicMock(return_value=True)
+            assistant.artifact_manager.current_session.read_grounding_ledger = [
+                {
+                    "path": "task_manager.py",
+                    "windows": [
+                        'cursor.execute("INSERT INTO tasks (description) VALUES (?)", (description,))'
+                    ],
+                }
+            ]
+            self.assertTrue(
+                assistant._broad_plan_synthesis_needs_retry(
+                    "Conclusion: Hay riesgos plausibles.\n\n"
+                    "Findings:\n- task_manager.py tiene posible inyeccion de SQL.\n\n"
+                    'Evidence:\n- task_manager.py: `cursor.execute("INSERT INTO tasks (description) VALUES (?)", (description,))`\n\n'
+                    "Steps:\n1. Revisar las consultas.\n\n"
                     "Next:\n- Ejecutar una verificacion dirigida."
                 )
             )
@@ -225,6 +269,18 @@ class TestAssistantGreenfieldHelpers(unittest.TestCase):
             assistant.memory = SimpleNamespace(add_message=MagicMock())
             assistant.session_id = "s"
             assistant.history = []
+            assistant.artifact_manager.current_session.read_grounding_ledger = [
+                {
+                    "path": "task_manager.py",
+                    "windows": [
+                        'conn = self.get_db_connection()\nconn.close()\nsqlite3.connect(self.db_path)\nstatus = "âœ“" if task["completed"] else " "'
+                    ],
+                },
+                {
+                    "path": "tests/test_task_manager.py",
+                    "windows": ["def test_add_task(task_manager):\n    task_id = task_manager.add_task(\"Test task\")"],
+                },
+            ]
             assistant.renderer = SimpleNamespace(session_status=lambda *args, **kwargs: nullcontext(None))
             assistant._live_rail_profile = MagicMock(return_value="readonly")
             assistant._stream_completion = MagicMock(
@@ -248,6 +304,66 @@ class TestAssistantGreenfieldHelpers(unittest.TestCase):
             self.assertTrue(
                 any(
                     isinstance(event, dict) and event.get("event") == "plan_retry_test"
+                    for event in assistant.artifact_manager.current_session.events
+                )
+            )
+
+    def test_retry_weak_broad_plan_synthesis_falls_back_when_retry_stays_generic(self) -> None:
+        with TemporaryDirectory() as tmp:
+            assistant = self._make_readonly_nested_project_assistant(tmp)
+            assistant._is_broad_plan_mode_task = MagicMock(return_value=True)
+            assistant.console = SimpleNamespace(print=MagicMock())
+            assistant.memory = SimpleNamespace(add_message=MagicMock())
+            assistant.session_id = "s"
+            assistant.history = []
+            assistant._pending_readonly_plan_render = {
+                "text": "borrador viejo",
+                "tier": "suspected",
+                "evidence_count": 2,
+                "next_command": "/do audita este backend",
+            }
+            assistant.artifact_manager.current_session.read_grounding_ledger = [
+                {
+                    "path": "task_manager.py",
+                    "windows": [
+                        'conn = self.get_db_connection()\nconn.close()\nsqlite3.connect(self.db_path)\ndef __init__(self, db_path="tasks.db"):\nstatus = "âœ“" if task["completed"] else " "'
+                    ],
+                },
+                {
+                    "path": "tests/test_task_manager.py",
+                    "windows": [
+                        "def test_add_task(task_manager):\n    task_id = task_manager.add_task(\"Test task\")\n\ndef test_complete_task(task_manager):\n    result = task_manager.complete_task(1)"
+                    ],
+                },
+            ]
+            assistant.renderer = SimpleNamespace(session_status=lambda *args, **kwargs: nullcontext(None))
+            assistant._live_rail_profile = MagicMock(return_value="readonly")
+            assistant._stream_completion = MagicMock(
+                return_value={
+                    "content": (
+                        "Conclusion: Riesgos generales.\n\n"
+                        "Findings:\n- Posible inyeccion de SQL.\n\n"
+                        "Evidence:\n- task_manager.py usa consultas SQL.\n\n"
+                        "Steps:\n1. Mejorar seguridad.\n\n"
+                        "Next:\n- Revisar el codigo."
+                    ),
+                    "tool_calls": None,
+                }
+            )
+            retried = assistant._retry_weak_broad_plan_synthesis(
+                {"content": "Conclusion: Analisis de riesgos.\n\nSteps:\n1. Mejorar errores."},
+                event_name="plan_retry_test",
+                console_hint="retry",
+            )
+            self.assertIn("tests/test_task_manager.py", retried["content"])
+            self.assertIn("conn = self.get_db_connection()", retried["content"])
+            self.assertIn(
+                "conn = self.get_db_connection()",
+                assistant._pending_readonly_plan_render["text"],
+            )
+            self.assertTrue(
+                any(
+                    isinstance(event, dict) and event.get("event") == "plan_retry_test_fallback"
                     for event in assistant.artifact_manager.current_session.events
                 )
             )

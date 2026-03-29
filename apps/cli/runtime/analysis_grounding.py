@@ -18,7 +18,7 @@ _MAX_LEDGER_FILES = 16
 _MAX_STORED_CHARS_PER_READ = 6000
 _MIN_FENCED_BODY = 14
 _MIN_INLINE_CHARS = 24
-_SQL_INJECTION_RE = re.compile(r"(?i)\b(sql\s+injection|inyecci.n\s+sql)\b")
+_SQL_INJECTION_RE = re.compile(r"(?i)\b(sql\s+injection|inyecci.n(?:\s+de)?\s+sql)\b")
 _CONCURRENCY_RE = re.compile(
     r"(?i)\b(concurrenc(?:y|ia)|race\s+condition|condici[oó]n\s+de\s+carrera|multihilo|multi-?thread)\b"
 )

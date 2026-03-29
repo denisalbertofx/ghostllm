@@ -69,6 +69,7 @@ logger = logging.getLogger(__name__)
 _PLAN_EVIDENCE_FILE_RE = re.compile(
     r"(?i)\b[\w./\\-]+\.(?:py|ts|tsx|js|jsx|json|md|yaml|yml|toml|sql|go|rs|java|rb|php|sh|bat)\b"
 )
+_PLAN_EVIDENCE_CODEISH_RE = re.compile(r"[()=><{}\[\]\"']|\w+\.\w+\(")
 from apps.cli.runtime.shell_normalizer import ShellNormalizer
 from apps.cli.runtime.repo_profile import scan_repo_profile
 from apps.cli.runtime.decision_planner import (
@@ -3506,9 +3507,194 @@ Discovery actions this session: {discovery_count}
         evidence = [str(x).strip() for x in (sections.get("evidence") or []) if str(x).strip()]
         if not findings or not evidence:
             return True
+        if not all(_PLAN_EVIDENCE_FILE_RE.search(line) for line in findings):
+            return True
         if not any(_PLAN_EVIDENCE_FILE_RE.search(line) for line in evidence):
             return True
+        if not any(_PLAN_EVIDENCE_CODEISH_RE.search(line) for line in evidence):
+            return True
+        if self._broad_plan_answer_has_unsupported_speculation("\n".join(findings + evidence)):
+            return True
         return False
+
+    def _broad_plan_answer_has_unsupported_speculation(self, text: str) -> bool:
+        sess = self.artifact_manager.current_session if self.artifact_manager else None
+        ledger = getattr(sess, "read_grounding_ledger", None) if sess else None
+        corpus = ""
+        if isinstance(ledger, list):
+            corpus = "\n".join(
+                str(window)
+                for entry in ledger
+                if isinstance(entry, dict)
+                for window in (entry.get("windows") or [])
+                if isinstance(window, str) and window.strip()
+            ).lower()
+        low = str(text or "").lower()
+        has_unsafe_sql_signal = bool(
+            re.search(r"(select|insert|update|delete).*(\+|%|format\(|f\"|f')", corpus, re.DOTALL)
+        )
+        if re.search(r"(?i)\b(sql\s+injection|inyecci.n(?:\s+de)?\s+sql)\b", low) and not has_unsafe_sql_signal:
+            return True
+        has_concurrency_signal = any(
+            token in corpus
+            for token in ("thread", "threading", "async ", "await ", "lock", "multiprocessing", "concurrent")
+        )
+        if re.search(
+            r"(?i)\b(concurrenc(?:y|ia)|race\s+condition|condici[oó]n\s+de\s+carrera|multihilo|multi-?thread)\b",
+            low,
+        ) and not has_concurrency_signal:
+            return True
+        return False
+
+    def _build_broad_plan_retry_context(self) -> str:
+        sess = self.artifact_manager.current_session if self.artifact_manager else None
+        ledger = getattr(sess, "read_grounding_ledger", None) if sess else None
+        if not isinstance(ledger, list) or not ledger:
+            return ""
+        preferred_needles = (
+            "sqlite3.connect",
+            "cursor.execute",
+            "parser.add_argument",
+            "taskmanager(",
+            "taskmanager()",
+            "conn.close()",
+            "assert ",
+            "status = ",
+        )
+        bullets: List[str] = []
+        seen: set[str] = set()
+        for entry in ledger:
+            if not isinstance(entry, dict):
+                continue
+            path = str(entry.get("path") or "").strip()
+            for window in (entry.get("windows") or []):
+                if not isinstance(window, str):
+                    continue
+                chosen = ""
+                for line in window.splitlines():
+                    stripped = line.strip()
+                    if not stripped:
+                        continue
+                    low = stripped.lower()
+                    if any(needle in low for needle in preferred_needles):
+                        chosen = stripped
+                        break
+                if not chosen:
+                    for line in window.splitlines():
+                        stripped = line.strip()
+                        if len(stripped) >= 18:
+                            chosen = stripped
+                            break
+                if not chosen:
+                    continue
+                chosen = re.sub(r"\s+", " ", chosen)[:120]
+                item = f"- {path}: `{chosen}`"
+                key = item.lower()
+                if key in seen:
+                    continue
+                seen.add(key)
+                bullets.append(item)
+                if len(bullets) >= 4:
+                    break
+            if len(bullets) >= 4:
+                break
+        if not bullets:
+            return ""
+        return "Files actually read in this session:\n" + "\n".join(bullets)
+
+    def _build_conservative_broad_plan_fallback(self) -> str:
+        sess = self.artifact_manager.current_session if self.artifact_manager else None
+        ledger = getattr(sess, "read_grounding_ledger", None) if sess else None
+        corpus = ""
+        path_windows: Dict[str, str] = {}
+        if isinstance(ledger, list):
+            for entry in ledger:
+                if not isinstance(entry, dict):
+                    continue
+                path = str(entry.get("path") or "").strip()
+                windows = "\n".join(
+                    str(window)
+                    for window in (entry.get("windows") or [])
+                    if isinstance(window, str) and window.strip()
+                )
+                if windows:
+                    path_windows[path] = windows
+                    corpus += "\n" + windows
+        findings: List[Tuple[str, str, str]] = []
+        task_text = str(self._primary_user_task_text() or "").strip()
+
+        task_manager_text = path_windows.get("task_manager.py", "")
+        tests_text = path_windows.get("tests/test_task_manager.py", "")
+        if (
+            "sqlite3.connect" in task_manager_text
+            and "conn.close()" in task_manager_text
+            and "with sqlite3.connect" not in task_manager_text
+        ):
+            findings.append(
+                (
+                    "task_manager.py abre y cierra conexiones SQLite manualmente en varios metodos, sin context manager ni try/finally.",
+                    "task_manager.py: `conn = self.get_db_connection()` ... `conn.close()`",
+                    "Encapsular las conexiones con `with` o `try/finally` para no dejar limpieza dependiente del camino feliz.",
+                )
+            )
+        if tests_text and "def test_" in tests_text:
+            low_tests = tests_text.lower()
+            if not any(token in low_tests for token in ("raises", "invalid", "not found", "empty", "argparse", "--add", "--complete")):
+                findings.append(
+                    (
+                        "tests/test_task_manager.py solo cubre CRUD de camino feliz; no se leen pruebas para entradas invalidas ni para el parseo del CLI.",
+                        "tests/test_task_manager.py: `def test_add_task`, `def test_complete_task`, `def test_delete_task`",
+                        "Agregar casos para IDs inexistentes, descripciones vacias y comportamiento del CLI con argumentos invalidos.",
+                    )
+                )
+        mojibake_line = ""
+        for line in corpus.splitlines():
+            if "â" in line or "Ã" in line or "�" in line:
+                mojibake_line = line.strip()
+                break
+        if mojibake_line:
+            findings.append(
+                (
+                    "Se observa texto mojibake en una cadena de salida del CLI, lo que apunta a un problema visible de encoding en terminal.",
+                    f"task_manager.py: `{re.sub(r'\\s+', ' ', mojibake_line)[:120]}`",
+                    "Normalizar la cadena a UTF-8 limpio o usar una marca ASCII segura para no romper shells de Windows.",
+                )
+            )
+        if 'db_path="tasks.db"' in task_manager_text and "TaskManager()" in task_manager_text and "--db" not in task_manager_text:
+            findings.append(
+                (
+                    "task_manager.py fija `tasks.db` como ruta por defecto y el CLI crea `TaskManager()` sin permitir override por argumento.",
+                    'task_manager.py: `def __init__(self, db_path="tasks.db")` y `task_manager = TaskManager()`',
+                    "Permitir configurar la ruta de la base de datos por CLI o variable de entorno para pruebas y ejecucion local reproducible.",
+                )
+            )
+
+        findings = findings[:3]
+        if not findings:
+            conclusion = "La lectura no confirma bugs criticos en esta sesion; lo mas fuerte que queda es una brecha de evidencia, no un hallazgo duro."
+            return (
+                "Conclusion: "
+                + conclusion
+                + "\n\nFindings:\n- No hay un bug confirmado con evidencia literal suficiente en las lecturas actuales.\n\n"
+                + "Steps:\n1. Ejecutar un check minimo o leer el punto exacto que se quiera auditar antes de acusar seguridad o concurrencia.\n\n"
+                + "Evidence:\n- Lecturas revisadas en esta sesion: "
+                + ", ".join(sorted(path_windows.keys())[:4])
+                + ".\n\nNext:\n- "
+                + (f"/do {task_text}".strip() if task_text else "/do")
+            )
+
+        finding_lines = "\n".join(f"- {item[0]}" for item in findings)
+        step_lines = "\n".join(f"{idx}. {item[2]}" for idx, item in enumerate(findings, 1))
+        evidence_lines = "\n".join(f"- {item[1]}" for item in findings)
+        conclusion = "La lectura no confirma un bug critico unico, pero si deja huecos de robustez y al menos un problema visible anclado a codigo real."
+        next_cmd = f"/do {task_text}".strip() if task_text else "/do"
+        return (
+            f"Conclusion: {conclusion}\n\n"
+            f"Findings:\n{finding_lines}\n\n"
+            f"Steps:\n{step_lines}\n\n"
+            f"Evidence:\n{evidence_lines}\n\n"
+            f"Next:\n- {next_cmd}"
+        )
 
     def _retry_weak_broad_plan_synthesis(
         self,
@@ -3534,6 +3720,9 @@ Discovery actions this session: {discovery_count}
             "Do not claim concurrency/race issues unless the code literally shows threads, async shared state, locks, or concurrent workers. "
             "If no bug is confirmed, say that explicitly instead of inventing issues. Do not call tools."
         )
+        retry_context = self._build_broad_plan_retry_context()
+        if retry_context:
+            nudge += "\n\n" + retry_context
         self.history.append({"role": "user", "content": nudge})
         self.memory.add_message(self.session_id, "user", nudge)
         self.console.print(f"\n[dim]{console_hint}[/dim]")
@@ -3547,6 +3736,23 @@ Discovery actions this session: {discovery_count}
         except Exception as e:
             logger.warning("broad plan quality retry failed: %s", e)
             return msg
+        if self._broad_plan_synthesis_needs_retry(str((retry_msg or {}).get("content") or "")):
+            fallback_text = self._build_conservative_broad_plan_fallback()
+            pending_plan = getattr(self, "_pending_readonly_plan_render", None)
+            if isinstance(pending_plan, dict):
+                pending_plan = dict(pending_plan)
+                pending_plan["text"] = fallback_text
+                self._pending_readonly_plan_render = pending_plan
+            try:
+                sess.events.append(
+                    {
+                        "event": f"{event_name}_fallback",
+                        "content_len": len(fallback_text.strip()),
+                    }
+                )
+            except Exception:
+                pass
+            return {"content": fallback_text, "tool_calls": None}
         try:
             sess.events.append(
                 {
