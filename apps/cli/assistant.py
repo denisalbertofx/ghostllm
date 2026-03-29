@@ -1578,6 +1578,7 @@ Discovery actions this session: {discovery_count}
         command_mode: str = "dev",
         runtime_prep: Optional[Any] = None,
         gateway_preflight: Optional[Any] = None,
+        cwd: Optional[str] = None,
     ):
         self.role = role
         self.is_swarm_worker = is_swarm_worker
@@ -1600,24 +1601,16 @@ Discovery actions this session: {discovery_count}
         self.project_name = project_name
         self.history = []
         self.session_id = f"ghost_{int(time.time())}"
-        self.cwd = os.path.abspath(os.getcwd())
+        self.cwd = os.path.abspath(cwd or os.getcwd())
         if runtime_prep is None:
             from apps.cli.runtime.runtime_env import prepare_runtime
 
             runtime_prep = prepare_runtime(self.cwd)
         self._runtime_prep = runtime_prep
         self.memory = MemoryStore(os.path.join(self.cwd, "ghost_memory.db"))
-        self._tool_call_contract_mode = (
-            _TOOL_CALL_CONTRACT_NATIVE
-            if _model_supports_native_tool_calling(self.model)
-            else _TOOL_CALL_CONTRACT_LEGACY
-        )
-        if self._tool_call_contract_mode != _TOOL_CALL_CONTRACT_NATIVE:
-            logger.warning(
-                "tool_call_adapter_activated model=%s mode=%s",
-                self.model,
-                self._tool_call_contract_mode,
-            )
+        self._tool_call_contract_mode = _TOOL_CALL_CONTRACT_NATIVE
+        self._active_request_model = self.model
+        self._refresh_request_model_contract(self.model)
 
         # UI & Runtime
         self.console = make_ghost_console()
@@ -1629,14 +1622,14 @@ Discovery actions this session: {discovery_count}
             model=self.model,
             prep=self._runtime_prep,
             cwd_same_as_repo=True,
-            role_models=resolve_model_role_map(),
+            role_models=self._effective_role_models(),
             llm_gateway_url=self.server_url,
             llm_gateway_reachable=getattr(gw_pf, "ok", None) if gw_pf is not None else None,
             llm_gateway_checked=getattr(gw_pf, "checked_url", "") if gw_pf is not None else "",
             provider_backend_label="openai_compatible",
             auto_approve=self.auto_approve,
         )
-        self.policy_gate = PolicyGate(self.console, self.auto_approve)
+        self.policy_gate = PolicyGate(self.console, self.auto_approve, cwd=self.cwd)
         self.verification_manager = VerificationManager(self.cwd)
         self.verification_coordinator = VerificationCoordinator(self.verification_manager)
         self.artifact_manager = ArtifactManager(self.cwd)
@@ -1691,6 +1684,51 @@ Discovery actions this session: {discovery_count}
         self._explore_v2_tool_ranking_nudge_injected: bool = False
         self._last_tool_denial_key: Optional[Tuple[str, str]] = None
         self._greenfield_bootstrap_nudge_sent: bool = False
+
+    def _effective_role_models(self) -> Dict[str, str]:
+        return resolve_model_role_map(self.cwd)
+
+    def _phase_routing_key(self, phase: Optional[SessionPhase] = None) -> str:
+        current = phase or getattr(self, "session_phase", SessionPhase.IDLE)
+        if current in (SessionPhase.EXPLORE, SessionPhase.INTAKE, SessionPhase.CLOSING):
+            return "explore"
+        if current == SessionPhase.VERIFY:
+            return "verify"
+        if current == SessionPhase.REPAIR:
+            return "act"
+        return "act"
+
+    def _effective_phase_model(self, phase: Optional[SessionPhase] = None) -> str:
+        roles = self._effective_role_models()
+        key = self._phase_routing_key(phase)
+        model = str(roles.get(key) or "").strip()
+        if model:
+            return model
+        if key == "explore":
+            return str(roles.get("planner") or self.model)
+        if key == "verify":
+            return str(roles.get("repair") or roles.get("execution") or self.model)
+        return str(roles.get("execution") or self.model)
+
+    def _refresh_request_model_contract(self, model_name: str) -> None:
+        target_model = str(model_name or self.model).strip() or self.model
+        mode = (
+            _TOOL_CALL_CONTRACT_NATIVE
+            if _model_supports_native_tool_calling(target_model)
+            else _TOOL_CALL_CONTRACT_LEGACY
+        )
+        if (
+            target_model != getattr(self, "_active_request_model", "")
+            or mode != getattr(self, "_tool_call_contract_mode", _TOOL_CALL_CONTRACT_NATIVE)
+        ):
+            if mode != _TOOL_CALL_CONTRACT_NATIVE:
+                logger.warning(
+                    "tool_call_adapter_activated model=%s mode=%s",
+                    target_model,
+                    mode,
+                )
+        self._active_request_model = target_model
+        self._tool_call_contract_mode = mode
 
     @staticmethod
     def _api_failure_user_hint(status_code: int, err_msg: Any) -> str:
@@ -2702,7 +2740,7 @@ Discovery actions this session: {discovery_count}
             mgr.record_model_call(
                 ModelCallTrace(
                     role=role,
-                    model=str(self.model),
+                    model=str(getattr(self, "_active_request_model", self.model)),
                     provider_backend="openai_compatible",
                     started_at=started_iso,
                     first_token_at=first_iso,
@@ -5338,7 +5376,11 @@ Discovery actions this session: {discovery_count}
             return "tools", executed_names
         if not self._legacy_tool_adapter_enabled() and self._content_looks_like_legacy_tool_call(content):
             detail = self._tool_call_contract_error_text(content)
-            logger.error("tool_call_contract_mismatch model=%s detail=%s", self.model, detail)
+            logger.error(
+                "tool_call_contract_mismatch model=%s detail=%s",
+                getattr(self, "_active_request_model", self.model),
+                detail,
+            )
             try:
                 sess_contract = self.artifact_manager.current_session
                 if sess_contract:
@@ -5362,7 +5404,11 @@ Discovery actions this session: {discovery_count}
 
         legacy_calls = self._extract_tool_calls(content) if self._legacy_tool_adapter_enabled() else []
         if legacy_calls:
-            logger.warning("tool_call_legacy_adapter_used model=%s count=%s", self.model, len(legacy_calls))
+            logger.warning(
+                "tool_call_legacy_adapter_used model=%s count=%s",
+                getattr(self, "_active_request_model", self.model),
+                len(legacy_calls),
+            )
             if _tm_loop:
                 try:
                     _tm_loop.record_tool_round()
@@ -6607,8 +6653,8 @@ Discovery actions this session: {discovery_count}
 
         repair_allow = build_repair_allowlist(failed_checks, diff_summary_for_repair) if failed_checks else []
         if use_specialist and failed_checks and repair_allow:
-            roles = resolve_model_role_map()
-            repair_model = roles.get("repair") or ""
+            roles = self._effective_role_models()
+            repair_model = roles.get("act") or roles.get("repair") or ""
             if sess:
                 sess.repair_model_resolved = repair_model
             budget_ref = max(self._last_main_turn_prompt_chars, 1)
@@ -7390,6 +7436,8 @@ Discovery actions this session: {discovery_count}
         show_turn_brand: bool = True,
         tools: Optional[List[Dict[str, Any]]] = None,
     ) -> Dict[str, Any]:
+        active_model = self._effective_phase_model()
+        self._refresh_request_model_contract(active_model)
         tree = self.indexer.get_project_tree(max_depth=1)
         git = self._get_git_info()
         branch_info = f"{git['branch']} ({git['dirty']})"
@@ -7531,7 +7579,7 @@ Discovery actions this session: {discovery_count}
             
         tool_list = tools if tools is not None else self.NATIVE_TOOLS
         payload = {
-            "model": self.model, "messages": active_messages, "stream": use_stream,
+            "model": active_model, "messages": active_messages, "stream": use_stream,
             "temperature": 0.1, "tools": tool_list, "tool_choice": "auto",
         }
 

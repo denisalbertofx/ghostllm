@@ -35,7 +35,7 @@ managed = true
 workspace = { members = ["packages/py-core"] }
 
 [tool.hatch.build.targets.wheel]
-packages = ["apps", "packages/py-core/ghostllm_core"]
+packages = ["apps", "packages/py-core/ghostllm_core", "packages/py-core/ghost"]
 
 [tool.hatch.build.targets.wheel.force-include]
 "configs" = "configs"
@@ -44,6 +44,7 @@ packages = ["apps", "packages/py-core/ghostllm_core"]
 [tool.hatch.build.targets.sdist]
 include = [
     "apps/**/*.py",
+    "packages/py-core/ghost/**/*.py",
     "packages/py-core/ghostllm_core/**/*.py",
     "configs/*.yaml",
     "ghost.schema.json",

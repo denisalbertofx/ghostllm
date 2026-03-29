@@ -10,6 +10,7 @@ import yaml
 _SANDBOX_KEYS = {"allow", "deny", "require_approval"}
 _SANDBOX_CAPS = {"read", "write", "delete", "network", "shell_exec"}
 _ARTIFACT_FORMATS = {"structured_json", "markdown", "text"}
+_ARTIFACT_REQUIRED = {"review_packet", "diff_summary", "artifact_json", "artifact_markdown", "plan", "handoff"}
 
 
 @dataclass(frozen=True)
@@ -83,6 +84,12 @@ def load_and_validate_project_policy(cwd: str) -> ProjectPolicyValidation:
     required = artifacts.get("required") or []
     if required and (not isinstance(required, list) or any(not isinstance(item, str) for item in required)):
         errors.append("artifacts.required must be a list of strings.")
+    elif required:
+        unknown_required = sorted({str(item).strip() for item in required if str(item).strip()} - _ARTIFACT_REQUIRED)
+        if unknown_required:
+            errors.append(
+                f"artifacts.required contains unsupported outputs: {', '.join(unknown_required)}"
+            )
     artifact_format = str(artifacts.get("format") or "").strip()
     if artifact_format and artifact_format not in _ARTIFACT_FORMATS:
         errors.append(

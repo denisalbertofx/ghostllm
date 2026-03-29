@@ -1,5 +1,6 @@
 import os
 import json
+from pathlib import Path
 from collections.abc import Mapping
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
@@ -21,6 +22,7 @@ from apps.cli.runtime.task_contract import (
     task_contract_to_jsonable,
 )
 from apps.cli.runtime.harness_bundle import runtime_mode_label
+from apps.cli.runtime.project_policy import load_and_validate_project_policy
 
 
 def _norm_workset_path(path: Any) -> str:
@@ -375,6 +377,12 @@ class ArtifactSession:
         self.review_ready_for_review: Optional[bool] = None
         self.review_readiness_code: str = ""
         self.review_readiness_detail_es: str = ""
+        self.artifact_json_path: str = ""
+        self.artifact_markdown_path: str = ""
+        self.primary_output_path: str = ""
+        self.artifact_output_format: str = ""
+        self.artifact_requirements_met: bool = True
+        self.artifact_requirements_missing: List[str] = []
         self.delegation_envelope_path: str = ""
         self.role_author: str = "ghost_model"
         self.role_operator: str = "human_operator"
@@ -875,6 +883,12 @@ class ArtifactSession:
             "persisted_handoff_path": str(getattr(self, "persisted_handoff_path", "") or ""),
             "continuity_loaded": bool(str(getattr(self, "continuity_injected_block", "") or "").strip()),
             "review_packet_path": str(getattr(self, "review_packet_path", "") or ""),
+            "artifact_json_path": str(getattr(self, "artifact_json_path", "") or ""),
+            "artifact_markdown_path": str(getattr(self, "artifact_markdown_path", "") or ""),
+            "primary_output_path": str(getattr(self, "primary_output_path", "") or ""),
+            "artifact_output_format": str(getattr(self, "artifact_output_format", "") or ""),
+            "artifact_requirements_met": bool(getattr(self, "artifact_requirements_met", True)),
+            "artifact_requirements_missing": list(getattr(self, "artifact_requirements_missing", None) or []),
             "review_packet_pr_body_preview": str(getattr(self, "review_packet_pr_body_preview", "") or ""),
             "review_ready_for_review": getattr(self, "review_ready_for_review", None),
             "review_readiness_code": str(getattr(self, "review_readiness_code", "") or ""),
@@ -1316,6 +1330,58 @@ class ArtifactManager:
         os.makedirs(self.artifacts_dir, exist_ok=True)
         self.current_session: Optional[ArtifactSession] = None
 
+    def _relpath_if_possible(self, path: str) -> str:
+        try:
+            return str(Path(path).resolve().relative_to(Path(self.project_root).resolve())).replace("\\", "/")
+        except Exception:
+            return str(path).replace("\\", "/")
+
+    def _enforce_project_artifact_policy(self, json_path: str, md_path: str) -> None:
+        session = self.current_session
+        if not session:
+            return
+        policy = load_and_validate_project_policy(self.project_root)
+        if not policy.exists or not policy.valid:
+            session.artifact_output_format = ""
+            session.primary_output_path = session.review_packet_path or session.artifact_json_path or session.artifact_markdown_path
+            session.artifact_requirements_met = True
+            session.artifact_requirements_missing = []
+            return
+
+        artifacts = dict(policy.data.get("artifacts") or {})
+        required = [str(item).strip() for item in (artifacts.get("required") or []) if str(item).strip()]
+        artifact_format = str(artifacts.get("format") or "").strip()
+        missing: List[str] = []
+
+        checks = {
+            "review_packet": bool(getattr(session, "review_packet_path", "") or ""),
+            "diff_summary": bool(getattr(session, "diff_summary", []) or []),
+            "artifact_json": os.path.exists(json_path),
+            "artifact_markdown": os.path.exists(md_path),
+            "plan": bool(getattr(session, "persisted_plan_path", "") or ""),
+            "handoff": bool(getattr(session, "persisted_handoff_path", "") or ""),
+        }
+        for item in required:
+            if not checks.get(item, False):
+                missing.append(item)
+
+        session.artifact_output_format = artifact_format
+        session.primary_output_path = (
+            (session.review_packet_path if artifact_format == "structured_json" and session.review_packet_path else "")
+            or session.artifact_json_path
+            or session.artifact_markdown_path
+        )
+        session.artifact_requirements_met = not missing
+        session.artifact_requirements_missing = missing
+        if missing and isinstance(getattr(session, "events", None), list):
+            session.events.append(
+                {
+                    "event": "artifact_policy_missing_requirements",
+                    "missing": list(missing),
+                    "format": artifact_format,
+                }
+            )
+
     def start_session(self, task: str, task_id: str = "N/A", task_type: str = "direct_edit", type_source: str = "inferred", batch_id: Optional[str] = None, step_id: Optional[int] = None) -> ArtifactSession:
         import uuid
         session_id = f"task_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{str(uuid.uuid4())[:4]}"
@@ -1337,6 +1403,11 @@ class ArtifactManager:
         md_path = os.path.join(self.artifacts_dir, f"{session_id}.md")
         with open(md_path, "w", encoding="utf-8") as f:
             f.write(self.current_session.to_markdown())
+        self.current_session.artifact_json_path = self._relpath_if_possible(json_path)
+        self.current_session.artifact_markdown_path = self._relpath_if_possible(md_path)
+        self._enforce_project_artifact_policy(json_path, md_path)
+        with open(json_path, "w", encoding="utf-8") as f:
+            json.dump(self.current_session.to_dict(), f, indent=2)
 
     def add_diff(
         self,

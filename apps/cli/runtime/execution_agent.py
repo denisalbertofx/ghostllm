@@ -15,6 +15,10 @@ from typing import Any, Dict, List, Literal, Optional, Set, Tuple
 from pydantic import BaseModel, ConfigDict, Field
 
 from apps.cli.runtime.exploration_planner import path_under_ui_roots
+from apps.cli.runtime.project_runtime_config import (
+    apply_project_routing_to_role_map,
+    load_and_validate_project_runtime_config,
+)
 from apps.cli.runtime.task_contract import (
     contract_has_operational_spec,
     get_task_contract_decision_plan,
@@ -85,9 +89,9 @@ def execution_fallback_model_id() -> str:
     return v or general_fallback_model_id()
 
 
-def resolve_model_role_map() -> Dict[str, str]:
-    """Deterministic env-based model IDs per role (router-ready)."""
-    return {
+def resolve_model_role_map(cwd: Optional[str] = None) -> Dict[str, str]:
+    """Deterministic model IDs per role, optionally overlaid by project ghost.yaml."""
+    role_map = {
         "execution": os.environ.get(ENV_EXECUTION_MODEL, DEFAULT_CODE_WRITER_MODEL).strip()
         or DEFAULT_CODE_WRITER_MODEL,
         "general_fallback": general_fallback_model_id(),
@@ -97,6 +101,18 @@ def resolve_model_role_map() -> Dict[str, str]:
         # Transporte del CLI siempre OpenAI-compatible; NIM es ruta opcional del agente de ejecución.
         "provider_backend": "nvidia_nim" if nim_configured() else "openai_compatible",
     }
+    if cwd:
+        cfg = load_and_validate_project_runtime_config(cwd)
+        role_map = apply_project_routing_to_role_map(role_map, cfg)
+    else:
+        role_map = {
+            **role_map,
+            "explore": role_map.get("planner", ""),
+            "act": role_map.get("execution", ""),
+            "verify": role_map.get("repair", ""),
+            "fallback": role_map.get("general_fallback", ""),
+        }
+    return role_map
 
 
 # --- Pydantic models ---------------------------------------------------------
@@ -983,7 +999,7 @@ def execution_input_from_session(session: Any) -> Optional[ExecutionAgentInput]:
 
 
 def apply_execution_agent_to_session(session: Any, out: ExecutionAgentOutput) -> None:
-    role_map = resolve_model_role_map()
+    role_map = resolve_model_role_map(getattr(session, "effective_repo_root", "") or os.getcwd())
     session.execution_agent_used = True
     session.execution_mode = out.execution_mode
     session.selected_execution_model = out.selected_model.model_id

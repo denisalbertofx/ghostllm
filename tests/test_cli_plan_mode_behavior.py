@@ -53,7 +53,7 @@ class TestCliPlanModeBehavior(unittest.TestCase):
             ok = assistant._maybe_stagnation_readonly_synthesis()
 
         self.assertTrue(ok)
-        mock_stream.assert_called_once()
+        self.assertEqual(mock_stream.call_count, 2)
         self.assertTrue(assistant._final_synthesis_done)
         self.assertTrue(
             any(evt.get("event") == "broad_plan_stagnation_synthesis" for evt in assistant.artifact_manager.current_session.events)
@@ -80,7 +80,7 @@ class TestCliPlanModeBehavior(unittest.TestCase):
             ok = assistant._maybe_churn_readonly_synthesis()
 
         self.assertTrue(ok)
-        mock_stream.assert_called_once()
+        self.assertEqual(mock_stream.call_count, 2)
         self.assertTrue(assistant._final_synthesis_done)
         self.assertTrue(
             any(evt.get("event") == "broad_plan_churn_synthesis" for evt in assistant.artifact_manager.current_session.events)
