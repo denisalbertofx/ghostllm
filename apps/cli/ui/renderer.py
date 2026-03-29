@@ -2654,6 +2654,7 @@ class GhostRenderer:
         self._tool_segment_active = False
         if not self._tool_segment_buffer:
             return
+        verbose = _ui_verbose()
         ly = self._tty_layout()
         rows = _dedupe_tool_rows(self._tool_segment_buffer)
         mode = _tool_ui_mode()
@@ -2667,8 +2668,20 @@ class GhostRenderer:
                 display_rows = list(read_rows) + display_rows
         else:
             display_rows = list(rows)
+        quiet_read_batch = (
+            mode == "compact"
+            and not verbose
+            and rows
+            and all(str(row.get("name") or "") in {"read_file", "ls"} for row in rows)
+            and display_rows
+            and all(_is_readlike_tool(row.get("name")) or str(row.get("name") or "") == "read_batch" for row in display_rows)
+            and all(str(row.get("estado") or "") == "ok" for row in display_rows)
+        )
         for row in display_rows:
             self._record_tool_activity_from_payload(row)
+        if quiet_read_batch:
+            self._tool_segment_buffer = []
+            return
         batch_entries = [
             (
                 _tool_chip_label(str(r.get("name") or "")),

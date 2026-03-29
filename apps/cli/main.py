@@ -23,6 +23,7 @@ from ghostllm_core.config import (
     load_registry,
     resolve_gateway_model_id,
     resolve_config_path,
+    tool_calling_supported,
 )
 from ghostllm_core.memory import MemoryStore
 
@@ -32,9 +33,13 @@ from apps.cli.runtime.gateway_endpoint import (
     probe_gateway,
     resolve_cli_gateway_url,
 )
-from apps.cli.runtime.http_client import get as http_get
+from apps.cli.runtime.http_client import get as http_get, post as http_post
 from apps.cli.runtime.filesystem_intents import revert_filesystem_intent, summarize_filesystem_intent
 from apps.cli.runtime.ghost_profile import apply_operational_profile_to_environment
+from apps.cli.runtime.project_policy import (
+    load_and_validate_project_policy,
+    sandbox_conflicts_for_repo,
+)
 from apps.cli.runtime.runtime_env import (
     enrich_prep_after_operational_profile,
     prepare_runtime,
@@ -172,6 +177,15 @@ def _load_local_registry_alias_map() -> dict[str, str]:
     return out
 
 
+def _load_registry_tool_support() -> dict[str, bool]:
+    try:
+        registry = load_registry(REGISTRY_PATH)
+    except Exception:
+        return {}
+    enabled = {row.name: row for row in registry.models if row.enabled}
+    return {name: bool(tool_calling_supported(name, enabled)) for name in enabled}
+
+
 def _fetch_remote_registry_alias_map(base_url: Optional[str] = None) -> tuple[dict[str, str], str]:
     base = (base_url or _effective_gateway_url()).rstrip("/")
     try:
@@ -191,6 +205,75 @@ def _fetch_remote_registry_alias_map(base_url: Optional[str] = None) -> tuple[di
         if name and upstream:
             out[name] = upstream
     return out, ""
+
+
+def _doctor_tool_calling_probe(base_url: str, alias: str = "coder") -> tuple[bool, str]:
+    tool_support = _load_registry_tool_support()
+    if alias in tool_support and not tool_support[alias]:
+        return False, f"Registry alias '{alias}' has tool_calling: false. Fix: edit configs/models.yaml and set tool_calling: true."
+    model_id = resolve_gateway_model_id(alias, REGISTRY_PATH) or alias
+    payload = {
+        "model": model_id,
+        "messages": [{"role": "user", "content": "Call the provided echo tool with text='doctor'."}],
+        "temperature": 0,
+        "max_tokens": 32,
+        "tools": [
+            {
+                "type": "function",
+                "function": {
+                    "name": "echo",
+                    "description": "Echo a string for a doctor probe.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {"text": {"type": "string"}},
+                        "required": ["text"],
+                    },
+                },
+            }
+        ],
+        "tool_choice": "auto",
+    }
+    try:
+        response = http_post(
+            f"{base_url.rstrip('/')}/v1/chat/completions",
+            timeout=(2.0, 20.0),
+            headers={
+                "Authorization": f"Bearer {get_api_key()}",
+                "Content-Type": "application/json",
+            },
+            json_payload=payload,
+        )
+    except httpx.HTTPError as exc:
+        return False, f"Tool-calling probe failed: {exc}. Fix: run `ghost init` or `ghost start`."
+
+    body = {}
+    try:
+        body = response.json()
+    except ValueError:
+        body = {}
+    if response.status_code == 200:
+        return True, ""
+    detail = str(body.get("detail") or body.get("error") or response.text or f"HTTP {response.status_code}")[:220]
+    if response.status_code == 401:
+        return False, f"Upstream authentication failed during tool probe ({detail}). Fix: run `ghost init`."
+    if response.status_code == 400 and "tool" in detail.lower():
+        return False, f"Tool-calling rejected by active model ({detail}). Fix: edit configs/models.yaml and choose a tool-capable model."
+    return False, f"Tool-calling probe failed ({detail}). Fix: run `ghost stop` then `ghost start`."
+
+
+def _doctor_filesystem_access(cwd: str) -> tuple[bool, str]:
+    probe_dir = Path(cwd) / ".ghost"
+    probe_dir.mkdir(parents=True, exist_ok=True)
+    probe_file = probe_dir / ".doctor-write-test"
+    try:
+        probe_file.write_text("ok\n", encoding="utf-8")
+        content = probe_file.read_text(encoding="utf-8")
+        probe_file.unlink(missing_ok=True)
+        if content.strip() != "ok":
+            return False, "Filesystem probe read back unexpected content."
+        return True, ""
+    except Exception as exc:
+        return False, f"{type(exc).__name__}: {exc}"
 
 
 def _registry_drift_summary(local_map: dict[str, str], remote_map: dict[str, str]) -> str:
@@ -699,6 +782,7 @@ def doctor():
     console = Console()
     
     table = Table(title="Ghost Dev Health Check", show_header=False, border_style="magenta")
+    fixes: list[str] = []
 
     gw = _effective_gateway_url()
     table.add_row("Gateway URL (efectiva)", gw)
@@ -709,6 +793,7 @@ def doctor():
         config_status = "[bold green]Valid[/bold green]"
     except ConfigValidationError as exc:
         config_status = f"[bold red]Invalid[/bold red] [dim]{str(exc)[:120]}[/dim]"
+        fixes.append("Run `ghost init` or fix the invalid YAML shown above.")
 
     pf = probe_gateway(gw, api_key=get_api_key(), timeout_sec=1.5)
     daemon_running = is_running() or pf.ok
@@ -719,6 +804,8 @@ def doctor():
     else:
         s_status = f"[bold red]Unreachable[/bold red] [dim]{pf.error[:120]}[/dim]"
     table.add_row("Model endpoint", s_status)
+    if not pf.ok:
+        fixes.append("Run `ghost start` to launch the local gateway.")
     ready, ready_err = check_provider_ready(gw)
     if ready:
         r_status = "[bold green]Ready[/bold green]"
@@ -731,13 +818,57 @@ def doctor():
     else:
         r_status = f"[bold red]Not ready[/bold red] [dim]{ready_err[:120]}[/dim]"
     table.add_row("Provider ready", r_status)
+    if not ready:
+        if "401" in ready_err or "auth" in ready_err.lower():
+            fixes.append("Run `ghost init` to refresh the NVIDIA API key.")
+        else:
+            fixes.append("Run `ghost stop` then `ghost start` to refresh the provider.")
     sync_ok, sync_detail = _registry_sync_status(gw)
     if sync_ok:
         sync_status = "[bold green]In sync[/bold green]"
     else:
         sync_status = f"[bold yellow]Stale[/bold yellow] [dim]{sync_detail[:120]}[/dim]"
     table.add_row("Model registry sync", sync_status)
+    if not sync_ok:
+        fixes.append("Run `ghost stop` then `ghost start` to reload the model registry.")
     table.add_row("Config", config_status)
+
+    if pf.ok and ready and sync_ok:
+        tool_ok, tool_detail = _doctor_tool_calling_probe(gw, alias="coder")
+        if tool_ok:
+            tool_status = "[bold green]Ready[/bold green]"
+        else:
+            tool_status = f"[bold red]Failed[/bold red] [dim]{tool_detail[:120]}[/dim]"
+            fixes.append(tool_detail)
+    else:
+        tool_status = "[dim]Skipped until gateway/provider/registry are healthy[/dim]"
+    table.add_row("Tool calling", tool_status)
+
+    fs_ok, fs_detail = _doctor_filesystem_access(os.getcwd())
+    if fs_ok:
+        fs_status = "[bold green]Accessible[/bold green]"
+    else:
+        fs_status = f"[bold red]Blocked[/bold red] [dim]{fs_detail[:120]}[/dim]"
+        fixes.append("Fix project filesystem permissions or run Ghost from a writable workspace.")
+    table.add_row("Project filesystem", fs_status)
+
+    policy_validation = load_and_validate_project_policy(os.getcwd())
+    if not policy_validation.exists:
+        policy_status = "[dim]No project policy[/dim]"
+    elif policy_validation.valid:
+        policy_status = "[bold green]Valid[/bold green]"
+    else:
+        policy_status = f"[bold red]Invalid[/bold red] [dim]{'; '.join(policy_validation.errors)[:120]}[/dim]"
+        fixes.append(f"Edit `{policy_validation.path}` and resolve the policy errors.")
+    table.add_row("Project policy", policy_status)
+
+    sandbox_conflicts = sandbox_conflicts_for_repo(policy_validation, os.getcwd())
+    if sandbox_conflicts:
+        sandbox_status = f"[bold yellow]Conflicts[/bold yellow] [dim]{'; '.join(sandbox_conflicts)[:120]}[/dim]"
+        fixes.append(f"Edit `{policy_validation.path}` and remove the conflicting sandbox rules.")
+    else:
+        sandbox_status = "[bold green]Ready[/bold green]"
+    table.add_row("Sandbox readiness", sandbox_status)
 
     # Environment
     table.add_row("Project", os.path.basename(os.getcwd()))
@@ -745,6 +876,15 @@ def doctor():
     table.add_row("Memory", "[blue].ghost_memory.db[/blue]")
     
     console.print(table)
+    if fixes:
+        console.print("")
+        console.print("[bold yellow]Recommended fixes[/bold yellow]")
+        deduped: list[str] = []
+        for item in fixes:
+            if item and item not in deduped:
+                deduped.append(item)
+        for item in deduped[:8]:
+            console.print(f"  • {item}")
 
 @app.command()
 def claude(

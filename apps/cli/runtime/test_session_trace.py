@@ -76,6 +76,32 @@ class SessionTracePersistenceTests(unittest.TestCase):
             self.assertIn("summary", data)
             self.assertIn("phase_coverage", data)
 
+    def test_session_trace_writes_ndjson_events(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            fake_log_root = Path(tmp) / ".ghost" / "logs"
+            with patch("apps.cli.runtime.session_trace._session_log_root", return_value=fake_log_root):
+                mgr = SessionTraceManager("task_log123", str(tmp), command_mode="dev")
+                mgr.start_phase("alpha")
+                mgr.end_phase("alpha")
+                mgr.record_tool_call(
+                    ToolCallTrace(
+                        tool_name="read_file",
+                        target="demo.py",
+                        started_at=trace_timestamp_iso(),
+                        ended_at=trace_timestamp_iso(),
+                        duration_ms=12.0,
+                        ok=True,
+                    )
+                )
+                mgr.finish_and_persist(str(tmp))
+            lines = fake_log_root.joinpath(next(iter(os.listdir(fake_log_root)))).read_text(encoding="utf-8").splitlines()
+            self.assertGreaterEqual(len(lines), 4)
+            payloads = [json.loads(line) for line in lines]
+            self.assertEqual(payloads[0]["event_type"], "session_start")
+            tool_events = [row for row in payloads if row["event_type"] == "tool_call"]
+            self.assertTrue(tool_events)
+            self.assertTrue(tool_events[0]["payload"]["correlation_id"].endswith(":tool:1"))
+
     def test_phase_timing_recorded_success(self) -> None:
         mgr = SessionTraceManager("s1", os.getcwd(), "dev")
         mgr.start_phase("alpha")

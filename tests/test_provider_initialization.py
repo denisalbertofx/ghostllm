@@ -143,6 +143,34 @@ class TestProviderInitialization(unittest.TestCase):
         self.assertIn("Model registry sync", result.stdout)
         self.assertIn("Stale", result.stdout)
 
+    def test_doctor_runs_extended_end_to_end_checks(self):
+        from apps.cli.main import app
+
+        preflight = SimpleNamespace(ok=True, checked_url="http://127.0.0.1:8000/health", status_code=200)
+        policy = SimpleNamespace(exists=True, valid=True, path=".ghost/policy.yaml", errors=[])
+        with patch("apps.cli.main.is_running", return_value=True), patch(
+            "apps.cli.main._effective_gateway_url", return_value="http://127.0.0.1:8000"
+        ), patch("apps.cli.main.probe_gateway", return_value=preflight), patch(
+            "apps.cli.main.check_provider_ready", return_value=(True, "")
+        ), patch(
+            "apps.cli.main._registry_sync_status", return_value=(True, "")
+        ), patch(
+            "apps.cli.main._doctor_tool_calling_probe", return_value=(True, "")
+        ), patch(
+            "apps.cli.main._doctor_filesystem_access", return_value=(True, "")
+        ), patch(
+            "apps.cli.main.load_and_validate_project_policy", return_value=policy
+        ), patch(
+            "apps.cli.main.sandbox_conflicts_for_repo", return_value=[]
+        ):
+            result = runner.invoke(app, ["doctor"])
+
+        self.assertEqual(result.exit_code, 0, result.stdout)
+        self.assertIn("Tool calling", result.stdout)
+        self.assertIn("Project filesystem", result.stdout)
+        self.assertIn("Project policy", result.stdout)
+        self.assertIn("Sandbox readiness", result.stdout)
+
     def test_assistant_detects_provider_not_initialized_and_sets_fatal_flag(self):
         """Assistant detects 500 with 'NVIDIA Provider not initialized' and sets _fatal_provider_error."""
         from apps.cli.assistant import CodexAssistant

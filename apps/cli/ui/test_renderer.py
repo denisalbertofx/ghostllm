@@ -612,6 +612,15 @@ class TestRendererVerificationProvenance(unittest.TestCase):
         self.assertIn("package.json", out)
         self.assertNotIn("Ghost · operaciones", out)
 
+    def test_tool_segment_compact_quiet_for_successful_read_only_batch(self):
+        with patch.dict(os.environ, {"GHOST_TOOL_UI": "compact", "GHOST_UI_VERBOSE": "0"}, clear=False):
+            self.renderer.begin_tool_segment()
+            self.renderer.append_tool_trace("read_file", "a.py", True, duration_ms=8)
+            self.renderer.append_tool_trace("read_file", "b.py", True, duration_ms=9)
+            self.renderer.flush_tool_segment()
+        out = self.output.getvalue()
+        self.assertEqual(out.strip(), "")
+
     def test_tool_segment_compact_reuses_same_section_without_double_spacing(self):
         with patch.dict(os.environ, {"GHOST_TOOL_UI": "compact"}, clear=False):
             self.renderer.begin_tool_segment()

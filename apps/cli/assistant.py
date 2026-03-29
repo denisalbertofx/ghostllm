@@ -212,6 +212,14 @@ from apps.cli.runtime.filesystem_intents import (
     likely_mutating_shell_command,
     new_intent_id,
 )
+from apps.cli.runtime.error_classification import (
+    ERROR_CATEGORY_CONTEXT,
+    ERROR_CATEGORY_LOGIC,
+    ERROR_CATEGORY_PERMISSIONS,
+    ERROR_CATEGORY_TRANSIENT,
+    classify_provider_failure,
+    classify_tool_failure,
+)
 from apps.cli.runtime.narrow_factual_chat import (
     factual_explore_iterations_remaining,
     suppress_tools_on_last_factual_iteration,
@@ -2004,6 +2012,103 @@ Discovery actions this session: {discovery_count}
         finally:
             self.renderer.flush_tool_segment()
 
+    def _tool_runtime_replan_message(self, tc_name: str, tool_result: Dict[str, Any]) -> str:
+        available = ", ".join(sorted(str(t.get("function", {}).get("name") or "") for t in self.NATIVE_TOOLS if isinstance(t, dict)))
+        err = str((tool_result or {}).get("error") or "").strip()
+        return (
+            "[SYSTEM] Ghost intercepted a tool-planning/context error before reinjecting it as a tool result. "
+            f"The invalid tool step was `{tc_name}` and failed with: {err}. "
+            "Replan from the task and repository context, choose only valid tools with complete required arguments, "
+            f"and do not repeat the invalid call. Available tools: {available}."
+        )
+
+    def _maybe_retry_transient_tool_error(
+        self,
+        tc_name: str,
+        tc_args: Dict[str, Any],
+        tool_result: Dict[str, Any],
+        *,
+        legacy: bool,
+        is_authorized: bool,
+    ) -> Dict[str, Any]:
+        classification = classify_tool_failure(tc_name, tool_result)
+        if classification.category != ERROR_CATEGORY_TRANSIENT or not classification.retryable:
+            return tool_result
+
+        for attempt in range(1, max(0, classification.max_retries) + 1):
+            delay = min(2.0, 0.35 * (2 ** (attempt - 1)))
+            time.sleep(delay)
+            retry_call = {"name": tc_name, "arguments": tc_args}
+            if legacy:
+                retry_result = self._execute_tool(retry_call, is_authorized=is_authorized)
+            else:
+                retry_result = self._execute_tool(retry_call, is_authorized=is_authorized)
+            retry_class = classify_tool_failure(tc_name, retry_result)
+            if retry_class.category != ERROR_CATEGORY_TRANSIENT:
+                return retry_result
+            tool_result = retry_result
+        return tool_result
+
+    def _handle_non_logic_tool_error(
+        self,
+        tc_name: str,
+        tc_args: Dict[str, Any],
+        tc_id: Optional[str],
+        tool_result: Dict[str, Any],
+        *,
+        legacy: bool,
+    ) -> Optional[str]:
+        classification = classify_tool_failure(tc_name, tool_result)
+        if classification.category == ERROR_CATEGORY_LOGIC:
+            return None
+
+        err = str((tool_result or {}).get("error") or "").strip()
+        sess = self.artifact_manager.current_session
+        if classification.category == ERROR_CATEGORY_PERMISSIONS:
+            if sess and isinstance(getattr(sess, "events", None), list):
+                sess.events.append(
+                    {
+                        "event": "tool_permission_escalation",
+                        "tool": tc_name,
+                        "detail": err[:240],
+                    }
+                )
+            self.console.print(
+                f"[bold red]✘ Permission blocked:[/bold red] {tc_name} → {err}\n"
+                f"[dim]Ghost escalated this immediately instead of reinjecting it to the model.[/dim]"
+            )
+            self._loop_abort_reason = LOOP_ABORT_POLICY
+            return "terminal"
+
+        if classification.category == ERROR_CATEGORY_CONTEXT:
+            if sess and isinstance(getattr(sess, "events", None), list):
+                sess.events.append(
+                    {
+                        "event": "tool_context_replan",
+                        "tool": tc_name,
+                        "detail": err[:240],
+                    }
+                )
+            replan_msg = self._tool_runtime_replan_message(tc_name, tool_result)
+            self.history.append({"role": "user", "content": replan_msg})
+            self.memory.add_message(self.session_id, "user", replan_msg)
+            return "replan"
+
+        self.console.print(
+            f"[bold red]✘ Transient tool failure:[/bold red] {tc_name} → {err}\n"
+            f"[dim]Ghost exhausted local retries before involving the model.[/dim]"
+        )
+        if sess and isinstance(getattr(sess, "events", None), list):
+            sess.events.append(
+                {
+                    "event": "tool_transient_exhausted",
+                    "tool": tc_name,
+                    "detail": err[:240],
+                }
+            )
+        self._loop_abort_reason = LOOP_ABORT_PROVIDER
+        return "terminal"
+
     def _run_segmented_inner(
         self,
         segs: List[Tuple[str, List[int]]],
@@ -2047,6 +2152,17 @@ Discovery actions this session: {discovery_count}
                         self._explore_rejected_writes_this_round.append(tc_name)
                     self.renderer.append_tool_trace(tc_name, phase_err[:160], False)
                     tool_result = {"error": phase_err}
+                    special = self._handle_non_logic_tool_error(
+                        tc_name,
+                        tc_args,
+                        tc_id,
+                        tool_result,
+                        legacy=legacy,
+                    )
+                    if special == "terminal":
+                        return "terminal"
+                    if special == "replan":
+                        return "replan"
                     res_content = self._json_for_tool_prompt(tc_name, tool_result)
                     if legacy:
                         res_content = f"TOOL_RESULT: {res_content}"
@@ -2089,6 +2205,17 @@ Discovery actions this session: {discovery_count}
                     _lbl = f"{_d} — bloqueado: {deny_reason}" if _d else str(deny_reason or "bloqueado")
                     self.renderer.append_tool_trace(tc_name, _lbl, False)
                     tool_result = {"error": deny_reason}
+                    special = self._handle_non_logic_tool_error(
+                        tc_name,
+                        tc_args,
+                        tc_id,
+                        tool_result,
+                        legacy=legacy,
+                    )
+                    if special == "terminal":
+                        return "terminal"
+                    if special == "replan":
+                        return "replan"
                     res_content = self._json_for_tool_prompt(tc_name, tool_result)
                     if legacy:
                         res_content = f"TOOL_RESULT: {res_content}"
@@ -2172,6 +2299,13 @@ Discovery actions this session: {discovery_count}
                             {"name": tc_name, "arguments": tc_args},
                             is_authorized=is_auth,
                         )
+                tool_result = self._maybe_retry_transient_tool_error(
+                    tc_name,
+                    tc_args,
+                    tool_result,
+                    legacy=legacy,
+                    is_authorized=bool(pc.get("is_authorized")) or bool(pc.get("shell_batch_preapproved")),
+                )
                 if (
                     self.session_phase == SessionPhase.EXPLORE
                     and tc_name == "read_file"
@@ -2195,6 +2329,17 @@ Discovery actions this session: {discovery_count}
                     _lp = str(tc_args.get("path") or ".").strip() or "."
                     self._explore_ls_paths_this_dispatch.add(normalize_ls_path_key(_lp))
                 executed_names.append(tc_name)
+                special = self._handle_non_logic_tool_error(
+                    tc_name,
+                    tc_args,
+                    tc_id,
+                    tool_result,
+                    legacy=legacy,
+                )
+                if special == "terminal":
+                    return "terminal"
+                if special == "replan":
+                    return "replan"
                 res_content = self._json_for_tool_prompt(tc_name, tool_result)
                 if legacy:
                     res_content = f"TOOL_RESULT: {res_content}"
@@ -7178,7 +7323,8 @@ Discovery actions this session: {discovery_count}
     ) -> Dict[str, Any]:
         """Wrapper for _execute_stream_requests with retry logic."""
         self._fatal_provider_error = False
-        for attempt in range(2):
+        max_attempts = 2
+        for attempt in range(max_attempts):
             try:
                 result = self._execute_stream_request(
                     parent_status,
@@ -7196,6 +7342,25 @@ Discovery actions this session: {discovery_count}
                     self._render_provider_recovery(err_str)
                     if parent_status:
                         parent_status.stop()
+                    return {}
+                classification = classify_provider_failure(e)
+                if classification.category == ERROR_CATEGORY_PERMISSIONS:
+                    self.console.print(
+                        f"[bold red]âœ˜ Provider authentication error:[/bold red] {e}\n"
+                        "[dim]Run `ghost init` to refresh credentials or verify NVIDIA_API_KEY.[/dim]"
+                    )
+                    if parent_status:
+                        parent_status.stop()
+                    self._stream_interrupted_this_session = True
+                    return {}
+                if classification.category == ERROR_CATEGORY_CONTEXT:
+                    self.console.print(
+                        f"[bold red]âœ˜ Tool-calling contract error:[/bold red] {e}\n"
+                        "[dim]Check configs/models.yaml and ensure the active model has tool_calling: true.[/dim]"
+                    )
+                    if parent_status:
+                        parent_status.stop()
+                    self._stream_interrupted_this_session = True
                     return {}
                 retryable_msgs = ["429", "prematurely", "timeout", "broken pipe", "connection reset"]
                 is_retryable = any(m in err_str for m in retryable_msgs) or "ChunkedEncodingError" in str(

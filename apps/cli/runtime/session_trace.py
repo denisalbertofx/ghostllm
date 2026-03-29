@@ -4,6 +4,7 @@ Hardened: consistent totals, explicit phase coverage, bottleneck detection, stat
 """
 from __future__ import annotations
 
+import json
 import logging
 import os
 import re
@@ -99,6 +100,7 @@ class ModelCallTrace(BaseModel):
     error_message: str = ""
     prompt_chars: int = 0
     output_chars: int = 0
+    correlation_id: str = ""
 
 
 class ToolCallTrace(BaseModel):
@@ -113,6 +115,7 @@ class ToolCallTrace(BaseModel):
     ok: bool = True
     error_message: str = ""
     result_summary: str = ""
+    correlation_id: str = ""
 
 
 class ApprovalTrace(BaseModel):
@@ -126,6 +129,7 @@ class ApprovalTrace(BaseModel):
     approved: bool
     status: str = TRACE_STATUS_COMPLETED
     reason: str = ""
+    correlation_id: str = ""
 
 
 class BatchExecutionTrace(BaseModel):
@@ -153,6 +157,7 @@ class VerificationTrace(BaseModel):
     total_duration_ms: float = 0.0
     verification_source: str = ""
     status: str = TRACE_STATUS_COMPLETED
+    correlation_id: str = ""
 
 
 class RepairTrace(BaseModel):
@@ -169,6 +174,7 @@ class RepairTrace(BaseModel):
     reverify_attempted: bool = False
     result: str = ""
     status: str = TRACE_STATUS_COMPLETED
+    correlation_id: str = ""
 
 
 class SessionTraceSummary(BaseModel):
@@ -792,6 +798,21 @@ def persist_trace_file(project_root: str, trace: SessionTrace) -> str:
     return str(path.resolve())
 
 
+def _session_log_root() -> Path:
+    return Path.home() / ".ghost" / "logs"
+
+
+def _session_log_path(session_id: str, started_at_iso: str) -> Path:
+    stamp = (
+        str(started_at_iso or "")
+        .replace("-", "")
+        .replace(":", "")
+        .replace("T", "_")
+        .replace("+00:00", "Z")
+    )
+    return _session_log_root() / f"session-{stamp}-{session_id}.ndjson"
+
+
 def _normalize_phase_status(status: str) -> str:
     if status in (TRACE_STATUS_COMPLETED, TRACE_STATUS_FAILED, TRACE_STATUS_SKIPPED, TRACE_STATUS_BLOCKED, TRACE_STATUS_INCOMPLETE):
         return status
@@ -815,6 +836,13 @@ class SessionTraceManager:
         self.cwd = os.path.abspath(cwd)
         self.repo_root = self.cwd
         self.command_mode = command_mode
+        self._event_seq = 0
+        self._tool_seq = 0
+        self._model_seq = 0
+        self._approval_seq = 0
+        self._verification_seq = 0
+        self._repair_seq = 0
+        self.ndjson_log_path = str(_session_log_path(session_id, self._start_iso))
         self._phase_stack: List[Tuple[str, float, str]] = []
         self._file_not_found_paths: List[str] = []
         self._task_text_for_diagnostic = ""
@@ -843,6 +871,26 @@ class SessionTraceManager:
         self.active_workset: Dict[str, Any] = {}
         self.phase_checkpoints: List[Dict[str, Any]] = []
         self.incremental_verify_state: Dict[str, Any] = {}
+        self._log_event("session_start", {"cwd": self.cwd, "command_mode": self.command_mode})
+
+    def _log_event(self, event_type: str, payload: Dict[str, Any]) -> None:
+        try:
+            self._event_seq += 1
+            path = Path(self.ndjson_log_path)
+            path.parent.mkdir(parents=True, exist_ok=True)
+            row = {
+                "ts": _utc_iso(),
+                "event_id": f"{self.session_id}:event:{self._event_seq}",
+                "session_id": self.session_id,
+                "session_correlation_id": self.session_id,
+                "command_mode": self.command_mode,
+                "event_type": event_type,
+                "payload": payload,
+            }
+            with path.open("a", encoding="utf-8") as fh:
+                fh.write(json.dumps(row, ensure_ascii=False) + "\n")
+        except Exception as e:
+            logger.debug("session ndjson log failed: %s", e)
 
     def record_chat_model_turn(self) -> None:
         """Un turno donde el modelo principal devolvió mensaje (haya o no tool calls)."""
@@ -868,6 +916,7 @@ class SessionTraceManager:
         try:
             if root:
                 self.repo_root = os.path.abspath(root)
+                self._log_event("repo_root", {"repo_root": self.repo_root})
         except Exception:
             pass
 
@@ -931,6 +980,7 @@ class SessionTraceManager:
     def start_phase(self, phase_name: str) -> None:
         try:
             self._phase_stack.append((phase_name, time.monotonic(), _utc_iso()))
+            self._log_event("phase_start", {"phase_name": phase_name})
         except Exception as e:
             logger.debug("start_phase failed: %s", e)
 
@@ -958,40 +1008,118 @@ class SessionTraceManager:
                     notes=notes,
                 )
             )
+            self._log_event(
+                "phase_end",
+                {
+                    "phase_name": name,
+                    "status": st,
+                    "duration_ms": dur_ms,
+                    "notes": notes,
+                },
+            )
         except Exception as e:
             logger.debug("end_phase failed: %s", e)
 
     def record_model_call(self, m: ModelCallTrace) -> None:
         try:
+            if not getattr(m, "correlation_id", ""):
+                self._model_seq += 1
+                m.correlation_id = f"{self.session_id}:model:{self._model_seq}"
             self.model_calls.append(m)
+            self._log_event(
+                "model_call",
+                {
+                    "correlation_id": m.correlation_id,
+                    "model": m.model,
+                    "role": m.role,
+                    "status": m.status,
+                    "duration_ms": m.duration_ms,
+                    "ttft_ms": m.ttft_ms,
+                    "ok": m.ok,
+                },
+            )
         except Exception as e:
             logger.debug("record_model_call failed: %s", e)
 
     def record_tool_call(self, t: ToolCallTrace) -> None:
         try:
+            if not getattr(t, "correlation_id", ""):
+                self._tool_seq += 1
+                t.correlation_id = f"{self.session_id}:tool:{self._tool_seq}"
             self.tool_calls.append(t)
             err = (t.error_message or "").lower()
             if not t.ok and ("path not found" in err or "not found" in err) and t.target:
                 self.note_file_not_found(t.target)
                 self.append_wrong_repo_repeated_missing()
+            self._log_event(
+                "tool_call",
+                {
+                    "correlation_id": t.correlation_id,
+                    "tool_name": t.tool_name,
+                    "target": t.target,
+                    "status": t.status,
+                    "duration_ms": t.duration_ms,
+                    "ok": t.ok,
+                    "error_message": t.error_message[:500],
+                },
+            )
         except Exception as e:
             logger.debug("record_tool_call failed: %s", e)
 
     def record_approval_wait(self, a: ApprovalTrace) -> None:
         try:
+            if not getattr(a, "correlation_id", ""):
+                self._approval_seq += 1
+                a.correlation_id = f"{self.session_id}:approval:{self._approval_seq}"
             self.approvals.append(a)
+            self._log_event(
+                "approval",
+                {
+                    "correlation_id": a.correlation_id,
+                    "approval_type": a.approval_type,
+                    "approved": a.approved,
+                    "wait_duration_ms": a.wait_duration_ms,
+                    "status": a.status,
+                },
+            )
         except Exception as e:
             logger.debug("record_approval_wait failed: %s", e)
 
     def record_verification_trace(self, v: VerificationTrace) -> None:
         try:
+            if not getattr(v, "correlation_id", ""):
+                self._verification_seq += 1
+                v.correlation_id = f"{self.session_id}:verify:{self._verification_seq}"
             self.verification.append(v)
+            self._log_event(
+                "verification",
+                {
+                    "correlation_id": v.correlation_id,
+                    "status": v.status,
+                    "checks_run": v.checks_run,
+                    "checks_failed": v.checks_failed,
+                    "total_duration_ms": v.total_duration_ms,
+                },
+            )
         except Exception as e:
             logger.debug("record_verification_trace failed: %s", e)
 
     def record_repair_trace(self, r: RepairTrace) -> None:
         try:
+            if not getattr(r, "correlation_id", ""):
+                self._repair_seq += 1
+                r.correlation_id = f"{self.session_id}:repair:{self._repair_seq}"
             self.repairs.append(r)
+            self._log_event(
+                "repair",
+                {
+                    "correlation_id": r.correlation_id,
+                    "attempt_number": r.attempt_number,
+                    "status": r.status,
+                    "duration_ms": r.duration_ms,
+                    "result": r.result,
+                },
+            )
         except Exception as e:
             logger.debug("record_repair_trace failed: %s", e)
 
@@ -1101,6 +1229,15 @@ class SessionTraceManager:
             )
             if extra:
                 detail_md = detail_md + "\n" + extra
+            self._log_event(
+                "session_finish",
+                {
+                    "trace_path": path,
+                    "artifact_path": self.artifact_path,
+                    "final_outcome": trace.final_outcome,
+                    "final_state": trace.final_state,
+                },
+            )
             return path, short, detail_md
         except Exception as e:
             logger.warning("session trace persist failed (non-fatal): %s", e)
