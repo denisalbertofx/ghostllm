@@ -1,6 +1,10 @@
 import unittest
 
-from apps.cli.runtime.task_contract import infer_work_task_type, route_intake_intent
+from apps.cli.runtime.task_contract import (
+    infer_work_task_type,
+    normalize_cli_entry_text,
+    route_intake_intent,
+)
 
 
 class TestTaskContractGreenfieldScaffold(unittest.TestCase):
@@ -30,6 +34,24 @@ class TestTaskContractGreenfieldScaffold(unittest.TestCase):
             "continua este proyecto y terminalo: crea una CLI de tareas en Python con SQLite y README"
         )
         self.assertEqual(task_type, "scaffold")
+
+    def test_normalize_cli_entry_text_promotes_bare_plan_to_slash(self):
+        self.assertEqual(
+            normalize_cli_entry_text('plan "audita este backend y dime los bugs"'),
+            '/plan "audita este backend y dime los bugs"',
+        )
+
+    def test_route_intake_intent_treats_bare_fix_as_slash_command(self):
+        intent = route_intake_intent("fix arregla el bug del login")
+        self.assertTrue(intent.is_slash_command)
+        self.assertEqual(intent.mode, "Fix")
+        self.assertEqual(intent.task, "arregla el bug del login")
+
+    def test_infer_work_task_type_respects_bare_plan_alias(self):
+        self.assertEqual(
+            infer_work_task_type('plan "audita este backend y dime los bugs"'),
+            "plan",
+        )
 
 
 if __name__ == "__main__":

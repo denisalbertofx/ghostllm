@@ -81,6 +81,22 @@ class TestLedgerAndSnippets(unittest.TestCase):
         self.assertIn("def baz():", r.text)
         self.assertEqual(r.fenced_replaced, 0)
 
+    def test_inline_code_snippet_removed_when_not_in_ledger(self) -> None:
+        s = _sess_analysis()
+        text = "Evidence: `cursor.execute(\"SELECT * FROM tasks WHERE completed = 1\")`"
+        r = enforce_readonly_assistant_message(text, s)
+        self.assertIn("cita no verificada", r.text)
+        self.assertGreaterEqual(r.inline_replaced, 1)
+
+    def test_inline_code_snippet_kept_when_matches_read(self) -> None:
+        s = _sess_analysis()
+        code = 'cursor.execute("SELECT * FROM tasks WHERE completed = 1")\n'
+        record_read_file_ledger(s, "task_manager.py", code)
+        text = "Evidence: `cursor.execute(\"SELECT * FROM tasks WHERE completed = 1\")`"
+        r = enforce_readonly_assistant_message(text, s)
+        self.assertIn("cursor.execute", r.text)
+        self.assertEqual(r.inline_replaced, 0)
+
     def test_strong_claim_softened_when_evidence_weak(self) -> None:
         s = _sess_analysis()
         record_read_file_ledger(s, "tiny.py", "x\n")
@@ -88,6 +104,28 @@ class TestLedgerAndSnippets(unittest.TestCase):
         r = enforce_readonly_assistant_message(text, s)
         self.assertIn("posible problema grave", r.text)
         self.assertTrue(r.claims_softened)
+
+    def test_sql_injection_claim_softened_without_literal_dynamic_sql(self) -> None:
+        s = _sess_analysis()
+        record_read_file_ledger(
+            s,
+            "task_manager.py",
+            'cursor.execute("SELECT * FROM tasks WHERE completed = 1")\n',
+        )
+        text = "Hallazgo: posible inyección SQL en task_manager.py."
+        r = enforce_readonly_assistant_message(text, s)
+        self.assertIn("riesgo SQL no confirmado", r.text)
+
+    def test_concurrency_claim_softened_without_literal_concurrency_signal(self) -> None:
+        s = _sess_analysis()
+        record_read_file_ledger(
+            s,
+            "task_manager.py",
+            "def add_task(self, description):\n    conn = self.get_db_connection()\n",
+        )
+        text = "Hallazgo: posible problema de concurrencia en task_manager.py."
+        r = enforce_readonly_assistant_message(text, s)
+        self.assertIn("riesgo concurrente no confirmado", r.text)
 
 
 class TestArtifactDigest(unittest.TestCase):

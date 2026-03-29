@@ -1,5 +1,6 @@
 import os
 import unittest
+from contextlib import nullcontext
 from tempfile import TemporaryDirectory
 from types import SimpleNamespace
 from unittest.mock import MagicMock
@@ -46,6 +47,30 @@ from apps.cli.runtime.task_contract import route_intake_intent
 
 
 class TestAssistantGreenfieldHelpers(unittest.TestCase):
+    def _make_readonly_nested_project_assistant(self, cwd: str) -> CodexAssistant:
+        assistant = CodexAssistant.__new__(CodexAssistant)
+        assistant.cwd = cwd
+        assistant.current_intent = SimpleNamespace(task="audita este backend", original_text="/plan audita este backend")
+        assistant.artifact_manager = SimpleNamespace(
+            current_session=SimpleNamespace(
+                repo_profile={
+                    "profile_v2": {
+                        "root": cwd,
+                        "important_folders": ["tests", "pyproject.toml"],
+                        "layers_detected": ["api", "tests"],
+                    }
+                },
+                task_contract={
+                    "spec": {
+                        "intent": "analysis",
+                        "change_expectation": "should_not_write",
+                    }
+                },
+                events=[],
+            )
+        )
+        return assistant
+
     def test_filter_workspace_listing_entries_hides_internal_metadata_at_root(self) -> None:
         items = [".ghost", ".git", "ghost_memory.db", "README.md", "src", ".gitignore"]
         filtered = _filter_workspace_listing_entries(".", items)
@@ -116,6 +141,125 @@ class TestAssistantGreenfieldHelpers(unittest.TestCase):
             content, err = _read_utf8_text_for_tool(fp)
             self.assertIsNone(err)
             self.assertIn("[project]", content or "")
+
+    def test_readonly_nested_project_block_reason_for_subproject_path(self) -> None:
+        with TemporaryDirectory() as tmp:
+            os.mkdir(os.path.join(tmp, ".git"))
+            with open(os.path.join(tmp, "pyproject.toml"), "w", encoding="utf-8") as fh:
+                fh.write("[project]\nname='demo'\n")
+            nested = os.path.join(tmp, "ghost-bench-fullstack")
+            os.makedirs(nested, exist_ok=True)
+            with open(os.path.join(nested, "pyproject.toml"), "w", encoding="utf-8") as fh:
+                fh.write("[project]\nname='nested'\n")
+            assistant = self._make_readonly_nested_project_assistant(tmp)
+            reason = assistant._readonly_nested_project_block_reason("ghost-bench-fullstack/src/main.py")
+            self.assertIn("nested standalone subproject", reason)
+
+    def test_filter_readonly_nested_project_listing_hides_subproject_root(self) -> None:
+        with TemporaryDirectory() as tmp:
+            os.mkdir(os.path.join(tmp, ".git"))
+            with open(os.path.join(tmp, "pyproject.toml"), "w", encoding="utf-8") as fh:
+                fh.write("[project]\nname='demo'\n")
+            nested = os.path.join(tmp, "ghost-bench-fullstack")
+            os.makedirs(nested, exist_ok=True)
+            with open(os.path.join(nested, "pyproject.toml"), "w", encoding="utf-8") as fh:
+                fh.write("[project]\nname='nested'\n")
+            assistant = self._make_readonly_nested_project_assistant(tmp)
+            filtered = assistant._filter_readonly_nested_project_listing(".", ["README.md", "ghost-bench-fullstack", "tests"])
+            self.assertEqual(filtered, ["README.md", "tests"])
+
+    def test_filter_readonly_nested_project_search_payload_removes_nested_matches(self) -> None:
+        with TemporaryDirectory() as tmp:
+            os.mkdir(os.path.join(tmp, ".git"))
+            with open(os.path.join(tmp, "pyproject.toml"), "w", encoding="utf-8") as fh:
+                fh.write("[project]\nname='demo'\n")
+            nested = os.path.join(tmp, "ghost-bench-fullstack")
+            os.makedirs(nested, exist_ok=True)
+            with open(os.path.join(nested, "pyproject.toml"), "w", encoding="utf-8") as fh:
+                fh.write("[project]\nname='nested'\n")
+            assistant = self._make_readonly_nested_project_assistant(tmp)
+            payload = {
+                "mode": "symbol",
+                "query": "auth",
+                "found": True,
+                "match_count": 2,
+                "matches": [
+                    {"path": "task_manager.py", "line_start": 1, "line_end": 1, "lines": ["class TaskManager:"], "exact": True},
+                    {"path": "ghost-bench-fullstack/src/auth.py", "line_start": 1, "line_end": 1, "lines": ["def login():"], "exact": True},
+                ],
+            }
+            filtered = assistant._filter_readonly_nested_project_search_payload(payload)
+            self.assertTrue(filtered["found"])
+            self.assertEqual(filtered["match_count"], 1)
+            self.assertEqual(filtered["matches"][0]["path"], "task_manager.py")
+
+    def test_broad_plan_synthesis_needs_retry_for_generic_plan_text(self) -> None:
+        with TemporaryDirectory() as tmp:
+            assistant = self._make_readonly_nested_project_assistant(tmp)
+            assistant._is_broad_plan_mode_task = MagicMock(return_value=True)
+            self.assertTrue(
+                assistant._broad_plan_synthesis_needs_retry(
+                    "Conclusion: Analisis de riesgos y huecos.\n\nSteps:\n1. Mejorar validacion.\n2. Manejar errores."
+                )
+            )
+
+    def test_broad_plan_synthesis_needs_retry_accepts_structured_evidence(self) -> None:
+        with TemporaryDirectory() as tmp:
+            assistant = self._make_readonly_nested_project_assistant(tmp)
+            assistant._is_broad_plan_mode_task = MagicMock(return_value=True)
+            self.assertFalse(
+                assistant._broad_plan_synthesis_needs_retry(
+                    "Conclusion: Hay dos riesgos plausibles sin bug confirmado.\n\n"
+                    "Findings:\n- task_manager.py usa sqlite3 directo sin manejo de excepciones alrededor de connect().\n\n"
+                    "Evidence:\n- task_manager.py:10-17 abre la conexion con sqlite3.connect(self.db_path) sin try/except.\n\n"
+                    "Steps:\n1. Confirmar el comportamiento con un test de I/O.\n\n"
+                    "Next:\n- Ejecutar una verificacion dirigida."
+                )
+            )
+
+    def test_retry_weak_broad_plan_synthesis_rewrites_generic_draft(self) -> None:
+        with TemporaryDirectory() as tmp:
+            assistant = self._make_readonly_nested_project_assistant(tmp)
+            assistant._is_broad_plan_mode_task = MagicMock(return_value=True)
+            assistant.console = SimpleNamespace(print=MagicMock())
+            assistant.memory = SimpleNamespace(add_message=MagicMock())
+            assistant.session_id = "s"
+            assistant.history = []
+            assistant.renderer = SimpleNamespace(session_status=lambda *args, **kwargs: nullcontext(None))
+            assistant._live_rail_profile = MagicMock(return_value="readonly")
+            assistant._stream_completion = MagicMock(
+                return_value={
+                    "content": (
+                        "Conclusion: No hay bug confirmado; hay un riesgo plausible.\n\n"
+                        "Findings:\n- task_manager.py abre la conexion SQLite sin manejo de errores.\n\n"
+                        "Evidence:\n- task_manager.py:14-17 usa sqlite3.connect(self.db_path) sin try/except.\n\n"
+                        "Steps:\n1. Agregar un test que simule fallo de I/O.\n\n"
+                        "Next:\n- Ejecutar una verificacion dirigida."
+                    ),
+                    "tool_calls": None,
+                }
+            )
+            retried = assistant._retry_weak_broad_plan_synthesis(
+                {"content": "Conclusion: Analisis de riesgos.\n\nSteps:\n1. Mejorar errores."},
+                event_name="plan_retry_test",
+                console_hint="retry",
+            )
+            self.assertIn("Findings:", retried["content"])
+            self.assertTrue(
+                any(
+                    isinstance(event, dict) and event.get("event") == "plan_retry_test"
+                    for event in assistant.artifact_manager.current_session.events
+                )
+            )
+
+    def test_has_usable_broad_plan_final_response_rejects_generic_last_answer(self) -> None:
+        with TemporaryDirectory() as tmp:
+            assistant = self._make_readonly_nested_project_assistant(tmp)
+            assistant._is_broad_plan_mode_task = MagicMock(return_value=True)
+            assistant.history = [
+                {"role": "assistant", "content": "Conclusion: Analisis de riesgos.\n\nSteps:\n1. Mejorar errores."}
+            ]
+            self.assertFalse(assistant._has_usable_broad_plan_final_response())
 
     def test_decode_subprocess_output_handles_utf8_bytes(self) -> None:
         self.assertEqual(_decode_subprocess_output("ok \u2713".encode("utf-8")), "ok \u2713")

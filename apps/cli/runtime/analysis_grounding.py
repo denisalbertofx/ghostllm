@@ -17,7 +17,11 @@ from apps.cli.runtime.artifacts import append_compacted_session_event
 _MAX_LEDGER_FILES = 16
 _MAX_STORED_CHARS_PER_READ = 6000
 _MIN_FENCED_BODY = 14
-_MIN_INLINE_CHARS = 52
+_MIN_INLINE_CHARS = 24
+_SQL_INJECTION_RE = re.compile(r"(?i)\b(sql\s+injection|inyecci.n\s+sql)\b")
+_CONCURRENCY_RE = re.compile(
+    r"(?i)\b(concurrenc(?:y|ia)|race\s+condition|condici[oó]n\s+de\s+carrera|multihilo|multi-?thread)\b"
+)
 _STRONG_CLAIM_RE = re.compile(
     r"(?i)(bug\s+cr[ií]tico|bug\s+critical|fallar[áa]\b|will\s+fail\b|"
     r"NameError\b|SyntaxError\b|TypeError\b|AttributeError\b|"
@@ -223,6 +227,37 @@ def _soften_strong_claims(text: str, weak_evidence: bool) -> Tuple[str, bool]:
     return softened, softened != text
 
 
+def _soften_speculative_categories(text: str, corpus: str) -> Tuple[str, List[Dict[str, Any]]]:
+    if not text:
+        return text, []
+    out = text
+    events: List[Dict[str, Any]] = []
+    corpus_low = str(corpus or "").lower()
+
+    has_unsafe_sql_signal = bool(
+        re.search(r"(select|insert|update|delete).*(\+|%|format\(|f\"|f')", corpus_low, re.DOTALL)
+    )
+    if _SQL_INJECTION_RE.search(out) and not has_unsafe_sql_signal:
+        out = _SQL_INJECTION_RE.sub(
+            "riesgo SQL no confirmado por evidencia literal (no se observó concatenación insegura)",
+            out,
+        )
+        events.append({"action": "soften_sql_injection_without_literal_signal"})
+
+    has_concurrency_signal = any(
+        token in corpus_low
+        for token in ("thread", "threading", "async ", "await ", "lock", "multiprocessing", "concurrent")
+    )
+    if _CONCURRENCY_RE.search(out) and not has_concurrency_signal:
+        out = _CONCURRENCY_RE.sub(
+            "riesgo concurrente no confirmado por lectura literal",
+            out,
+        )
+        events.append({"action": "soften_concurrency_without_literal_signal"})
+
+    return out, events
+
+
 def _ledger_weak_evidence(ledger: List[Any]) -> bool:
     total = 0
     for e in ledger:
@@ -253,6 +288,7 @@ def enforce_readonly_assistant_message(text: str, session: Any) -> GroundingEnfo
     t, fc = _replace_fenced_blocks(text, corpus)
     t, ic = _replace_inline_ticks(t, corpus)
     t, cs = _soften_strong_claims(t, weak_evidence=weak or not corpus.strip())
+    t, speculative_events = _soften_speculative_categories(t, corpus)
     t = re.sub(r"(?m)^\s*```\s*$", "", t)
     t = re.sub(r"\n{3,}", "\n\n", t).strip()
 
@@ -280,6 +316,14 @@ def enforce_readonly_assistant_message(text: str, session: Any) -> GroundingEnfo
             {
                 "event": "analysis_grounding",
                 "action": "strong_claim_softened",
+                "ts": ts,
+            }
+        )
+    for evt in speculative_events:
+        events.append(
+            {
+                "event": "analysis_grounding",
+                "action": evt["action"],
                 "ts": ts,
             }
         )

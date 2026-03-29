@@ -41,6 +41,15 @@ SLASH_MODES: Dict[str, str] = {
     "/help": "Help",
 }
 
+BARE_COMMAND_ALIASES: Dict[str, str] = {
+    "plan": "/plan",
+    "do": "/do",
+    "edit": "/edit",
+    "fix": "/fix",
+    "review": "/review",
+    "chat": "/chat",
+}
+
 
 @dataclass
 class Intent:
@@ -138,9 +147,21 @@ def _enrich_intent(intent: Intent) -> None:
         intent.requires_tools = True
 
 
+def normalize_cli_entry_text(text: str) -> str:
+    raw = str(text or "")
+    stripped = raw.strip()
+    if not stripped or stripped.startswith("/"):
+        return stripped
+    first, sep, rest = stripped.partition(" ")
+    alias = BARE_COMMAND_ALIASES.get(first.lower())
+    if not alias:
+        return stripped
+    return alias if not sep else f"{alias} {rest.lstrip()}"
+
+
 def route_intake_intent(text: str) -> Intent:
     """Single entry for user → Intent at INTAKE (replaces ad-hoc IntentRouter.route)."""
-    text = text.strip()
+    text = normalize_cli_entry_text(text)
     if not text:
         return Intent(mode="Chat", task="", original_text=text)
     if text.startswith("/"):
@@ -201,7 +222,10 @@ def route_intake_intent(text: str) -> Intent:
 
 def infer_work_task_type(text: str) -> str:
     """TaskManager taxonomy from natural language (unchanged heuristics)."""
-    t = text.lower()
+    normalized = normalize_cli_entry_text(text)
+    t = normalized.lower()
+    if t.startswith("/plan"):
+        return "plan"
     if _has_bootstrap_scaffold_keywords(t):
         return "scaffold"
     if _looks_like_scaffold_continuation(t):

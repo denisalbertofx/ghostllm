@@ -60,6 +60,9 @@ IGNORED_DIR_NAMES = frozenset(
 )
 
 INDEX_EXTENSIONS = frozenset({".ts", ".tsx", ".js", ".jsx", ".py", ".json", ".md", ".sql"})
+_PROJECT_MANIFESTS = ("package.json", "pyproject.toml", "requirements.txt")
+_MONOREPO_CONTAINER_DIRS = frozenset({"apps", "packages", "services", "libs", "modules", "crates"})
+_COMMON_ROOT_DIRS = frozenset({"src", "tests", "test", "docs", "frontend", "backend", "web", "ui"})
 
 
 # --- Pydantic models ---
@@ -575,6 +578,45 @@ def _is_ghost_cache_dir(path: Path) -> bool:
         if parts[i] == ".ghost" and parts[i + 1] == "cache":
             return True
     return False
+
+
+def _dir_has_project_manifest(path: Path) -> bool:
+    return any((path / name).is_file() for name in _PROJECT_MANIFESTS)
+
+
+def _derive_nested_project_forbidden_roots(repo_profile_v2: Dict[str, Any]) -> List[str]:
+    root_raw = str((repo_profile_v2 or {}).get("root") or "").strip()
+    if not root_raw:
+        return []
+    root = Path(root_raw)
+    if not root.is_dir() or not _dir_has_project_manifest(root):
+        return []
+    folders = {
+        str(x).strip().lower()
+        for x in ((repo_profile_v2 or {}).get("important_folders") or [])
+        if str(x).strip()
+    }
+    if folders & _MONOREPO_CONTAINER_DIRS:
+        return []
+    out: List[str] = []
+    try:
+        children = sorted(root.iterdir(), key=lambda p: p.name.lower())
+    except OSError:
+        return []
+    for child in children:
+        if not child.is_dir():
+            continue
+        name = child.name.lower()
+        if (
+            name.startswith(".")
+            or name in IGNORED_DIR_NAMES
+            or name in _MONOREPO_CONTAINER_DIRS
+            or name in _COMMON_ROOT_DIRS
+        ):
+            continue
+        if (child / ".git").is_dir() or _dir_has_project_manifest(child):
+            out.append(_norm_rel(str(child.relative_to(root)).replace("\\", "/")))
+    return out
 
 
 def discover_indexable_files(
@@ -1249,6 +1291,9 @@ def build_retrieval_query_from_contract_spec(
         ep = repo.get("entrypoints") or {}
         if isinstance(ep, dict):
             forbidden.extend(str(x) for x in (ep.get("ui_roots") or []) if x)
+    for nested_root in _derive_nested_project_forbidden_roots(repo):
+        if nested_root not in forbidden:
+            forbidden.append(nested_root)
 
     scope = set(contract_spec.get("scope") or [])
     boost_api = bool(scope & {"api", "fullstack"}) or "api" in (repo.get("layers_detected") or [])

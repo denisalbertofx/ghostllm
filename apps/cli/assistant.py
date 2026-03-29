@@ -22,7 +22,11 @@ from rich.markup import escape
 from rich.table import Table
 from rich import box
 
-from apps.cli.ui.renderer import format_tool_live_hint_from_prepared
+from apps.cli.ui.renderer import (
+    _plan_mode_lines,
+    _plan_mode_sections,
+    format_tool_live_hint_from_prepared,
+)
 from apps.cli.ui.ui_contract import MSG_ACTIVE_WORKSET_PLAIN_PREFIX, MSG_APPROVAL_SAME_BUNDLE
 from apps.cli.runtime.slash_execute_contract import apply_slash_execute_write_overrides
 from apps.cli.runtime.task_contract import (
@@ -33,6 +37,7 @@ from apps.cli.runtime.task_contract import (
     ensure_task_contract_foundation,
     get_task_contract,
     infer_work_task_type,
+    normalize_cli_entry_text,
     route_intake_intent,
     seal_task_contract_after_intake,
 )
@@ -61,6 +66,9 @@ from apps.cli.runtime.autonomy import (
 from apps.cli.runtime.paths import PathComposer, WorkingDirectoryGuard
 
 logger = logging.getLogger(__name__)
+_PLAN_EVIDENCE_FILE_RE = re.compile(
+    r"(?i)\b[\w./\\-]+\.(?:py|ts|tsx|js|jsx|json|md|yaml|yml|toml|sql|go|rs|java|rb|php|sh|bat)\b"
+)
 from apps.cli.runtime.shell_normalizer import ShellNormalizer
 from apps.cli.runtime.repo_profile import scan_repo_profile
 from apps.cli.runtime.decision_planner import (
@@ -78,7 +86,11 @@ from apps.cli.runtime.pipeline_preamble import (
     run_planner_and_retrieval_parallel,
 )
 from apps.cli.runtime.text_files import read_text_file_with_fallback
-from apps.cli.runtime.repo_retrieval import build_retrieval_prompt_block, run_retrieval_for_session
+from apps.cli.runtime.repo_retrieval import (
+    _derive_nested_project_forbidden_roots,
+    build_retrieval_prompt_block,
+    run_retrieval_for_session,
+)
 from apps.cli.runtime.exploration_planner import path_under_ui_roots
 from apps.cli.runtime.taskspec_adapter import (
     build_contract_prompt_blocks,
@@ -2523,6 +2535,7 @@ Discovery actions this session: {discovery_count}
         self.console.print("\n[dim]Ghost session terminated. Stay secure.[/dim]")
 
     def _process_input(self, text: str):
+        text = normalize_cli_entry_text(text)
         task = None
         is_resumed = False
         
@@ -3482,6 +3495,70 @@ Discovery actions this session: {discovery_count}
             return False
         return not bool(final_tool_calls)
 
+    def _broad_plan_synthesis_needs_retry(self, text: str) -> bool:
+        if not self._is_broad_plan_mode_task():
+            return False
+        if not str(text or "").strip():
+            return True
+        lines = _plan_mode_lines(text)
+        sections = _plan_mode_sections(lines)
+        findings = [str(x).strip() for x in (sections.get("findings") or []) if str(x).strip()]
+        evidence = [str(x).strip() for x in (sections.get("evidence") or []) if str(x).strip()]
+        if not findings or not evidence:
+            return True
+        if not any(_PLAN_EVIDENCE_FILE_RE.search(line) for line in evidence):
+            return True
+        return False
+
+    def _retry_weak_broad_plan_synthesis(
+        self,
+        msg: Optional[Dict[str, Any]],
+        *,
+        event_name: str,
+        console_hint: str,
+    ) -> Optional[Dict[str, Any]]:
+        if not self._is_broad_plan_mode_task():
+            return msg
+        if not self._broad_plan_synthesis_needs_retry(str((msg or {}).get("content") or "")):
+            return msg
+        sess = self.artifact_manager.current_session
+        if not sess:
+            return msg
+        nudge = (
+            "[SYSTEM] Rewrite the final /plan answer. The previous draft was too generic. "
+            "Plain text only. Use these exact sections: Conclusion:, Findings:, Steps:, Evidence:, Next:. "
+            "Findings: 1-5 items max, each must cite a concrete file path and an observed fact from tool output. "
+            "Evidence: cite only files actually read in this session, and include a short literal code snippet in backticks copied from the file. "
+            "Prefer directly observed code facts, missing validation, test gaps, or absent error handling over speculative taxonomies. "
+            "Do not claim SQL injection unless there is literal unsafe string concatenation in a query. "
+            "Do not claim concurrency/race issues unless the code literally shows threads, async shared state, locks, or concurrent workers. "
+            "If no bug is confirmed, say that explicitly instead of inventing issues. Do not call tools."
+        )
+        self.history.append({"role": "user", "content": nudge})
+        self.memory.add_message(self.session_id, "user", nudge)
+        self.console.print(f"\n[dim]{console_hint}[/dim]")
+        try:
+            with self.renderer.session_status(
+                SessionPhase.CLOSING.value,
+                initial="closing",
+                rail_profile=self._live_rail_profile(),
+            ) as status:
+                retry_msg = self._stream_completion(status, show_turn_brand=False, tools=[])
+        except Exception as e:
+            logger.warning("broad plan quality retry failed: %s", e)
+            return msg
+        try:
+            sess.events.append(
+                {
+                    "event": event_name,
+                    "content_len": len(str((retry_msg or {}).get("content") or "").strip()),
+                    "had_tool_calls": bool((retry_msg or {}).get("tool_calls")),
+                }
+            )
+        except Exception:
+            pass
+        return retry_msg or msg
+
     def _latest_explore_churn_reason(self) -> str:
         sess = self.artifact_manager.current_session if self.artifact_manager else None
         for event in reversed(getattr(sess, "events", None) or []):
@@ -4253,7 +4330,10 @@ Discovery actions this session: {discovery_count}
             return
         if getattr(self, "_loop_abort_reason", None) != LOOP_ABORT_MAX_ITERATIONS:
             return
-        if _has_final_nl_response(self.history):
+        if self._is_broad_plan_mode_task():
+            if self._has_usable_broad_plan_final_response():
+                return
+        elif _has_final_nl_response(self.history):
             return
         if self._final_synthesis_done:
             return
@@ -4296,6 +4376,11 @@ Discovery actions this session: {discovery_count}
                 rail_profile=self._live_rail_profile(),
             ) as status:
                 msg = self._stream_completion(status, show_turn_brand=False, tools=[])
+            msg = self._retry_weak_broad_plan_synthesis(
+                msg,
+                event_name="iteration_limit_closing_synthesis_retry",
+                console_hint="Plan amplio: primer cierre flojo; reescribiendo la síntesis final con evidencia explícita…",
+            )
             if msg and getattr(sess, "events", None) is not None:
                 sess.events.append(
                     {
@@ -4316,7 +4401,7 @@ Discovery actions this session: {discovery_count}
     ) -> bool:
         if not self._is_broad_plan_mode_task():
             return False
-        if _has_final_nl_response(self.history):
+        if self._has_usable_broad_plan_final_response():
             return False
         if self._final_synthesis_done:
             return False
@@ -4342,6 +4427,11 @@ Discovery actions this session: {discovery_count}
                 rail_profile=self._live_rail_profile(),
             ) as status:
                 msg = self._stream_completion(status, show_turn_brand=False, tools=[])
+            msg = self._retry_weak_broad_plan_synthesis(
+                msg,
+                event_name=f"{event_name}_retry",
+                console_hint="Plan amplio: primer borrador demasiado genérico; rehaciendo cierre con findings y evidence…",
+            )
         except Exception as e:
             logger.warning("%s failed: %s", log_label, e)
             self._final_synthesis_done = False
@@ -6495,6 +6585,30 @@ Discovery actions this session: {discovery_count}
             break
         return False
 
+    def _latest_assistant_text(self) -> str:
+        for m in reversed(self.history):
+            if m.get("role") != "assistant":
+                continue
+            content = m.get("content")
+            if isinstance(content, str) and content.strip():
+                return content
+            if isinstance(content, list):
+                parts: List[str] = []
+                for p in content:
+                    if isinstance(p, dict) and p.get("type") == "text":
+                        txt = str(p.get("text") or "").strip()
+                        if txt:
+                            parts.append(txt)
+                if parts:
+                    return "\n".join(parts)
+            break
+        return ""
+
+    def _has_usable_broad_plan_final_response(self) -> bool:
+        if not _has_final_nl_response(self.history):
+            return False
+        return not self._broad_plan_synthesis_needs_retry(self._latest_assistant_text())
+
     def _is_implementation_task(self, task_text: str, task_type: str) -> bool:
         """True if the task asks for implementation (API, schema, endpoints, etc.)."""
         if not task_text:
@@ -7150,6 +7264,96 @@ Discovery actions this session: {discovery_count}
         v2 = rp.get("profile_v2")
         return v2 if isinstance(v2, dict) else None
 
+    def _readonly_nested_project_forbidden_roots(self) -> List[str]:
+        sess = self.artifact_manager.current_session
+        if not sess or not contract_has_operational_spec(sess):
+            return []
+        spec = contract_spec_dict_from_session(sess) or {}
+        change_expectation = str(spec.get("change_expectation") or "").strip().lower()
+        intent = str(spec.get("intent") or "").strip().lower()
+        if change_expectation != "should_not_write" and intent not in ("analysis", "review"):
+            return []
+        repo_v2 = self._session_repo_v2_dict() or {}
+        roots = _derive_nested_project_forbidden_roots(repo_v2)
+        return [
+            PathComposer.normalize_path_segments(str(root))
+            for root in roots
+            if str(root).strip()
+        ]
+
+    def _task_explicitly_mentions_nested_project_root(self, root: str) -> bool:
+        task_text = str(self._primary_user_task_text() or "").strip().lower()
+        if not task_text:
+            return False
+        root_norm = PathComposer.normalize_path_segments(str(root or "")).lower()
+        if not root_norm:
+            return False
+        basename = root_norm.split("/")[-1]
+        candidates = {
+            root_norm,
+            root_norm.replace("/", " "),
+            basename,
+        }
+        return any(candidate and candidate in task_text for candidate in candidates)
+
+    def _readonly_nested_project_block_reason(self, path: str) -> str:
+        rel = PathComposer.normalize_path_segments(str(path or ""))
+        if not rel or rel == ".":
+            return ""
+        for root in self._readonly_nested_project_forbidden_roots():
+            root_norm = PathComposer.normalize_path_segments(root)
+            if rel == root_norm or rel.startswith(root_norm + "/"):
+                if self._task_explicitly_mentions_nested_project_root(root_norm):
+                    return ""
+                return (
+                    f"Read-only audit is scoped to the current project root. '{root_norm}' looks like a nested "
+                    "standalone subproject; stay in the current repo unless the user explicitly names that path."
+                )
+        return ""
+
+    def _filter_readonly_nested_project_listing(self, path: str, files: List[str]) -> List[str]:
+        rel = PathComposer.normalize_path_segments(str(path or "."))
+        if rel not in ("", "."):
+            return files
+        blocked_names = {
+            root.split("/", 1)[0]
+            for root in self._readonly_nested_project_forbidden_roots()
+            if not self._task_explicitly_mentions_nested_project_root(root)
+        }
+        if not blocked_names:
+            return files
+        return [entry for entry in files if str(entry) not in blocked_names]
+
+    def _filter_readonly_nested_project_search_payload(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+        if not isinstance(payload, dict):
+            return payload
+        matches = payload.get("matches")
+        if not isinstance(matches, list):
+            return payload
+        blocked_roots = [
+            root
+            for root in self._readonly_nested_project_forbidden_roots()
+            if not self._task_explicitly_mentions_nested_project_root(root)
+        ]
+        if not blocked_roots:
+            return payload
+
+        def _under_root(rel_path: str, root: str) -> bool:
+            rel_norm = PathComposer.normalize_path_segments(str(rel_path or ""))
+            root_norm = PathComposer.normalize_path_segments(str(root or ""))
+            return bool(root_norm) and (rel_norm == root_norm or rel_norm.startswith(root_norm + "/"))
+
+        filtered_matches = [
+            match
+            for match in matches
+            if not any(_under_root(str(match.get("path") or ""), root) for root in blocked_roots)
+        ]
+        filtered_payload = dict(payload)
+        filtered_payload["matches"] = filtered_matches
+        filtered_payload["match_count"] = len(filtered_matches)
+        filtered_payload["found"] = bool(filtered_matches)
+        return filtered_payload
+
     def _should_force_surgical_edit(self, path: str) -> bool:
         rel = PathComposer.normalize_path_segments(str(path or ""))
         if not rel:
@@ -7286,6 +7490,12 @@ Discovery actions this session: {discovery_count}
                     False,
                     "Existing file + structural/syntax repair task: use read_file on the exact block and apply edit_file instead of write_file.",
                 )
+        if name in ("read_file", "ls"):
+            raw_path = args.get("path")
+            check_path = raw_path if raw_path not in (None, "") else "."
+            blocked_reason = self._readonly_nested_project_block_reason(str(check_path))
+            if blocked_reason:
+                return False, blocked_reason
         if name == "run_shell":
             pending = getattr(self, "_pending_edit_recovery", None)
             cmd = str(args.get("command") or "").strip()
@@ -7447,6 +7657,7 @@ Discovery actions this session: {discovery_count}
             if not os.path.exists(full_path): return {"error": f"Path not found: {path}"}
             if not os.path.isdir(full_path): return {"error": f"'{path}' is not a directory. Use 'ls' instead."}
             files = _filter_workspace_listing_entries(path, os.listdir(full_path))
+            files = self._filter_readonly_nested_project_listing(path, files)
             self.exploration_memory.add_ls(path, files, self.cwd)
             return {"files": files}
             
@@ -7764,7 +7975,7 @@ Discovery actions this session: {discovery_count}
             except (TypeError, ValueError):
                 max_results = 20
             result = _repo_search_code(query=query, repo_root=self.cwd, mode=mode, max_results=max_results)
-            return result.to_tool_payload()
+            return self._filter_readonly_nested_project_search_payload(result.to_tool_payload())
 
         elif name == "summarize_repo":
             return {"summary": self.indexer.get_project_summary()}
