@@ -1339,10 +1339,30 @@ class GhostRenderer:
     def _supports_windows_slash_menu(self) -> bool:
         if os.name != "nt":
             return False
-        if os.getenv("GHOST_INPUT_MENU", "1").strip().lower() in ("0", "false", "off", "no"):
+        mode = os.getenv("GHOST_INPUT_MENU", "auto").strip().lower()
+        if mode in ("0", "false", "off", "no"):
             return False
+        force = mode in ("1", "true", "yes", "on", "force")
         out = getattr(sys, "stdout", None)
-        return bool(getattr(out, "isatty", lambda: False)())
+        if not bool(getattr(out, "isatty", lambda: False)()):
+            return False
+        console = getattr(self, "console", None)
+        if not bool(getattr(console, "is_terminal", True)):
+            return False
+        if getattr(console, "legacy_windows", False) and not force:
+            return False
+        if force:
+            return True
+        if os.getenv("TERM", "").strip().lower() == "dumb":
+            return False
+        term_program = os.getenv("TERM_PROGRAM", "").strip().lower()
+        conemu_ansi = os.getenv("ConEmuANSI", "").strip().upper()
+        return bool(
+            os.getenv("WT_SESSION")
+            or os.getenv("ANSICON")
+            or conemu_ansi == "ON"
+            or term_program in ("vscode", "mintty")
+        )
 
     def _read_input_windows_slash_menu(self) -> str:
         import msvcrt

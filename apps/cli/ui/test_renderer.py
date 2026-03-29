@@ -2,6 +2,7 @@
 import os
 import unittest
 from io import StringIO
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from apps.cli.ui import ui_contract
@@ -282,6 +283,44 @@ class TestArtifactSummaryFindingsTier(unittest.TestCase):
         self.assertIn("/plan", bar)
         self.assertIn("F2", bar)
         self.assertIn("read", bar)
+
+    def test_windows_slash_menu_disabled_without_vt_markers(self):
+        renderer = GhostRenderer(make_ghost_console(file=StringIO(), force_terminal=False))
+        renderer.console = SimpleNamespace(is_terminal=True, legacy_windows=False)
+
+        class _TTY:
+            def isatty(self) -> bool:
+                return True
+
+        with patch("apps.cli.ui.renderer.os.name", "nt"), patch(
+            "apps.cli.ui.renderer.sys.stdout",
+            _TTY(),
+        ), patch.dict(
+            os.environ,
+            {"GHOST_INPUT_MENU": "auto"},
+            clear=False,
+        ):
+            for key in ("WT_SESSION", "ANSICON", "ConEmuANSI", "TERM_PROGRAM", "TERM"):
+                os.environ.pop(key, None)
+            self.assertFalse(renderer._supports_windows_slash_menu())
+
+    def test_windows_slash_menu_enabled_with_windows_terminal_marker(self):
+        renderer = GhostRenderer(make_ghost_console(file=StringIO(), force_terminal=False))
+        renderer.console = SimpleNamespace(is_terminal=True, legacy_windows=False)
+
+        class _TTY:
+            def isatty(self) -> bool:
+                return True
+
+        with patch("apps.cli.ui.renderer.os.name", "nt"), patch(
+            "apps.cli.ui.renderer.sys.stdout",
+            _TTY(),
+        ), patch.dict(
+            os.environ,
+            {"GHOST_INPUT_MENU": "auto", "WT_SESSION": "1"},
+            clear=False,
+        ):
+            self.assertTrue(renderer._supports_windows_slash_menu())
 
     def test_render_swarm_board_hides_absolute_worktree_path(self):
         class _Worker:
