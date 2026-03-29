@@ -122,6 +122,7 @@ KICKER_SESION_CERRADA = "Sesión cerrada"
 # ── Artefactos persistidos (línea compacta) ───────────────────────────────────
 ARTIFACT_LINE_MARKER = "artefactos"
 # Etiquetas de salidas (orden de prioridad en cierre operador)
+ARTIFACT_SALIDA_PRIMARY = "Output principal"
 ARTIFACT_SALIDA_REVIEW_PACKET = "Review packet"
 ARTIFACT_SALIDA_RESUMEN_MD = "Resumen de sesión"
 ARTIFACT_SALIDA_PLAN = "Plan persistido"

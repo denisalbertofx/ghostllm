@@ -508,12 +508,21 @@ def _readonly_operator_review_body(
 
 def _artifact_salidas_rows(artifact: Dict[str, Any]) -> List[Tuple[str, str]]:
     rows: List[Tuple[str, str]] = []
+    seen_paths: set[str] = set()
+    primary_output = str(artifact.get("primary_output_path") or "").strip()
+    if primary_output:
+        rows.append((_ui_contract.ARTIFACT_SALIDA_PRIMARY, primary_output))
+        seen_paths.add(primary_output)
     rp = str(artifact.get("review_packet_path") or "").strip()
-    if rp:
+    if rp and rp not in seen_paths:
         rows.append((_ui_contract.ARTIFACT_SALIDA_REVIEW_PACKET, rp))
+        seen_paths.add(rp)
     sid = str(artifact.get("session_id") or "").strip()
     if sid and sid != "?":
-        rows.append((_ui_contract.ARTIFACT_SALIDA_RESUMEN_MD, f".ghost/artifacts/{sid}.md"))
+        md_path = f".ghost/artifacts/{sid}.md"
+        if md_path not in seen_paths:
+            rows.append((_ui_contract.ARTIFACT_SALIDA_RESUMEN_MD, md_path))
+            seen_paths.add(md_path)
     else:
         rows.append((_ui_contract.ARTIFACT_SALIDA_CARPETA, ".ghost/artifacts/"))
     for key, label in (
@@ -522,10 +531,11 @@ def _artifact_salidas_rows(artifact: Dict[str, Any]) -> List[Tuple[str, str]]:
         ("delegation_envelope_path", _ui_contract.ARTIFACT_SALIDA_ENVELOPE),
     ):
         p = str(artifact.get(key) or "").strip()
-        if p:
+        if p and p not in seen_paths:
             rows.append((label, p))
+            seen_paths.add(p)
     tp = str(artifact.get("trace_path") or "").strip()
-    if tp:
+    if tp and tp not in seen_paths:
         rows.append((_ui_contract.ARTIFACT_SALIDA_TRACE, tp))
     return rows
 
@@ -2052,6 +2062,9 @@ class GhostRenderer:
                 exec_body += f"[cyan]Tarea[/cyan]: {task_one}\n"
             if agents_p:
                 exec_body += f"[dim]AGENTS.md[/dim]: {agents_p}\n"
+            primary_output = str(artifact.get("primary_output_path") or "").strip()
+            if primary_output:
+                exec_body += f"[cyan]{escape(_ui_contract.ARTIFACT_SALIDA_PRIMARY)}[/cyan]: {escape(primary_output)}\n"
             rfr_v = artifact.get("review_ready_for_review")
             if rfr_v is not None and not readonly:
                 rs = (
@@ -2063,6 +2076,11 @@ class GhostRenderer:
                 rdv = str(artifact.get("review_readiness_detail_es") or "").strip()
                 if rdv:
                     exec_body += f"[dim]{escape(rdv[:420])}[/dim]\n"
+            missing_artifacts = artifact.get("artifact_requirements_missing") or []
+            if missing_artifacts:
+                exec_body += (
+                    f"[cyan]Artifacts[/cyan]: [dim]missing -> {escape(', '.join(str(x) for x in missing_artifacts[:6]))}[/dim]\n"
+                )
             self.console.print(
                 Panel(
                     exec_body,
@@ -2130,6 +2148,19 @@ class GhostRenderer:
                     )
                 if rdetail:
                     self.console.print(f"  [dim]{escape(rdetail[:360])}[/dim]")
+            primary_output = str(artifact.get("primary_output_path") or "").strip()
+            if primary_output:
+                self.console.print(
+                    f"  [dim]{escape(_ui_contract.ARTIFACT_SALIDA_PRIMARY)}:[/dim] "
+                    f"[cyan]{escape(primary_output)}[/cyan]"
+                )
+            missing_artifacts = artifact.get("artifact_requirements_missing") or []
+            if missing_artifacts:
+                missing_txt = ", ".join(str(x) for x in missing_artifacts[:6])
+                self.console.print(
+                    f"  [bold yellow]Artefactos requeridos faltantes:[/bold yellow] "
+                    f"[dim]{escape(missing_txt)}[/dim]"
+                )
             self.console.print("")
 
         tension = str(artifact.get("agents_user_tension_note") or "").strip()
@@ -2517,6 +2548,16 @@ class GhostRenderer:
                 meta.add_row(
                     f"[dim]provider:[/dim] [white]{escape(provider_backend_label)}[/white]"
                 )
+            if role_models and isinstance(role_models, dict):
+                routing_bits = []
+                for key in ("explore", "act", "verify", "fallback"):
+                    value = str(role_models.get(key) or "").strip()
+                    if value:
+                        routing_bits.append(f"{key}={value}")
+                if routing_bits:
+                    meta.add_row(
+                        f"[dim]routing:[/dim] [white]{escape(truncate_visible(', '.join(routing_bits), max(ly.width - 28, 28)))}[/white]"
+                    )
             if verbose:
                 meta.add_row(
                     f"[dim]flags:[/dim] [dim]{escape(truncate_visible(flags_line, max(ly.width - 28, 32)))}[/dim]"
@@ -2547,6 +2588,16 @@ class GhostRenderer:
             self.console.print(
                 f"[dim]provider (transporte):[/dim] [white]{escape(provider_backend_label)}[/white]"
             )
+        if role_models and isinstance(role_models, dict) and ly.ultra_narrow:
+            routing_bits = []
+            for key in ("explore", "act", "verify", "fallback"):
+                value = str(role_models.get(key) or "").strip()
+                if value:
+                    routing_bits.append(f"{key}={value}")
+            if routing_bits:
+                self.console.print(
+                    f"[dim]routing:[/dim] [white]{escape(truncate_visible(', '.join(routing_bits), max(ly.width - 16, 24)))}[/white]"
+                )
         start_rows = slash_menu_start_suggestions()
         first_cmd, first_tail = start_rows[0]
         next_line = first_cmd if not first_tail else f"{first_cmd} {first_tail}"

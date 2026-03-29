@@ -148,6 +148,18 @@ class TestProviderInitialization(unittest.TestCase):
 
         preflight = SimpleNamespace(ok=True, checked_url="http://127.0.0.1:8000/health", status_code=200)
         policy = SimpleNamespace(exists=True, valid=True, path=".ghost/policy.yaml", errors=[])
+        runtime_config = SimpleNamespace(
+            exists=True,
+            valid=True,
+            path="ghost.yaml",
+            routing={
+                "explore": "qwen-explore",
+                "act": "qwen-act",
+                "verify": "llama-verify",
+                "fallback": "llama-fallback",
+            },
+            errors=[],
+        )
         with patch("apps.cli.main.is_running", return_value=True), patch(
             "apps.cli.main._effective_gateway_url", return_value="http://127.0.0.1:8000"
         ), patch("apps.cli.main.probe_gateway", return_value=preflight), patch(
@@ -159,6 +171,12 @@ class TestProviderInitialization(unittest.TestCase):
         ), patch(
             "apps.cli.main._doctor_filesystem_access", return_value=(True, "")
         ), patch(
+            "apps.cli.main._doctor_transactional_intents", return_value=(True, "")
+        ), patch(
+            "apps.cli.main._doctor_artifact_persistence", return_value=(True, "")
+        ), patch(
+            "apps.cli.main.load_and_validate_project_runtime_config", return_value=runtime_config
+        ), patch(
             "apps.cli.main.load_and_validate_project_policy", return_value=policy
         ), patch(
             "apps.cli.main.sandbox_conflicts_for_repo", return_value=[]
@@ -168,8 +186,12 @@ class TestProviderInitialization(unittest.TestCase):
         self.assertEqual(result.exit_code, 0, result.stdout)
         self.assertIn("Tool calling", result.stdout)
         self.assertIn("Project filesystem", result.stdout)
+        self.assertIn("Project routing", result.stdout)
         self.assertIn("Project policy", result.stdout)
+        self.assertIn("Transactional intents", result.stdout)
+        self.assertIn("Artifact persistence", result.stdout)
         self.assertIn("Sandbox readiness", result.stdout)
+        self.assertIn("Programmable-ready", result.stdout)
 
     def test_assistant_detects_provider_not_initialized_and_sets_fatal_flag(self):
         """Assistant detects 500 with 'NVIDIA Provider not initialized' and sets _fatal_provider_error."""

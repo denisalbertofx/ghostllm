@@ -24,6 +24,14 @@ def project_runtime_config_path(cwd: str) -> Path:
     return Path(cwd) / "ghost.yaml"
 
 
+def _yaml_error_detail(exc: Exception) -> str:
+    detail = str(exc)
+    mark = getattr(exc, "problem_mark", None)
+    if mark is not None:
+        detail = f"line {int(mark.line) + 1}, column {int(mark.column) + 1}: {detail}"
+    return detail
+
+
 def load_and_validate_project_runtime_config(cwd: str) -> ProjectRuntimeConfig:
     path = project_runtime_config_path(cwd)
     if not path.exists():
@@ -38,16 +46,16 @@ def load_and_validate_project_runtime_config(cwd: str) -> ProjectRuntimeConfig:
             path=str(path),
             exists=True,
             valid=False,
-            errors=[f"Could not parse YAML: {exc}"],
+            errors=[f"ghost.yaml parse error: {_yaml_error_detail(exc)}"],
         )
 
     if not isinstance(raw, dict):
         return ProjectRuntimeConfig(
             path=str(path),
             exists=True,
-            valid=False,
-            errors=["Top-level ghost.yaml document must be a mapping."],
-        )
+        valid=False,
+        errors=["ghost.yaml: top-level document must be a mapping."],
+    )
 
     routing = raw.get("routing") or {}
     if routing and not isinstance(routing, dict):
@@ -55,7 +63,12 @@ def load_and_validate_project_runtime_config(cwd: str) -> ProjectRuntimeConfig:
             path=str(path),
             exists=True,
             valid=False,
-            errors=["routing must be a mapping."],
+            errors=["ghost.yaml:routing must be a mapping."],
+        )
+
+    if not routing:
+        errors.append(
+            "ghost.yaml:routing must define explore, act, verify, and fallback as non-empty strings."
         )
 
     for key in raw.keys():
@@ -65,12 +78,16 @@ def load_and_validate_project_runtime_config(cwd: str) -> ProjectRuntimeConfig:
     normalized: Dict[str, str] = {}
     for key, value in routing.items():
         if key not in _ROUTING_KEYS:
-            warnings.append(f"Unknown routing key: {key}")
+            warnings.append(f"ghost.yaml:routing.{key} is unknown")
             continue
         if not isinstance(value, str) or not value.strip():
-            errors.append(f"routing.{key} must be a non-empty string.")
+            errors.append(f"ghost.yaml:routing.{key} must be a non-empty string.")
             continue
         normalized[key] = value.strip()
+
+    missing_keys = sorted(_ROUTING_KEYS - set(normalized.keys()))
+    for key in missing_keys:
+        errors.append(f"ghost.yaml:routing.{key} is required and must be a non-empty string.")
 
     return ProjectRuntimeConfig(
         path=str(path),

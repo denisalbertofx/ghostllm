@@ -40,6 +40,7 @@ from apps.cli.runtime.project_policy import (
     load_and_validate_project_policy,
     sandbox_conflicts_for_repo,
 )
+from apps.cli.runtime.project_runtime_config import load_and_validate_project_runtime_config
 from apps.cli.runtime.runtime_env import (
     enrich_prep_after_operational_profile,
     prepare_runtime,
@@ -274,6 +275,38 @@ def _doctor_filesystem_access(cwd: str) -> tuple[bool, str]:
         return True, ""
     except Exception as exc:
         return False, f"{type(exc).__name__}: {exc}"
+
+
+def _doctor_transactional_intents(cwd: str) -> tuple[bool, str]:
+    try:
+        store = _memory_store_for_cwd(cwd)
+        pending = store.list_pending_filesystem_intents()
+        if pending:
+            return True, f"{len(pending)} pending intent(s) recoverable"
+        return True, ""
+    except Exception as exc:
+        return False, f"{type(exc).__name__}: {exc}"
+
+
+def _doctor_artifact_persistence(cwd: str) -> tuple[bool, str]:
+    artifacts_dir = Path(cwd) / ".ghost" / "artifacts"
+    artifacts_dir.mkdir(parents=True, exist_ok=True)
+    probe = artifacts_dir / ".doctor-artifact-probe"
+    try:
+        probe.write_text("ok\n", encoding="utf-8")
+        probe.unlink(missing_ok=True)
+        return True, ""
+    except Exception as exc:
+        return False, f"{type(exc).__name__}: {exc}"
+
+
+def _format_project_routing_summary(routing: dict[str, str]) -> str:
+    ordered = []
+    for key in ("explore", "act", "verify", "fallback"):
+        value = str(routing.get(key) or "").strip()
+        if value:
+            ordered.append(f"{key}={value}")
+    return ", ".join(ordered)
 
 
 def _registry_drift_summary(local_map: dict[str, str], remote_map: dict[str, str]) -> str:
@@ -790,8 +823,10 @@ def doctor():
 
     try:
         load_config(str(_active_config_path()))
+        config_valid = True
         config_status = "[bold green]Valid[/bold green]"
     except ConfigValidationError as exc:
+        config_valid = False
         config_status = f"[bold red]Invalid[/bold red] [dim]{str(exc)[:120]}[/dim]"
         fixes.append("Run `ghost init` or fix the invalid YAML shown above.")
 
@@ -852,6 +887,20 @@ def doctor():
         fixes.append("Fix project filesystem permissions or run Ghost from a writable workspace.")
     table.add_row("Project filesystem", fs_status)
 
+    runtime_config = load_and_validate_project_runtime_config(os.getcwd())
+    if not runtime_config.exists:
+        routing_status = "[dim]No project routing[/dim]"
+    elif runtime_config.valid:
+        routing_summary = _format_project_routing_summary(runtime_config.routing)
+        routing_status = (
+            "[bold green]Valid[/bold green]"
+            + (f" [dim]{routing_summary[:120]}[/dim]" if routing_summary else "")
+        )
+    else:
+        routing_status = f"[bold red]Invalid[/bold red] [dim]{'; '.join(runtime_config.errors)[:120]}[/dim]"
+        fixes.append(f"Edit `{runtime_config.path}` and define routing.explore/act/verify/fallback correctly.")
+    table.add_row("Project routing", routing_status)
+
     policy_validation = load_and_validate_project_policy(os.getcwd())
     if not policy_validation.exists:
         policy_status = "[dim]No project policy[/dim]"
@@ -869,6 +918,46 @@ def doctor():
     else:
         sandbox_status = "[bold green]Ready[/bold green]"
     table.add_row("Sandbox readiness", sandbox_status)
+
+    intents_ok, intents_detail = _doctor_transactional_intents(os.getcwd())
+    if intents_ok:
+        intents_status = "[bold green]Ready[/bold green]"
+        if intents_detail:
+            intents_status += f" [dim]{intents_detail[:120]}[/dim]"
+    else:
+        intents_status = f"[bold red]Failed[/bold red] [dim]{intents_detail[:120]}[/dim]"
+        fixes.append("Fix ghost_memory.db access so filesystem intent recovery can run.")
+    table.add_row("Transactional intents", intents_status)
+
+    artifact_ok, artifact_detail = _doctor_artifact_persistence(os.getcwd())
+    if artifact_ok:
+        artifact_status = "[bold green]Ready[/bold green]"
+    else:
+        artifact_status = f"[bold red]Failed[/bold red] [dim]{artifact_detail[:120]}[/dim]"
+        fixes.append("Ensure `.ghost/artifacts` is writable so session artifacts can be persisted.")
+    table.add_row("Artifact persistence", artifact_status)
+
+    programmable_ready = all(
+        [
+            config_valid,
+            pf.ok,
+            ready,
+            sync_ok,
+            "Ready" in str(tool_status),
+            fs_ok,
+            intents_ok,
+            artifact_ok,
+            (not policy_validation.exists or policy_validation.valid),
+            not sandbox_conflicts,
+            (not runtime_config.exists or runtime_config.valid),
+        ]
+    )
+    programmable_status = (
+        "[bold green]Ready[/bold green]"
+        if programmable_ready
+        else "[bold yellow]Not ready[/bold yellow] [dim]Foundations for programmable project routing/policy are incomplete[/dim]"
+    )
+    table.add_row("Programmable-ready", programmable_status)
 
     # Environment
     table.add_row("Project", os.path.basename(os.getcwd()))

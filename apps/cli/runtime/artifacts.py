@@ -1356,8 +1356,8 @@ class ArtifactManager:
         checks = {
             "review_packet": bool(getattr(session, "review_packet_path", "") or ""),
             "diff_summary": bool(getattr(session, "diff_summary", []) or []),
-            "artifact_json": os.path.exists(json_path),
-            "artifact_markdown": os.path.exists(md_path),
+            "artifact_json": bool(getattr(session, "artifact_json_path", "") or json_path),
+            "artifact_markdown": bool(getattr(session, "artifact_markdown_path", "") or md_path),
             "plan": bool(getattr(session, "persisted_plan_path", "") or ""),
             "handoff": bool(getattr(session, "persisted_handoff_path", "") or ""),
         }
@@ -1381,6 +1381,23 @@ class ArtifactManager:
                     "format": artifact_format,
                 }
             )
+            session.review_ready_for_review = False
+            session.review_readiness_code = "artifact_requirements_missing"
+            session.review_readiness_detail_es = (
+                "Faltan artefactos requeridos por la policy del repo: "
+                + ", ".join(missing)
+            )
+            if str(getattr(session, "task_outcome", "") or "") in {"implemented", "already_implemented", "read_only"}:
+                session.task_outcome = "partially_implemented"
+            if not str(getattr(session, "next_action", "") or "").strip():
+                session.next_action = (
+                    "Genera o repara los artefactos requeridos por .ghost/policy.yaml y vuelve a cerrar la sesión."
+                )
+        elif not missing:
+            if session.review_ready_for_review is None:
+                session.review_ready_for_review = True
+            if not session.review_readiness_code:
+                session.review_readiness_code = "artifact_requirements_met"
 
     def start_session(self, task: str, task_id: str = "N/A", task_type: str = "direct_edit", type_source: str = "inferred", batch_id: Optional[str] = None, step_id: Optional[int] = None) -> ArtifactSession:
         import uuid
@@ -1393,21 +1410,16 @@ class ArtifactManager:
             return
 
         session_id = self.current_session.session_id
-        
-        # Save JSON
         json_path = os.path.join(self.artifacts_dir, f"{session_id}.json")
-        with open(json_path, "w", encoding="utf-8") as f:
-            json.dump(self.current_session.to_dict(), f, indent=2)
-            
-        # Save Markdown
         md_path = os.path.join(self.artifacts_dir, f"{session_id}.md")
-        with open(md_path, "w", encoding="utf-8") as f:
-            f.write(self.current_session.to_markdown())
         self.current_session.artifact_json_path = self._relpath_if_possible(json_path)
         self.current_session.artifact_markdown_path = self._relpath_if_possible(md_path)
         self._enforce_project_artifact_policy(json_path, md_path)
+
         with open(json_path, "w", encoding="utf-8") as f:
             json.dump(self.current_session.to_dict(), f, indent=2)
+        with open(md_path, "w", encoding="utf-8") as f:
+            f.write(self.current_session.to_markdown())
 
     def add_diff(
         self,

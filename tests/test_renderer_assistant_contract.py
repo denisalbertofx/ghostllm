@@ -127,3 +127,24 @@ def test_startup_summary_ignores_disabled_flags() -> None:
     assert "GHOST_USE_TASKSPEC" in out
     assert "GHOST_PARALLEL_PIPELINE" in out
     assert "GHOST_USE_DECISION_PLANNER" not in out
+
+
+def test_startup_summary_shows_phase_routing() -> None:
+    buf = StringIO()
+    renderer = GhostRenderer(make_ghost_console(file=buf, force_terminal=False))
+    with patch.dict(os.environ, {"GHOST_UI_VERBOSE": "1"}, clear=False):
+        renderer.render_cli_startup_summary(
+            command_mode="dev",
+            assistant_mode="Chat",
+            model="coder",
+            role_models={
+                "explore": "qwen-explore",
+                "act": "qwen-act",
+                "verify": "llama-verify",
+                "fallback": "llama-fallback",
+            },
+        )
+    out = buf.getvalue()
+    assert "routing:" in out
+    assert "explore=qwen-explore" in out
+    assert "verify=llama-verify" in out

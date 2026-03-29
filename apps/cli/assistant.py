@@ -212,6 +212,10 @@ from apps.cli.runtime.filesystem_intents import (
     likely_mutating_shell_command,
     new_intent_id,
 )
+from apps.cli.runtime.project_runtime_config import (
+    apply_project_routing_to_role_map,
+    load_and_validate_project_runtime_config,
+)
 from apps.cli.runtime.error_classification import (
     ERROR_CATEGORY_CONTEXT,
     ERROR_CATEGORY_LOGIC,
@@ -1684,9 +1688,38 @@ Discovery actions this session: {discovery_count}
         self._explore_v2_tool_ranking_nudge_injected: bool = False
         self._last_tool_denial_key: Optional[Tuple[str, str]] = None
         self._greenfield_bootstrap_nudge_sent: bool = False
+        self._last_completed_artifact: Optional[Dict[str, Any]] = None
+
+    def _project_runtime_config(self):
+        return load_and_validate_project_runtime_config(self.cwd)
 
     def _effective_role_models(self) -> Dict[str, str]:
-        return resolve_model_role_map(self.cwd)
+        role_map = resolve_model_role_map(None)
+        explicit_model = str(self.model or "").strip()
+        if explicit_model:
+            role_map.update(
+                {
+                    "planner": explicit_model,
+                    "execution": explicit_model,
+                    "repair": explicit_model,
+                    "explore": explicit_model,
+                    "act": explicit_model,
+                    "verify": explicit_model,
+                    "fallback": role_map.get("fallback") or role_map.get("general_fallback") or explicit_model,
+                }
+            )
+        cfg = self._project_runtime_config()
+        if cfg.exists and cfg.valid:
+            role_map = apply_project_routing_to_role_map(role_map, cfg)
+        else:
+            role_map = {
+                **role_map,
+                "explore": str(role_map.get("planner") or explicit_model or ""),
+                "act": str(role_map.get("execution") or explicit_model or ""),
+                "verify": str(role_map.get("repair") or role_map.get("execution") or explicit_model or ""),
+                "fallback": str(role_map.get("general_fallback") or explicit_model or ""),
+            }
+        return role_map
 
     def _phase_routing_key(self, phase: Optional[SessionPhase] = None) -> str:
         current = phase or getattr(self, "session_phase", SessionPhase.IDLE)
@@ -1699,16 +1732,33 @@ Discovery actions this session: {discovery_count}
         return "act"
 
     def _effective_phase_model(self, phase: Optional[SessionPhase] = None) -> str:
-        roles = self._effective_role_models()
         key = self._phase_routing_key(phase)
-        model = str(roles.get(key) or "").strip()
-        if model:
-            return model
+        cfg = self._project_runtime_config()
+        if cfg.exists and cfg.valid:
+            routed_model = str(cfg.routing.get(key) or "").strip()
+            if routed_model:
+                return routed_model
+        explicit_model = str(self.model or "").strip()
+        if explicit_model:
+            return explicit_model
+        roles = resolve_model_role_map(None)
         if key == "explore":
-            return str(roles.get("planner") or self.model)
+            return str(roles.get("planner") or roles.get("execution") or self.model)
         if key == "verify":
             return str(roles.get("repair") or roles.get("execution") or self.model)
         return str(roles.get("execution") or self.model)
+
+    def _ensure_project_runtime_contract_for_mutation(self, action: str) -> Optional[Dict[str, Any]]:
+        cfg = self._project_runtime_config()
+        if not cfg.exists or cfg.valid:
+            return None
+        detail = "; ".join(cfg.errors or [])[:300]
+        return {
+            "error": (
+                f"Project runtime contract invalid in {cfg.path}. "
+                f"Blocked mutating action '{action}' until ghost.yaml is fixed. Details: {detail}"
+            )
+        }
 
     def _refresh_request_model_contract(self, model_name: str) -> None:
         target_model = str(model_name or self.model).strip() or self.model
@@ -2733,7 +2783,7 @@ Discovery actions this session: {discovery_count}
             ttft_ms = None
             if first_mono is not None:
                 ttft_ms = (first_mono - start_mono) * 1000.0
-            role = "planner" if getattr(self, "profile", "") == "planner" else "general"
+            role = self._phase_routing_key()
             mstatus = (
                 TRACE_STATUS_COMPLETED if (ok and not err) else TRACE_STATUS_FAILED
             )
@@ -2762,7 +2812,7 @@ Discovery actions this session: {discovery_count}
             self._process_input(initial_task)
             if not keep_open or self.stop_loop:
                 self.console.print("\n[dim]Ghost session terminated. Stay secure.[/dim]")
-                return
+                return self._last_completed_artifact
         
         while not self.stop_loop:
             try:
@@ -2774,6 +2824,7 @@ Discovery actions this session: {discovery_count}
                 break
         
         self.console.print("\n[dim]Ghost session terminated. Stay secure.[/dim]")
+        return self._last_completed_artifact
 
     def _process_input(self, text: str):
         text = normalize_cli_entry_text(text)
@@ -5283,7 +5334,10 @@ Discovery actions this session: {discovery_count}
             logger.warning("workflow continuity persist failed (non-fatal): %s", e)
         self.task_manager.add_artifact(self.artifact_manager.current_session.session_id)
         self.artifact_manager.persist()
-        self.renderer.render_artifact_summary(self.artifact_manager.current_session.to_dict())
+        artifact_dict = self.artifact_manager.current_session.to_dict()
+        self._last_completed_artifact = artifact_dict
+        self.renderer.render_artifact_summary(artifact_dict)
+        return artifact_dict
 
     def _dispatch_model_tool_round(
         self, msg: Dict[str, Any], status, task_obj: Any
@@ -8228,6 +8282,16 @@ Discovery actions this session: {discovery_count}
 
     def _inner_execute_tool(self, name: str, args: Dict[str, Any], metadata: Dict[str, Any], is_authorized: bool = False) -> Dict[str, Any]:
         path = args.get("path")
+        if name in {"write_file", "edit_file", "delete_file"}:
+            blocked = self._ensure_project_runtime_contract_for_mutation(name)
+            if blocked:
+                return blocked
+        if name == "run_shell":
+            cmd = str(args.get("command") or "")
+            if cmd and likely_mutating_shell_command(cmd):
+                blocked = self._ensure_project_runtime_contract_for_mutation(name)
+                if blocked:
+                    return blocked
         if name == "ls":
             path = args.get("path", ".")
             path = PathComposer.normalize_path_segments(path)

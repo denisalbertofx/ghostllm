@@ -82,3 +82,18 @@ def test_resolve_model_role_map_reads_project_ghost_yaml(tmp_path: Path, monkeyp
     assert resolved["execution"] == "repo-act"
     assert resolved["repair"] == "repo-act"
     assert resolved["general_fallback"] == "repo-fallback"
+
+
+def test_load_and_validate_project_runtime_config_requires_all_routing_keys(tmp_path: Path) -> None:
+    (tmp_path / "ghost.yaml").write_text(
+        "routing:\n"
+        "  explore: qwen-small\n",
+        encoding="utf-8",
+    )
+
+    cfg = load_and_validate_project_runtime_config(str(tmp_path))
+
+    assert cfg.valid is False
+    assert "ghost.yaml:routing.act is required" in " ".join(cfg.errors)
+    assert "ghost.yaml:routing.verify is required" in " ".join(cfg.errors)
+    assert "ghost.yaml:routing.fallback is required" in " ".join(cfg.errors)
