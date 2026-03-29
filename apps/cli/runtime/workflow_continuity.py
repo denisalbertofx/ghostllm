@@ -9,12 +9,21 @@ import hashlib
 import json
 import os
 import re
+import sys
 import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 from tempfile import NamedTemporaryFile
 from typing import Any, Dict, List, Optional, Tuple
+
+try:
+    from ghostllm_core.memory import MemoryStore
+except ModuleNotFoundError:
+    py_core = Path(__file__).resolve().parents[3] / "packages" / "py-core"
+    if str(py_core) not in sys.path:
+        sys.path.insert(0, str(py_core))
+    from ghostllm_core.memory import MemoryStore
 
 _PLANS_DIR = "plans"
 _HANDOFFS_DIR = "handoffs"
@@ -40,6 +49,10 @@ def ghost_subdir(cwd: str, name: str) -> Path:
 
 def _repo_root(cwd: str) -> Path:
     return Path(cwd or ".").resolve()
+
+
+def _state_store(cwd: str) -> MemoryStore:
+    return MemoryStore(str(_repo_root(cwd) / "ghost_memory.db"))
 
 
 def _continuity_index_path(cwd: str) -> Path:
@@ -335,12 +348,16 @@ def _write_json_atomic(path: Path, data: Dict[str, Any]) -> None:
 
 
 def read_continuity_index(cwd: str) -> Dict[str, Any]:
+    db_index = _state_store(cwd).get_continuity_index()
+    by_t = db_index.get("by_task_id")
+    if isinstance(by_t, dict) and by_t:
+        return db_index
     p = _continuity_index_path(cwd)
     if not p.is_file():
-        return {"format_version": 1, "updated_at": "", "by_task_id": {}}
+        return {"format_version": 2, "updated_at": "", "by_task_id": {}}
     raw = _read_json_file(p)
     if not isinstance(raw, dict):
-        return {"format_version": 1, "updated_at": "", "by_task_id": {}, "index_corrupt": True}
+        return {"format_version": 2, "updated_at": "", "by_task_id": {}, "index_corrupt": True}
     by_t = raw.get("by_task_id")
     if not isinstance(by_t, dict):
         raw["by_task_id"] = {}
@@ -348,15 +365,15 @@ def read_continuity_index(cwd: str) -> Dict[str, Any]:
 
 
 def write_continuity_index(cwd: str, data: Dict[str, Any]) -> None:
-    p = _continuity_index_path(cwd)
-    p.parent.mkdir(parents=True, exist_ok=True)
     data = dict(data)
-    data["format_version"] = int(data.get("format_version") or 1)
-    data["updated_at"] = datetime.now(timezone.utc).isoformat()
-    if "by_task_id" not in data or not isinstance(data["by_task_id"], dict):
-        data["by_task_id"] = {}
-    with _ContinuityIndexLock(cwd):
-        _write_json_atomic(p, data)
+    data["format_version"] = int(data.get("format_version") or 2)
+    by_task_id = data.get("by_task_id")
+    if not isinstance(by_task_id, dict):
+        by_task_id = {}
+    store = _state_store(cwd)
+    for task_id, row in by_task_id.items():
+        if isinstance(row, dict):
+            store.upsert_continuity_entry(str(task_id), row)
 
 
 def _index_touch_task(
@@ -368,35 +385,31 @@ def _index_touch_task(
     latest_plan_relpath: str,
     active_envelope_relpath: str = "",
 ) -> None:
-    with _ContinuityIndexLock(cwd):
-        idx = read_continuity_index(cwd)
-        by_t: Dict[str, Any] = idx.setdefault("by_task_id", {})
-        if not isinstance(by_t, dict):
-            by_t = {}
-            idx["by_task_id"] = by_t
-        now = datetime.now(timezone.utc).isoformat()
-        now_u = time.time()
-        prev = by_t.get(task_id) if isinstance(by_t.get(task_id), dict) else {}
-        prev_lp = str((prev or {}).get("latest_plan_relpath") or "").strip()
-        final_plan = (latest_plan_relpath or "").strip() or prev_lp
-        row = {
-            "task_id": task_id,
-            "last_session_id": session_id,
-            "active_handoff_relpath": active_handoff_relpath,
-            "latest_plan_relpath": final_plan,
-            "updated_at": now,
-            "updated_at_unix": now_u,
-            **{k: v for k, v in (prev or {}).items() if k in ("notes",)},
-        }
-        env_p = (active_envelope_relpath or "").strip()
-        if env_p:
-            row["active_envelope_relpath"] = env_p.replace("\\", "/")
-        elif isinstance(prev, dict) and prev.get("active_envelope_relpath"):
-            row["active_envelope_relpath"] = str(prev.get("active_envelope_relpath") or "")
-        by_t[task_id] = row
-        idx["format_version"] = int(idx.get("format_version") or 1)
-        idx["updated_at"] = now
-        _write_json_atomic(_continuity_index_path(cwd), idx)
+    idx = read_continuity_index(cwd)
+    by_t: Dict[str, Any] = idx.setdefault("by_task_id", {})
+    if not isinstance(by_t, dict):
+        by_t = {}
+        idx["by_task_id"] = by_t
+    now = datetime.now(timezone.utc).isoformat()
+    now_u = time.time()
+    prev = by_t.get(task_id) if isinstance(by_t.get(task_id), dict) else {}
+    prev_lp = str((prev or {}).get("latest_plan_relpath") or "").strip()
+    final_plan = (latest_plan_relpath or "").strip() or prev_lp
+    row = {
+        "task_id": task_id,
+        "last_session_id": session_id,
+        "active_handoff_relpath": active_handoff_relpath,
+        "latest_plan_relpath": final_plan,
+        "updated_at": now,
+        "updated_at_unix": now_u,
+        **{k: v for k, v in (prev or {}).items() if k in ("notes",)},
+    }
+    env_p = (active_envelope_relpath or "").strip()
+    if env_p:
+        row["active_envelope_relpath"] = env_p.replace("\\", "/")
+    elif isinstance(prev, dict) and prev.get("active_envelope_relpath"):
+        row["active_envelope_relpath"] = str(prev.get("active_envelope_relpath") or "")
+    _state_store(cwd).upsert_continuity_entry(task_id, row)
 
 
 def build_handoff_payload(
@@ -539,6 +552,14 @@ def save_operational_plan(
         rel = str(path.relative_to(root)).replace("\\", "/")
     except ValueError:
         rel = str(path).replace("\\", "/")
+    _state_store(cwd).upsert_plan(
+        tid_c or sid_c or "session",
+        session_id=sid_c or session_id,
+        plan_body=content,
+        relpath=rel,
+        status=status,
+        task_title=task_title,
+    )
     return rel
 
 
@@ -641,6 +662,8 @@ def save_handoff_versioned(cwd: str, payload: Dict[str, Any], *, update_index: b
         vrel = str(versioned).replace("\\", "/")
         lrel = str(latest).replace("\\", "/")
 
+    _state_store(cwd).upsert_handoff(tid, payload, source=vrel)
+
     plan_ref = str(payload.get("plan_reference") or "")
     if update_index:
         _index_touch_task(
@@ -707,6 +730,15 @@ def load_handoff_for_task(cwd: str, task_id: str) -> Tuple[Dict[str, Any], List[
     entry = _continuity_index_entry(by_t, task_id)
     warnings: List[str] = []
 
+    task_id_clean = _clean_identifier(task_id)
+    if task_id_clean:
+        db_handoff, db_source = _state_store(cwd).get_handoff(task_id_clean)
+        if isinstance(db_handoff, dict) and db_handoff:
+            norm, hw = normalize_handoff_document(db_handoff, expected_task_id=task_id_clean or None)
+            warnings.extend(hw)
+            if norm:
+                return norm, warnings, db_source or "sqlite"
+
     candidates: List[Tuple[str, Path]] = []
 
     if isinstance(entry, dict):
@@ -772,11 +804,19 @@ def load_continuity_for_task(cwd: str, task_id: str) -> ContinuityLoadResult:
     plan_path = root / ".ghost" / _PLANS_DIR / f"{slug}__latest.md"
     plan_body = ""
     rel_plan = ""
+    task_id_clean = _clean_identifier(task_id)
+    if task_id_clean:
+        plan_row = _state_store(cwd).get_plan(task_id_clean)
+        if isinstance(plan_row, dict):
+            plan_body = str(plan_row.get("plan_body") or "")
+            rel_plan = str(plan_row.get("relpath") or "")
     if plan_path.is_file():
         try:
             raw = plan_path.read_text(encoding="utf-8", errors="replace")
-            plan_body = raw
-            rel_plan = str(plan_path.relative_to(root)).replace("\\", "/")
+            if not plan_body:
+                plan_body = raw
+            if not rel_plan:
+                rel_plan = str(plan_path.relative_to(root)).replace("\\", "/")
         except OSError:
             pass
 
@@ -811,6 +851,12 @@ def load_latest_handoff_any(cwd: str) -> Tuple[Dict[str, Any], str]:
     Sin task_id en memoria: elige tarea con `updated_at` más reciente en el índice
     y carga su handoff activo; si el índice vacío, fallback a `*__latest.json` por mtime.
     """
+    db_handoff, db_source = _state_store(cwd).get_latest_handoff()
+    if isinstance(db_handoff, dict) and db_handoff:
+        norm, _ = normalize_handoff_document(db_handoff, expected_task_id=None)
+        if norm:
+            return norm, db_source or "sqlite_latest"
+
     idx = read_continuity_index(cwd)
     by_t = idx.get("by_task_id") if isinstance(idx.get("by_task_id"), dict) else {}
     best_tid = ""
@@ -935,8 +981,17 @@ def persist_plan_and_handoff(cwd: str, session: Any) -> Tuple[str, str]:
             status=status,
             task_title=title,
         )
+        _state_store(cwd).upsert_plan(
+            tid or sid or "session",
+            session_id=sid,
+            plan_body=plan_body,
+            relpath=plan_rel,
+            status=status,
+            task_title=title,
+        )
     payload = build_handoff_payload(session, plan_reference=plan_rel)
     handoff_vrel, _handoff_latest = save_handoff_versioned(cwd, payload, update_index=False)
+    _state_store(cwd).upsert_handoff(tid or sid or "session", payload, source=handoff_vrel)
     env = build_delegation_envelope(
         cwd,
         payload,

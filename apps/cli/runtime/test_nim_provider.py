@@ -5,7 +5,7 @@ import os
 import unittest
 from unittest import mock
 
-import requests
+import httpx
 
 from apps.cli.runtime.nim_provider import (
     ProviderRequest,
@@ -125,7 +125,7 @@ class TestNimProvider(unittest.TestCase):
 
     def test_timeout_path(self) -> None:
         sess = mock.MagicMock()
-        sess.post.side_effect = requests.exceptions.Timeout()
+        sess.post.side_effect = httpx.TimeoutException("timeout")
         r = nim_chat_complete("https://x.com", "k", ProviderRequest(model="m", user="u"), session=sess)
         self.assertFalse(r.ok)
         self.assertIn("timeout", r.error_message.lower())

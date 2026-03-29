@@ -13,7 +13,9 @@ import os
 from dataclasses import dataclass
 from typing import Optional, Tuple
 
-import requests
+import httpx
+
+from apps.cli.runtime.http_client import get as http_get
 
 # Gateway GhostLLM local (configs/default.yaml → server.port 8000)
 DEFAULT_GHOST_GATEWAY_URL = "http://127.0.0.1:8000"
@@ -97,7 +99,7 @@ def probe_gateway(
     last_err = ""
     for url, hdrs in candidates:
         try:
-            r = requests.get(url, timeout=t, headers=hdrs)
+            r = http_get(url, timeout=t, headers=hdrs)
             if r.status_code < 500:
                 return GatewayPreflightResult(
                     base_url=base,
@@ -108,10 +110,12 @@ def probe_gateway(
                     hint="",
                 )
             last_err = f"HTTP {r.status_code} from {url}"
-        except requests.exceptions.ConnectionError as e:
+        except httpx.ConnectError as e:
             last_err = str(e)[:500]
-        except requests.exceptions.Timeout:
+        except httpx.TimeoutException:
             last_err = f"timeout ({t}s) on {url}"
+        except httpx.HTTPError as e:
+            last_err = str(e)[:500]
         except OSError as e:
             last_err = str(e)[:500]
 

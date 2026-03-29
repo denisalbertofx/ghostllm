@@ -289,7 +289,15 @@ from apps.cli.runtime.repair_budget_nonpy import resolve_repair_operational_budg
 from .indexer import RepoIndexer
 from .ui.renderer import GhostRenderer
 from .ui.theme import ghost_panel, make_ghost_console
-from ghostllm_core.memory import MemoryStore
+try:
+    from ghostllm_core.config import bootstrap_enabled_models, resolve_upstream_model_id
+    from ghostllm_core.memory import MemoryStore
+except ModuleNotFoundError:
+    py_core = Path(__file__).resolve().parents[2] / "packages" / "py-core"
+    if str(py_core) not in sys.path:
+        sys.path.insert(0, str(py_core))
+    from ghostllm_core.config import bootstrap_enabled_models, resolve_upstream_model_id
+    from ghostllm_core.memory import MemoryStore
 
 
 def _sha256_utf8(s: str) -> str:
@@ -328,6 +336,31 @@ _INTERNAL_WORKSPACE_METADATA_NAMES = frozenset(
         "ghost.pid",
     }
 )
+
+_TOOL_CALL_CONTRACT_NATIVE = "native_function_calling"
+_TOOL_CALL_CONTRACT_LEGACY = "legacy_adapter"
+_LEGACY_TOOL_CALL_JSON_RE = re.compile(r'\{\s*"name"\s*:\s*"[^"]+"\s*,\s*"arguments"\s*:', re.DOTALL)
+
+
+def _assistant_registry_path() -> str:
+    return str(Path(__file__).resolve().parents[2] / "configs" / "models.yaml")
+
+
+def _model_supports_native_tool_calling(model_name: str) -> bool:
+    try:
+        _raw, enabled, err = bootstrap_enabled_models(_assistant_registry_path())
+        if err or not enabled:
+            return True
+        requested = str(model_name or "").strip()
+        if requested in enabled:
+            return bool(enabled[requested].tool_calling)
+        resolved = resolve_upstream_model_id(requested, enabled)
+        for name, mapping in enabled.items():
+            if name == requested or mapping.upstream_id == resolved or mapping.upstream_id == requested:
+                return bool(mapping.tool_calling)
+    except Exception:
+        return True
+    return True
 
 
 def _is_bootstrap_scaffold_intent(intent: Optional[Intent]) -> bool:
@@ -1388,9 +1421,10 @@ Your primary goal is to safely and efficiently maintain project integrity.
 - **Plan**: Research only. No `write_file`, `edit_file`, or `run_shell`.
 - **Code/Fix/Debug**: Active execution permitted.
 
-# Tool Call Format
-Use JSON within <tool_call> tags. Example:
-<tool_call>{{"name": "read_file", "arguments": {{"path": "main.py"}}}}</tool_call>
+# Tool Call Contract
+- Use native function calling only when tools are available.
+- Do NOT emit `<tool_call>` XML blocks or embedded JSON objects pretending to be tool calls unless the runtime explicitly enabled a legacy adapter.
+- If tools are unavailable, say so in plain text instead of inventing a tool-call format.
 
 # Automatic Integrity Check
 - Ghost performs a verification cycle (Build/Lint/Tests) automatically at the end of every task.
@@ -1560,8 +1594,19 @@ Discovery actions this session: {discovery_count}
 
             runtime_prep = prepare_runtime(self.cwd)
         self._runtime_prep = runtime_prep
-        self.memory = MemoryStore()
-        
+        self.memory = MemoryStore(os.path.join(self.cwd, "ghost_memory.db"))
+        self._tool_call_contract_mode = (
+            _TOOL_CALL_CONTRACT_NATIVE
+            if _model_supports_native_tool_calling(self.model)
+            else _TOOL_CALL_CONTRACT_LEGACY
+        )
+        if self._tool_call_contract_mode != _TOOL_CALL_CONTRACT_NATIVE:
+            logger.warning(
+                "tool_call_adapter_activated model=%s mode=%s",
+                self.model,
+                self._tool_call_contract_mode,
+            )
+
         # UI & Runtime
         self.console = make_ghost_console()
         self.renderer = GhostRenderer(self.console)
@@ -5142,8 +5187,33 @@ Discovery actions this session: {discovery_count}
                 self._loop_abort_reason = LOOP_ABORT_STAGNATION
                 return "stagnation", None
             return "tools", executed_names
-        legacy_calls = self._extract_tool_calls(content)
+        if not self._legacy_tool_adapter_enabled() and self._content_looks_like_legacy_tool_call(content):
+            detail = self._tool_call_contract_error_text(content)
+            logger.error("tool_call_contract_mismatch model=%s detail=%s", self.model, detail)
+            try:
+                sess_contract = self.artifact_manager.current_session
+                if sess_contract:
+                    append_compacted_session_event(
+                        sess_contract,
+                        {
+                            "event": "tool_call_contract_mismatch",
+                            "model": self.model,
+                            "detail": detail[:500],
+                            "expected": _TOOL_CALL_CONTRACT_NATIVE,
+                            "received": "legacy_inline_markup",
+                        },
+                    )
+            except Exception:
+                pass
+            if status:
+                status.stop()
+            self.console.print(f"[bold red]✘ Tool Contract Error:[/bold red] {detail}")
+            self._loop_abort_reason = LOOP_ABORT_POLICY
+            return "terminal", None
+
+        legacy_calls = self._extract_tool_calls(content) if self._legacy_tool_adapter_enabled() else []
         if legacy_calls:
+            logger.warning("tool_call_legacy_adapter_used model=%s count=%s", self.model, len(legacy_calls))
             if _tm_loop:
                 try:
                     _tm_loop.record_tool_round()
@@ -6681,6 +6751,23 @@ Discovery actions this session: {discovery_count}
 
     _TOOL_CALL_XML_RE = re.compile(r"<tool_call>.*?</tool_call>", re.DOTALL)
 
+    def _legacy_tool_adapter_enabled(self) -> bool:
+        return getattr(self, "_tool_call_contract_mode", _TOOL_CALL_CONTRACT_NATIVE) == _TOOL_CALL_CONTRACT_LEGACY
+
+    def _content_looks_like_legacy_tool_call(self, text: str) -> bool:
+        raw = str(text or "")
+        return "<tool_call>" in raw or "</tool_call>" in raw or bool(_LEGACY_TOOL_CALL_JSON_RE.search(raw))
+
+    def _tool_call_contract_error_text(self, text: str) -> str:
+        preview = str(text or "").strip().replace("\r", " ").replace("\n", " ")
+        if len(preview) > 240:
+            preview = preview[:240] + "..."
+        return (
+            "Tool-call contract mismatch. Expected native OpenAI function-calling "
+            "(`assistant.tool_calls[*].function`) but received legacy inline markup/content: "
+            f"{preview or '<empty>'}"
+        )
+
     def _strip_tool_calls_for_display(self, text: str) -> str:
         """Remove tool-call XML fragments so they never reach the user."""
         if not text or not isinstance(text, str):
@@ -7225,6 +7312,13 @@ Discovery actions this session: {discovery_count}
             full_system = full_system + strategy_plan_system_prompt_section() + broad_plan_system_prompt_section()
         elif detect_broad_readonly_plan_request(self._primary_user_task_text()):
             full_system = full_system + broad_plan_system_prompt_section()
+        if self._legacy_tool_adapter_enabled():
+            full_system = full_system + (
+                "\n[Legacy tool adapter active]\n"
+                "- This model does not advertise native function calling in the registry.\n"
+                "- Emit legacy `<tool_call>{...}</tool_call>` JSON only because the runtime explicitly enabled this adapter.\n"
+                "- This path is transitional and logged.\n"
+            )
 
         if session and self._inject_readonly_truthfulness(session):
             full_system = full_system + readonly_analysis_truthfulness_prompt_section()

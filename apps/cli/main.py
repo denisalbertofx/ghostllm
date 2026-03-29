@@ -3,7 +3,7 @@ import subprocess
 import os
 import sys
 import time
-import requests
+import httpx
 import yaml
 from pathlib import Path
 from enum import Enum
@@ -25,6 +25,7 @@ from apps.cli.runtime.gateway_endpoint import (
     probe_gateway,
     resolve_cli_gateway_url,
 )
+from apps.cli.runtime.http_client import get as http_get
 from apps.cli.runtime.ghost_profile import apply_operational_profile_to_environment
 from apps.cli.runtime.runtime_env import (
     enrich_prep_after_operational_profile,
@@ -96,10 +97,10 @@ def _load_local_registry_alias_map() -> dict[str, str]:
 def _fetch_remote_registry_alias_map(base_url: Optional[str] = None) -> tuple[dict[str, str], str]:
     base = (base_url or _effective_gateway_url()).rstrip("/")
     try:
-        response = requests.get(f"{base}/v1/models", timeout=1.5)
+        response = http_get(f"{base}/v1/models", timeout=1.5)
         response.raise_for_status()
         payload = response.json()
-    except requests.RequestException as e:
+    except httpx.HTTPError as e:
         return {}, str(e)
     except ValueError as e:
         return {}, f"invalid registry payload: {e}"
@@ -148,8 +149,8 @@ def _configured_repo_remote() -> str:
 def check_provider_ready(base_url: Optional[str] = None) -> tuple[bool, str]:
     base = (base_url or _effective_gateway_url()).rstrip("/")
     try:
-        response = requests.get(f"{base}/ready", timeout=1.5)
-    except requests.RequestException as e:
+        response = http_get(f"{base}/ready", timeout=1.5)
+    except httpx.HTTPError as e:
         return False, str(e)
     try:
         payload = response.json()
@@ -351,7 +352,7 @@ def is_running():
     # Fallback: probe configured gateway (short timeout)
     try:
         base = _effective_gateway_url()
-        requests.get(base + "/health", timeout=1.5)
+        http_get(base + "/health", timeout=1.5)
         return True
     except Exception:
         return False
@@ -421,7 +422,7 @@ def _start_daemon_process(*, quiet: bool = False) -> bool:
     base = _effective_gateway_url()
     for _ in range(40):
         try:
-            requests.get(base + "/health", timeout=0.6)
+            http_get(base + "/health", timeout=0.6)
             break
         except Exception:
             time.sleep(0.4)

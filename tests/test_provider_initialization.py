@@ -25,7 +25,7 @@ class TestProviderInitialization(unittest.TestCase):
         """Preflight: check_provider_ready returns (False, detail) when /ready returns 503."""
         from apps.cli.main import check_provider_ready
 
-        with patch("apps.cli.main.requests.get") as mock_get:
+        with patch("apps.cli.main.http_get") as mock_get:
             mock_get.return_value.status_code = 503
             mock_get.return_value.text = ""
             mock_get.return_value.json.return_value = {
@@ -42,7 +42,7 @@ class TestProviderInitialization(unittest.TestCase):
         """Preflight: check_provider_ready returns (True, '') when /ready returns 200 and ready: true."""
         from apps.cli.main import check_provider_ready
 
-        with patch("apps.cli.main.requests.get") as mock_get:
+        with patch("apps.cli.main.http_get") as mock_get:
             mock_get.return_value.status_code = 200
             mock_get.return_value.json.return_value = {"ready": True}
 
@@ -55,7 +55,7 @@ class TestProviderInitialization(unittest.TestCase):
         """When response lacks 'ready' or ready is not True, must never return ready (fixes doctor/dev mismatch)."""
         from apps.cli.main import check_provider_ready
 
-        with patch("apps.cli.main.requests.get") as mock_get:
+        with patch("apps.cli.main.http_get") as mock_get:
             mock_get.return_value.status_code = 200
             mock_get.return_value.json.return_value = {}  # No 'ready' key - old server
 
@@ -67,7 +67,7 @@ class TestProviderInitialization(unittest.TestCase):
         """Regression: doctor says Ready => first request must not fail with provider not initialized."""
         from apps.cli.main import check_provider_ready
 
-        with patch("apps.cli.main.requests.get") as mock_get:
+        with patch("apps.cli.main.http_get") as mock_get:
             mock_get.return_value.status_code = 503
             mock_get.return_value.text = ""
             mock_get.return_value.json.return_value = {

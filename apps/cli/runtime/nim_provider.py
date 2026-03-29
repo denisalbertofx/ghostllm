@@ -10,7 +10,7 @@ import os
 import time
 from typing import Any, Dict, List, Optional
 
-import requests
+import httpx
 from pydantic import BaseModel, ConfigDict, Field
 
 logger = logging.getLogger(__name__)
@@ -103,7 +103,7 @@ def nim_chat_complete(
     req: ProviderRequest,
     *,
     timeout_seconds: Optional[float] = None,
-    session: Optional[requests.Session] = None,
+    session: Optional[httpx.Client] = None,
 ) -> ProviderResponse:
     """
     POST {base}/v1/chat/completions. Returns ProviderResponse (ok=False on any failure).
@@ -127,15 +127,18 @@ def nim_chat_complete(
             timing=ProviderTiming(latency_ms=round(ms, 2)),
         )
 
-    sess = session or requests.Session()
+    sess = session or httpx.Client(follow_redirects=True)
     try:
-        r = sess.post(url, headers=headers, json=payload, timeout=(10, timeout))
-    except requests.exceptions.Timeout:
+        r = sess.post(url, headers=headers, json=payload, timeout=httpx.Timeout(connect=10.0, read=timeout, write=timeout, pool=10.0))
+    except httpx.TimeoutException:
         return _fail("request_timeout", code="timeout")
-    except requests.exceptions.ConnectionError as e:
+    except httpx.ConnectError as e:
         return _fail(f"connection_error: {e}", code="network")
-    except requests.exceptions.RequestException as e:
+    except httpx.HTTPError as e:
         return _fail(f"request_error: {e}", code="network")
+    finally:
+        if session is None:
+            sess.close()
 
     ms = (time.perf_counter() - t0) * 1000
     timing = ProviderTiming(latency_ms=round(ms, 2))

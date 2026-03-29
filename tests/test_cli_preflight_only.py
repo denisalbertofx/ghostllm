@@ -191,7 +191,7 @@ def test_start_daemon_process_detaches_on_unix(monkeypatch, tmp_path) -> None:
     with patch("apps.cli.main.is_running", return_value=False), patch(
         "apps.cli.main.subprocess.Popen", return_value=process
     ) as popen_mock, patch(
-        "apps.cli.main.requests.get", return_value=SimpleNamespace(status_code=200)
+        "apps.cli.main.http_get", return_value=SimpleNamespace(status_code=200)
     ), patch("apps.cli.main._find_gateway_listener_pid", return_value=4321):
         assert cli_main._start_daemon_process(quiet=True) is True
 
@@ -224,7 +224,7 @@ def test_is_running_requires_listener_or_health() -> None:
     from apps.cli import main as cli_main
 
     with patch("apps.cli.main._find_gateway_listener_pid", return_value=None), patch(
-        "apps.cli.main.requests.get", side_effect=Exception("down")
+        "apps.cli.main.http_get", side_effect=Exception("down")
     ):
         assert cli_main.is_running() is False
 

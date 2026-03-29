@@ -1,9 +1,18 @@
 import os
-import json
+import sys
 import uuid
 from datetime import datetime
 from dataclasses import dataclass, field, asdict
+from pathlib import Path
 from typing import List, Optional, Dict, Any
+
+try:
+    from ghostllm_core.memory import MemoryStore
+except ModuleNotFoundError:
+    py_core = Path(__file__).resolve().parents[3] / "packages" / "py-core"
+    if str(py_core) not in sys.path:
+        sys.path.insert(0, str(py_core))
+    from ghostllm_core.memory import MemoryStore
 
 @dataclass
 class Task:
@@ -30,8 +39,8 @@ class Task:
 
 class TaskManager:
     def __init__(self, base_path: str):
-        self.tasks_dir = os.path.join(base_path, ".ghost", "tasks")
-        os.makedirs(self.tasks_dir, exist_ok=True)
+        self.base_path = base_path
+        self.state = MemoryStore(os.path.join(base_path, "ghost_memory.db"))
         self.current_task: Optional[Task] = None
 
     def create_task(
@@ -96,17 +105,17 @@ class TaskManager:
 
     def list_tasks(self) -> List[Dict[str, Any]]:
         tasks = []
-        for filename in os.listdir(self.tasks_dir):
-            if filename.endswith(".json"):
-                task_id = filename.replace(".json", "")
-                task = self.get_task(task_id)
-                if task:
-                    tasks.append({
-                        "id": task.task_id,
-                        "title": task.title,
-                        "status": task.status,
-                        "updated_at": task.updated_at
-                    })
+        for payload in self.state.list_task_payloads():
+            try:
+                task = Task(**payload)
+            except TypeError:
+                continue
+            tasks.append({
+                "id": task.task_id,
+                "title": task.title,
+                "status": task.status,
+                "updated_at": task.updated_at
+            })
         return sorted(tasks, key=lambda x: x["updated_at"], reverse=True)
 
     def add_artifact(self, artifact_id: str):
@@ -115,16 +124,11 @@ class TaskManager:
             self.save(self.current_task)
 
     def save(self, task: Task):
-        file_path = os.path.join(self.tasks_dir, f"{task.task_id}.json")
-        with open(file_path, "w", encoding="utf-8") as f:
-            json.dump(task.to_dict(), f, indent=2)
+        self.state.save_task_payload(task.task_id, task.to_dict())
 
     def get_task(self, task_id: str) -> Optional[Task]:
-        # Handle full filenames or just IDs
         clean_id = task_id.replace(".json", "")
-        file_path = os.path.join(self.tasks_dir, f"{clean_id}.json")
-        if os.path.exists(file_path):
-            with open(file_path, "r", encoding="utf-8") as f:
-                data = json.load(f)
-                return Task(**data)
+        data = self.state.get_task_payload(clean_id)
+        if isinstance(data, dict):
+            return Task(**data)
         return None

@@ -692,7 +692,7 @@ def taskspec_llm_via_openai_compatible(
     Factory: call OpenAI-compatible /v1/chat/completions with JSON response.
     Only used when explicitly configured (no import-time side effects).
     """
-    import requests
+    import httpx
 
     def _merge(user_prompt: str, repo_summary: str, draft: Dict[str, Any]) -> Dict[str, Any]:
         system = (
@@ -715,19 +715,21 @@ def taskspec_llm_via_openai_compatible(
             "temperature": 0.1,
             "response_format": {"type": "json_object"},
         }
-        r = requests.post(
+        r = httpx.post(
             url,
             json=body,
             headers={"Authorization": f"Bearer {api_key}"},
             timeout=120,
+            follow_redirects=True,
         )
         if r.status_code >= 400:
             body.pop("response_format", None)
-            r = requests.post(
+            r = httpx.post(
                 url,
                 json=body,
                 headers={"Authorization": f"Bearer {api_key}"},
                 timeout=120,
+                follow_redirects=True,
             )
         r.raise_for_status()
         raw = r.json()
