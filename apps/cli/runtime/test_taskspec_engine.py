@@ -1,5 +1,6 @@
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 
 from apps.cli.runtime.intent_classifier import (
     INTENT_ANALYSIS,
@@ -220,6 +221,103 @@ class TestTaskSpecEngine(unittest.TestCase):
         self.assertTrue(ts.verification_policy.get("required"))
         self.assertTrue(ts.verification_policy.get("tests"))
 
+    def test_seeded_backend_build_prompt_stays_must_write_without_fake_targets(self):
+        repo = self._empty_repo()
+        r = build_taskspec(
+            "/do crea el backend de una app de notas con FastAPI, SQLite, autenticacion, migraciones y tests",
+            repo,
+        )
+        ts = r.taskspec
+        self.assertEqual(ts.intent, INTENT_IMPLEMENTATION)
+        self.assertEqual(ts.change_expectation, "must_write")
+        self.assertFalse(ts.target_files)
+        self.assertTrue(ts.verification_policy.get("required"))
+
+    def test_greenfield_nextjs_typescript_scaffold_gets_build_verify_and_more_shell_budget(self):
+        repo = self._empty_repo()
+        r = build_taskspec(
+            "/do crea desde cero una app web de notas con Next.js y TypeScript. Build verificable, README claro y tests básicos si aplican.",
+            repo,
+        )
+        ts = r.taskspec
+        self.assertEqual(ts.intent, INTENT_IMPLEMENTATION)
+        self.assertEqual(ts.change_expectation, "must_write")
+        self.assertTrue(ts.verification_policy.get("required"))
+        self.assertTrue(ts.verification_policy.get("build"))
+        self.assertTrue(ts.verification_policy.get("typecheck"))
+        self.assertGreaterEqual(int(ts.budget_policy.get("max_shell_calls") or 0), 8)
+        self.assertGreaterEqual(int(ts.budget_policy.get("max_tool_calls") or 0), 32)
+
+    def test_subproject_scoped_prompt_rebases_relative_target_files(self):
+        repo = RepoProfile(
+            stack="nextjs",
+            layers_detected=["api", "ui", "data"],
+            has_package_json=True,
+            important_folders=["notes-app"],
+            v2=SimpleNamespace(
+                verification_commands=SimpleNamespace(
+                    typecheck=None,
+                    build=None,
+                    lint=None,
+                    tests=None,
+                ),
+                stack=SimpleNamespace(runtime="node", test_runner=[]),
+                key_files=[
+                    "notes-app/package.json",
+                    "notes-app/pages/index.tsx",
+                    "notes-app/pages/api/notes.ts",
+                ],
+                important_folders=["notes-app", "notes-app/pages", "notes-app/pages/api"],
+            ),
+        )
+        r = build_taskspec(
+            "trabaja solo dentro de notes-app. completa la app conectando pages/index.tsx a pages/api/notes.ts",
+            repo,
+        )
+        ts = r.taskspec
+        self.assertIn("notes-app/pages/index.tsx", ts.target_files or [])
+        self.assertIn("notes-app/pages/api/notes.ts", ts.target_files or [])
+
+    def test_write_task_with_explicit_build_typecheck_and_tests_gets_more_shell_budget(self):
+        repo = self._node_repo()
+        r = build_taskspec(
+            "completa la app full-stack y verifica con npm run build, npx tsc --noEmit y los tests hasta que todo pase",
+            repo,
+        )
+        ts = r.taskspec
+        self.assertGreaterEqual(int(ts.budget_policy.get("max_shell_calls") or 0), 8)
+        self.assertGreaterEqual(int(ts.budget_policy.get("max_tool_calls") or 0), 32)
+        self.assertGreaterEqual(int(ts.budget_policy.get("reserved_write_tool_calls") or 0), 6)
+
+    def test_explicit_test_request_enables_tests_even_when_repo_profile_lacks_test_runner_hint(self):
+        repo = RepoProfile(
+            stack="nextjs",
+            layers_detected=["api", "ui", "data"],
+            has_package_json=True,
+            important_folders=["notes-app"],
+            v2=SimpleNamespace(
+                verification_commands=SimpleNamespace(
+                    typecheck={"command": "npx tsc --noEmit", "cwd": "notes-app"},
+                    build={"command": "npm run build", "cwd": "notes-app"},
+                    lint=None,
+                    tests=None,
+                ),
+                stack=SimpleNamespace(runtime="node", test_runner=[]),
+                key_files=[
+                    "notes-app/package.json",
+                    "notes-app/pages/index.tsx",
+                    "notes-app/__tests__/notes.test.tsx",
+                ],
+                important_folders=["notes-app", "notes-app/__tests__"],
+            ),
+        )
+        r = build_taskspec(
+            "trabaja solo dentro de notes-app y verifica con npm run build, npx tsc --noEmit y los tests hasta que todo pase",
+            repo,
+        )
+        ts = r.taskspec
+        self.assertTrue(ts.verification_policy.get("tests"))
+
     def test_bugfix_task(self):
         repo = self._node_repo()
         r = build_taskspec("Fix broken PUT /api/users when body is empty", repo)
@@ -232,6 +330,28 @@ class TestTaskSpecEngine(unittest.TestCase):
                 for k in ("typecheck", "build", "lint", "tests")
             )
         )
+
+    def test_bugfix_prompt_with_explicit_typecheck_and_build_is_valid_in_unknown_repo(self):
+        repo = self._empty_repo()
+        r = build_taskspec(
+            "corrige solo el tsconfig de notes-app y ejecuta typecheck y build al final",
+            repo,
+        )
+        self.assertIn(r.validation_status, ("valid", "repaired"))
+        ts = r.taskspec
+        self.assertTrue(ts.verification_policy.get("typecheck"))
+        self.assertTrue(ts.verification_policy.get("build"))
+
+    def test_bugfix_prompt_with_explicit_tests_enables_tests_in_unknown_repo(self):
+        repo = self._empty_repo()
+        r = build_taskspec(
+            "fix the current issue and run tests before you finish",
+            repo,
+        )
+        self.assertIn(r.validation_status, ("valid", "repaired"))
+        ts = r.taskspec
+        self.assertEqual(ts.intent, INTENT_BUGFIX)
+        self.assertTrue(ts.verification_policy.get("tests"))
 
     def test_python_bugfix_with_tests_folder_enables_tests_verification(self):
         repo = self._python_repo_with_tests()

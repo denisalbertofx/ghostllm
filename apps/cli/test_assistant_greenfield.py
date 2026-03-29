@@ -19,6 +19,7 @@ from apps.cli.assistant import (
     _filter_workspace_listing_entries,
     _greenfield_scaffold_verify_readiness,
     _infer_missing_local_node_package_from_failed_checks,
+    _intent_implies_greenfield_write,
     _is_internal_workspace_metadata_path,
     _is_local_package_install_command,
     _local_package_install_already_satisfied,
@@ -71,6 +72,32 @@ class TestAssistantGreenfieldHelpers(unittest.TestCase):
                 fh.write("print('hi')\n")
             intent = SimpleNamespace(task_type="scaffold", scaffold_type="extend", task="continua este proyecto")
             self.assertTrue(_should_start_greenfield_in_act(tmp, intent))
+
+    def test_should_start_greenfield_in_act_for_seeded_backend_build(self) -> None:
+        with TemporaryDirectory() as tmp:
+            os.mkdir(os.path.join(tmp, ".git"))
+            with open(os.path.join(tmp, "pyproject.toml"), "w", encoding="utf-8") as fh:
+                fh.write("[project]\nname='demo'\n")
+            with open(os.path.join(tmp, "main.py"), "w", encoding="utf-8") as fh:
+                fh.write("def app():\n    return None\n")
+            intent = route_intake_intent(
+                "/do crea el backend de una app de notas con FastAPI, SQLite, autenticacion y tests"
+            )
+            self.assertTrue(
+                _should_start_greenfield_in_act(
+                    tmp,
+                    intent,
+                    {"change_expectation": "must_write"},
+                )
+            )
+
+    def test_intent_implies_greenfield_write_for_execute_must_write(self) -> None:
+        intent = route_intake_intent(
+            "/do crea el backend de una app de notas con FastAPI, SQLite, autenticacion y tests"
+        )
+        self.assertTrue(
+            _intent_implies_greenfield_write(intent, {"change_expectation": "must_write"})
+        )
 
     def test_read_utf8_text_for_tool_returns_error_for_binary_file(self) -> None:
         with TemporaryDirectory() as tmp:

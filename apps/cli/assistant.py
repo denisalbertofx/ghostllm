@@ -360,13 +360,32 @@ def _filter_workspace_listing_entries(path: str, entries: List[str]) -> List[str
     return filtered
 
 
-def _should_start_greenfield_in_act(cwd: str, intent: Optional[Intent]) -> bool:
+def _intent_implies_greenfield_write(intent: Optional[Intent], contract_spec: Optional[Dict[str, Any]] = None) -> bool:
+    if intent is None:
+        return False
+    if _is_bootstrap_scaffold_intent(intent):
+        return True
+    if str(getattr(intent, "task_type", "") or "").strip().lower() == "scaffold":
+        return True
+    if str(getattr(intent, "mode", "") or "").strip() != "Execute":
+        return False
+    ce = str((contract_spec or {}).get("change_expectation") or "").strip().lower()
+    if ce in ("must_write", "may_write"):
+        return True
+    return False
+
+
+def _should_start_greenfield_in_act(
+    cwd: str,
+    intent: Optional[Intent],
+    contract_spec: Optional[Dict[str, Any]] = None,
+) -> bool:
     context, _markers = WorkingDirectoryGuard.detect_context(cwd)
     if context == "bootstrap_partial":
-        return bool(intent) and str(getattr(intent, "task_type", "") or "").strip().lower() == "scaffold"
-    if not _is_bootstrap_scaffold_intent(intent):
-        return False
-    return context in ("empty", "repo_shell")
+        return _intent_implies_greenfield_write(intent, contract_spec)
+    if context in ("empty", "repo_shell"):
+        return _intent_implies_greenfield_write(intent, contract_spec)
+    return False
 
 
 def _effective_tool_task_type(mode: str, intent_task_type: str, *, bootstrap_scaffold: bool = False) -> str:
@@ -3327,7 +3346,8 @@ Discovery actions this session: {discovery_count}
             task_mode=getattr(_sess_ts, "task_mode", "standard") if _sess_ts else "standard",
             micro_task_kind=getattr(_sess_ts, "micro_task_kind", None) if _sess_ts else None,
         )
-        if _should_start_greenfield_in_act(self.cwd, intent):
+        spec_for_phase = contract_spec_dict_from_session(session) if session else None
+        if _should_start_greenfield_in_act(self.cwd, intent, spec_for_phase):
             try:
                 session.events.append(
                     {
@@ -3367,6 +3387,9 @@ Discovery actions this session: {discovery_count}
         sess = self.artifact_manager.current_session if self.artifact_manager else None
         if not sess:
             return False
+        for event in reversed(getattr(sess, "events", None) or []):
+            if isinstance(event, dict) and event.get("event") == "greenfield_bootstrap_start_in_act":
+                return True
         if str(getattr(sess, "task_type", "") or "").strip().lower() == "scaffold":
             return True
         tc = getattr(sess, "task_contract", None)

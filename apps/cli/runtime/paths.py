@@ -2,6 +2,8 @@ import os
 import re
 from typing import List, Optional, Tuple
 
+_TOOL_PATH_TRAILING_TAG_RE = re.compile(r"(?:\s*</?[A-Za-z][^>\r\n]*>\s*)+$")
+
 class PathComposer:
     """
     Central utility for robust path composition and normalization.
@@ -13,6 +15,15 @@ class PathComposer:
         """Remove redundant separators (e.g. app/api/issues//route.ts -> app/api/issues/route.ts)."""
         if not path:
             return path
+        path = str(path).strip()
+        path = _TOOL_PATH_TRAILING_TAG_RE.sub("", path).strip()
+        path = path.replace("\r", " ").replace("\n", " ").strip()
+        scheme_match = re.match(r"^([A-Za-z0-9_.-]+)://([A-Za-z0-9_.-]+)(/.*)?$", path)
+        if scheme_match:
+            left = scheme_match.group(1)
+            right = scheme_match.group(2)
+            tail = scheme_match.group(3) or ""
+            path = f"{left}-{right}{tail}"
         path = path.replace("\\", "/")
         while "//" in path:
             path = path.replace("//", "/")
@@ -109,6 +120,38 @@ class WorkingDirectoryGuard:
         ".php",
         ".cs",
     )
+    BOOTSTRAP_PROJECT_ANCHORS = {
+        "package.json",
+        "pyproject.toml",
+        "requirements.txt",
+    }
+    BOOTSTRAP_MATURE_PATH_MARKERS = {
+        "src",
+        "app",
+        "apps",
+        "tests",
+        "test",
+        "__tests__",
+        "pages",
+        "components",
+        "public",
+        "migrations",
+        "alembic",
+        "prisma",
+        "backend",
+        "frontend",
+        "server",
+        "client",
+    }
+    NESTED_BOOTSTRAP_ANCHORS = {
+        "package.json",
+        "pyproject.toml",
+        "requirements.txt",
+        "readme.md",
+        "readme.txt",
+        "next.config.js",
+        "next.config.ts",
+    }
 
     @classmethod
     def _looks_like_partial_bootstrap(cls, entries: List[str]) -> bool:
@@ -137,6 +180,60 @@ class WorkingDirectoryGuard:
         return len(source_like) >= 1
 
     @classmethod
+    def _looks_like_nested_partial_bootstrap(cls, cwd: str, entries: List[str]) -> bool:
+        visible = [str(name or "").strip() for name in entries if str(name or "").strip()]
+        non_shell_entries = [
+            name for name in visible
+            if name not in cls.REPO_SHELL_ALLOWLIST
+        ]
+        if len(non_shell_entries) != 1:
+            return False
+        nested_name = non_shell_entries[0]
+        nested_path = os.path.join(cwd, nested_name)
+        if not os.path.isdir(nested_path):
+            return False
+        try:
+            nested_entries = [entry.name for entry in os.scandir(nested_path)]
+        except OSError:
+            return False
+        nested_visible = [str(name or "").strip() for name in nested_entries if str(name or "").strip()]
+        if not nested_visible or len(nested_visible) > 4:
+            return False
+        lowered = [name.lower() for name in nested_visible]
+        if not any(name in cls.NESTED_BOOTSTRAP_ANCHORS for name in lowered):
+            return False
+        mature_markers = {"app", "src", "pages", "tests", "__tests__", "public"}
+        if sum(1 for name in lowered if name in mature_markers) > 1:
+            return False
+        return True
+
+    @classmethod
+    def _looks_like_root_project_seed(cls, cwd: str, entries: List[str]) -> bool:
+        visible = [str(name or "").strip() for name in entries if str(name or "").strip()]
+        if not visible:
+            return False
+        non_shell_entries = [
+            name for name in visible
+            if name not in cls.REPO_SHELL_ALLOWLIST
+        ]
+        if not non_shell_entries or len(non_shell_entries) > 4:
+            return False
+        lowered = [name.lower() for name in non_shell_entries]
+        anchors = [name for name in lowered if name in cls.BOOTSTRAP_PROJECT_ANCHORS]
+        if not anchors:
+            return False
+        source_like = [name for name in lowered if name.endswith(cls.BOOTSTRAP_SOURCE_SUFFIXES)]
+        if not source_like and len(non_shell_entries) > 2:
+            return False
+        for name in lowered:
+            full = os.path.join(cwd, name)
+            if os.path.isdir(full) and name in cls.BOOTSTRAP_MATURE_PATH_MARKERS:
+                return False
+            if name.startswith("test") or name in {"tests", "__tests__"}:
+                return False
+        return True
+
+    @classmethod
     def detect_context(cls, cwd: str) -> Tuple[str, List[str]]:
         """
         Scans the directory for markers to determine context.
@@ -153,13 +250,14 @@ class WorkingDirectoryGuard:
         if not found:
             return "empty", []
 
-        if any(marker in cls.STRONG_MARKERS for marker in found):
-            return "project", found
-
         try:
             entries = [entry.name for entry in os.scandir(cwd)]
         except OSError:
             entries = []
+        if any(marker in cls.STRONG_MARKERS for marker in found):
+            if cls._looks_like_root_project_seed(cwd, entries):
+                return "bootstrap_partial", found
+            return "project", found
         non_shell_entries = [
             name for name in entries
             if name not in cls.REPO_SHELL_ALLOWLIST
@@ -167,6 +265,8 @@ class WorkingDirectoryGuard:
         if not non_shell_entries:
             return "repo_shell", found
         if cls._looks_like_partial_bootstrap(entries):
+            return "bootstrap_partial", found
+        if cls._looks_like_nested_partial_bootstrap(cwd, entries):
             return "bootstrap_partial", found
 
         return "project", found
