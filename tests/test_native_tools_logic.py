@@ -18,7 +18,7 @@ async def _push_lines(chunks, on_line):
 def test_native_payload():
     """Verify that the payload includes tools and tool_choice."""
     assistant = CodexAssistant("http://localhost:11434", "key", "model")
-    assistant._should_use_stream = MagicMock(return_value=False)
+    assistant._streaming_response_supported = MagicMock(return_value=False)
     mock_response = MagicMock()
     mock_response.status_code = 200
     mock_response.json.return_value = {"choices": [{"message": {"content": ""}}]}
@@ -62,6 +62,26 @@ def test_tool_call_parsing():
     assert msg["tool_calls"][0]["id"] == "call_123"
     assert msg["tool_calls"][0]["function"]["name"] == "ls"
     assert msg["tool_calls"][0]["function"]["arguments"] == '{"path": "."}'
+
+
+def test_response_mode_defaults_to_streaming_even_for_large_prompt():
+    assistant = CodexAssistant("http://localhost:11434", "key", "model")
+    assistant._streaming_response_supported = MagicMock(return_value=True)
+
+    use_stream, label = assistant._resolve_response_mode(prefer_buffered_recovery=False)
+
+    assert use_stream is True
+    assert label == "streaming"
+
+
+def test_response_mode_uses_buffered_only_when_streaming_is_not_supported():
+    assistant = CodexAssistant("http://localhost:11434", "key", "model")
+    assistant._streaming_response_supported = MagicMock(return_value=False)
+
+    use_stream, label = assistant._resolve_response_mode(prefer_buffered_recovery=False)
+
+    assert use_stream is False
+    assert label == "buffered (provider-limited)"
 
 
 if __name__ == "__main__":

@@ -100,6 +100,8 @@ class ModelCallTrace(BaseModel):
     error_message: str = ""
     prompt_chars: int = 0
     output_chars: int = 0
+    requested_response_mode: str = ""
+    actual_response_mode: str = ""
     correlation_id: str = ""
 
 
@@ -892,6 +894,12 @@ class SessionTraceManager:
         except Exception as e:
             logger.debug("session ndjson log failed: %s", e)
 
+    def record_runtime_event(self, event_type: str, payload: Dict[str, Any]) -> None:
+        try:
+            self._log_event(event_type, dict(payload or {}))
+        except Exception as e:
+            logger.debug("record_runtime_event failed: %s", e)
+
     def record_chat_model_turn(self) -> None:
         """Un turno donde el modelo principal devolvió mensaje (haya o no tool calls)."""
         try:
@@ -1316,3 +1324,20 @@ def finish_session_trace(
         except Exception:
             pass
     return mgr.finish_and_persist(project_root)
+
+
+def log_cli_runtime_event(
+    *,
+    cwd: str,
+    command_mode: str,
+    event_type: str,
+    payload: Dict[str, Any],
+) -> str:
+    """
+    Emit a lightweight NDJSON event for CLI failures that happen before the
+    assistant loop creates a full session trace.
+    """
+    session_id = f"cli-{int(time.time() * 1000)}"
+    mgr = SessionTraceManager(session_id, cwd, command_mode)
+    mgr.record_runtime_event(event_type, dict(payload or {}))
+    return mgr.ndjson_log_path

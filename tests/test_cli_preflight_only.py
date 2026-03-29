@@ -134,6 +134,39 @@ def test_preflight_gateway_exits_when_registry_stays_stale() -> None:
             assert getattr(exc, "exit_code", 2) == 2
 
 
+def test_preflight_gateway_exit_surfaces_exact_fix_command() -> None:
+    from apps.cli.main import _preflight_gateway_or_exit
+    from apps.cli.runtime.gateway_endpoint import GatewayPreflightResult
+
+    result = GatewayPreflightResult(
+        base_url="http://127.0.0.1:8000",
+        ok=False,
+        checked_url="http://127.0.0.1:8000/health",
+        status_code=None,
+        error="refused",
+        hint="URL efectiva: http://127.0.0.1:8000",
+        failure_class="gateway_not_running",
+        reason_summary="El gateway local no está corriendo o no acepta conexiones.",
+        remedy_command="ghost start",
+        autostart_attempted=True,
+        autostart_succeeded=False,
+    )
+
+    with patch("apps.cli.main._ensure_gateway_process", return_value=result), patch(
+        "apps.cli.main._has_provider_credentials_configured", return_value=True
+    ), patch("rich.console.Console.print") as print_mock:
+        try:
+            _preflight_gateway_or_exit()
+            assert False, "expected typer.Exit"
+        except Exception as exc:
+            assert type(exc).__name__ == "Exit"
+            assert getattr(exc, "exit_code", 2) == 2
+
+    rendered = "\n".join(str(call.args[0]) for call in print_mock.call_args_list if call.args)
+    assert "ghost start" in rendered
+    assert "Gateway local no disponible" in rendered
+
+
 def test_claude_preflight_only_skips_external_claude_launch() -> None:
     pf = SimpleNamespace(ok=True)
     with patch("apps.cli.main.is_running", return_value=True), patch(

@@ -1632,6 +1632,7 @@ Discovery actions this session: {discovery_count}
             llm_gateway_reachable=getattr(gw_pf, "ok", None) if gw_pf is not None else None,
             llm_gateway_checked=getattr(gw_pf, "checked_url", "") if gw_pf is not None else "",
             provider_backend_label="openai_compatible",
+            response_mode_label=self._startup_response_mode_label(),
             auto_approve=self.auto_approve,
         )
         self.policy_gate = PolicyGate(self.console, self.auto_approve, cwd=self.cwd)
@@ -1676,7 +1677,8 @@ Discovery actions this session: {discovery_count}
         self._answer_now_pressure_injected_key: Optional[Tuple[int, int]] = None
         self._final_synthesis_done: bool = False
         self._pending_readonly_plan_render: Optional[Dict[str, Any]] = None
-        self._shown_large_prompt_non_stream_hint: bool = False
+        self._requested_response_mode: str = "streaming"
+        self._actual_response_mode: str = "streaming"
         self._plan_budget_extension_anchor_reads: int = 0
         self._plan_budget_extension_anchor_discovery: int = 0
         self._dependency_install_completed: bool = False
@@ -2803,6 +2805,8 @@ Discovery actions this session: {discovery_count}
                     error_message=(err or "")[:2000],
                     prompt_chars=int(prompt_chars),
                     output_chars=int(output_chars),
+                    requested_response_mode=str(getattr(self, "_requested_response_mode", "") or ""),
+                    actual_response_mode=str(getattr(self, "_actual_response_mode", "") or ""),
                 )
             )
         except Exception:
@@ -3111,7 +3115,8 @@ Discovery actions this session: {discovery_count}
         self._micro_task_early_pressure_injected = False
         self._conclusion_nudge_injected = False
         self._pending_readonly_plan_render = None
-        self._shown_large_prompt_non_stream_hint = False
+        self._requested_response_mode = "streaming"
+        self._actual_response_mode = "streaming"
         self._plan_budget_extension_anchor_reads = 0
         self._plan_budget_extension_anchor_discovery = 0
         self._explore_v2_mismatch_checked = False
@@ -3151,6 +3156,21 @@ Discovery actions this session: {discovery_count}
             session.cli_command_mode = self.command_mode
         self._trace_mgr = start_session_trace(session.session_id, self.cwd, self.command_mode)
         self._trace_ctx_token = attach_trace_manager(self._trace_mgr)
+        gw_pf = getattr(self, "_gateway_preflight", None)
+        if self._trace_mgr and gw_pf is not None:
+            try:
+                self._trace_mgr.record_runtime_event(
+                    "gateway_preflight",
+                    {
+                        "ok": bool(getattr(gw_pf, "ok", False)),
+                        "checked_url": str(getattr(gw_pf, "checked_url", "") or ""),
+                        "base_url": str(getattr(gw_pf, "base_url", self.server_url) or self.server_url),
+                        "autostart_attempted": bool(getattr(gw_pf, "autostart_attempted", False)),
+                        "autostart_succeeded": bool(getattr(gw_pf, "autostart_succeeded", False)),
+                    },
+                )
+            except Exception:
+                pass
         try:
             self._chat_loop(task_obj, text, intent, is_resumed)
         finally:
@@ -7403,11 +7423,25 @@ Discovery actions this session: {discovery_count}
                 )
 
                 if attempt == 0 and is_retryable:
+                    self._actual_response_mode = "recovery"
+                    _mgr = getattr(self, "_trace_mgr", None)
+                    if _mgr:
+                        try:
+                            _mgr.record_runtime_event(
+                                "stream_recovery",
+                                {
+                                    "requested_response_mode": "streaming",
+                                    "actual_response_mode": "recovery",
+                                    "error_type": type(e).__name__,
+                                },
+                            )
+                        except Exception:
+                            pass
                     self.console.print(
                         f"[yellow]⚠ Stream interrupted ({type(e).__name__}), "
                         f"reintentando sin streaming (1/2)…[/yellow]"
                     )
-                    time.sleep(2)
+                    time.sleep(1)
                     continue
                 self.console.print(f"[bold red]✘ System Error:[/bold red] {e}")
                 if parent_status:
@@ -7549,9 +7583,9 @@ Discovery actions this session: {discovery_count}
         active_messages = [{"role": "system", "content": full_system}] + history_for_prompt
         tr_prompt_chars = sum(len(str(m.get("content") or "")) for m in active_messages)
         self._last_main_turn_prompt_chars = tr_prompt_chars
-        use_stream = self._should_use_stream(latest_user_content, prompt_chars_est=tr_prompt_chars)
-        if prefer_non_stream:
-            use_stream = False
+        use_stream, response_mode_label = self._resolve_response_mode(
+            prefer_buffered_recovery=prefer_non_stream
+        )
 
         sess_enforce = self.artifact_manager.current_session
         defer_analysis_grounding_print = readonly_analysis_grounding_enabled(
@@ -7585,11 +7619,23 @@ Discovery actions this session: {discovery_count}
                 f"\n[ghost.brand]GHOST[/ghost.brand] [dim]·[/dim] "
                 f"[white]{getattr(self, 'project_name', 'GhostLLM')}[/white]"
             )
-        if not use_stream and tr_prompt_chars > 50_000 and not self._shown_large_prompt_non_stream_hint:
+        _mgr_mode = getattr(self, "_trace_mgr", None)
+        if _mgr_mode:
+            try:
+                _mgr_mode.record_runtime_event(
+                    "response_mode_selected",
+                    {
+                        "requested_response_mode": self._requested_response_mode,
+                        "actual_response_mode": response_mode_label,
+                        "stream_enabled": bool(use_stream),
+                    },
+                )
+            except Exception:
+                pass
+        if response_mode_label == "buffered (provider-limited)":
             self.console.print(
-                "[dim]Modo sin streaming (prompt grande); timeout de lectura extendido si aplica.[/dim]"
+                "[dim]Provider does not expose interactive streaming for this turn; using buffered mode.[/dim]"
             )
-            self._shown_large_prompt_non_stream_hint = True
 
         try:
             if not use_stream:
@@ -8691,6 +8737,31 @@ Discovery actions this session: {discovery_count}
         if self.current_intent.mode == "Chat":
             return len(text) <= max_user
         return len(text) <= max_user
+    def _streaming_response_supported(self) -> bool:
+        forced = str(os.getenv("GHOST_RESPONSE_MODE", "") or "").strip().lower()
+        if forced in ("buffered", "nonstream", "non-stream"):
+            return False
+        return True
+
+    def _startup_response_mode_label(self) -> str:
+        if self._streaming_response_supported():
+            return "streaming"
+        return "buffered (provider-limited)"
+
+    def _resolve_response_mode(self, *, prefer_buffered_recovery: bool = False) -> Tuple[bool, str]:
+        self._requested_response_mode = "streaming"
+        if prefer_buffered_recovery:
+            self._actual_response_mode = "recovery"
+            return False, self._actual_response_mode
+        if not self._streaming_response_supported():
+            self._actual_response_mode = "buffered (provider-limited)"
+            return False, self._actual_response_mode
+        self._actual_response_mode = "streaming"
+        return True, self._actual_response_mode
+
+    def _should_use_stream(self, text: str, *, prompt_chars_est: int = 0) -> bool:
+        _ = text, prompt_chars_est
+        return self._streaming_response_supported()
 
     def _create_autonomy_checkpoint(self, reason: str, details: str) -> AutonomyCheckpoint:
         """Analyze session history and create a smart checkpoint."""

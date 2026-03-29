@@ -90,6 +90,8 @@ class TestProviderInitialization(unittest.TestCase):
                 with self.assertRaises(SystemExit) as ctx:
                     require_provider_for_assistant()
                 self.assertEqual(ctx.exception.code, 1)
+                rendered = "\n".join(str(call.args[0]) for call in mock_console_cls.return_value.print.call_args_list if call.args)
+                self.assertIn("ghost stop && ghost start", rendered)
 
     def test_doctor_reports_gateway_healthy_but_not_ready(self):
         """Doctor must distinguish /health OK from /ready not ready in the rendered status."""
@@ -203,7 +205,7 @@ class TestProviderInitialization(unittest.TestCase):
 
         assistant = CodexAssistant("http://localhost:11434", "key", "coder")
         assistant.history = [{"role": "user", "content": "hello"}]
-        assistant._should_use_stream = MagicMock(return_value=False)
+        assistant._streaming_response_supported = MagicMock(return_value=False)
         mock_resp = MagicMock()
         mock_resp.status_code = 500
         mock_resp.text = '{"detail":"NVIDIA Provider not initialized"}'
@@ -221,7 +223,7 @@ class TestProviderInitialization(unittest.TestCase):
 
         assistant = CodexAssistant("http://localhost:11434", "key", "coder")
         assistant.history = [{"role": "user", "content": "hello"}]
-        assistant._should_use_stream = MagicMock(return_value=False)
+        assistant._streaming_response_supported = MagicMock(return_value=False)
 
         call_count = 0
 

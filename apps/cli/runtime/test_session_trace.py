@@ -102,6 +102,22 @@ class SessionTracePersistenceTests(unittest.TestCase):
             self.assertTrue(tool_events)
             self.assertTrue(tool_events[0]["payload"]["correlation_id"].endswith(":tool:1"))
 
+    def test_session_trace_records_runtime_event(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            fake_log_root = Path(tmp) / ".ghost" / "logs"
+            with patch("apps.cli.runtime.session_trace._session_log_root", return_value=fake_log_root):
+                mgr = SessionTraceManager("task_runtime123", str(tmp), command_mode="plan")
+                mgr.record_runtime_event(
+                    "gateway_preflight",
+                    {"ok": True, "actual_response_mode": "streaming"},
+                )
+                mgr.finish_and_persist(str(tmp))
+            lines = fake_log_root.joinpath(next(iter(os.listdir(fake_log_root)))).read_text(encoding="utf-8").splitlines()
+            payloads = [json.loads(line) for line in lines]
+            runtime_events = [row for row in payloads if row["event_type"] == "gateway_preflight"]
+            self.assertTrue(runtime_events)
+            self.assertEqual(runtime_events[0]["payload"]["actual_response_mode"], "streaming")
+
     def test_phase_timing_recorded_success(self) -> None:
         mgr = SessionTraceManager("s1", os.getcwd(), "dev")
         mgr.start_phase("alpha")

@@ -5,6 +5,7 @@ import sys
 import time
 import httpx
 import yaml
+from dataclasses import is_dataclass, replace
 from pathlib import Path
 from enum import Enum
 from typing import Optional, Union
@@ -162,7 +163,16 @@ def _ensure_gateway_process() -> GatewayPreflightResult:
         fg=typer.colors.YELLOW,
     )
     _start_daemon_process(quiet=True)
-    return probe_gateway(base, api_key=get_api_key())
+    post = probe_gateway(base, api_key=get_api_key())
+    if is_dataclass(post):
+        return replace(
+            post,
+            autostart_attempted=True,
+            autostart_succeeded=bool(post.ok),
+        )
+    setattr(post, "autostart_attempted", True)
+    setattr(post, "autostart_succeeded", bool(getattr(post, "ok", False)))
+    return post
 
 
 def _load_local_registry_alias_map() -> dict[str, str]:
@@ -358,6 +368,55 @@ def _configured_repo_remote() -> str:
     return result.stdout.strip()
 
 
+def _log_cli_preflight_event(event_type: str, payload: dict[str, object]) -> None:
+    try:
+        from apps.cli.runtime.session_trace import log_cli_runtime_event
+
+        command_mode = str(sys.argv[1] if len(sys.argv) > 1 else "cli").strip() or "cli"
+        log_cli_runtime_event(
+            cwd=os.getcwd(),
+            command_mode=command_mode,
+            event_type=event_type,
+            payload=payload,
+        )
+    except Exception:
+        pass
+
+
+def _print_cli_failure(headline: str, reason: str, command: str) -> None:
+    from rich.console import Console
+
+    Console(file=sys.stderr).print(
+        f"[bold red]{headline}[/bold red]\n"
+        f"[dim]{reason}[/dim]\n"
+        f"[bold]Next:[/bold] [cyan]{command}[/cyan]"
+    )
+
+
+def _provider_ready_failure_contract(detail: str) -> tuple[str, str, str, str]:
+    lower = str(detail or "").strip().lower()
+    if "401" in lower or "403" in lower or "auth" in lower or "unauthorized" in lower or "forbidden" in lower:
+        return (
+            "Ghost no está inicializado",
+            "La autenticación del proveedor es inválida o falta configuración.",
+            "ghost init",
+            "auth_config_invalid",
+        )
+    if "not initialized" in lower:
+        return (
+            "Provider no está listo",
+            "El gateway está arriba, pero el proveedor todavía no se inicializó correctamente.",
+            "ghost stop && ghost start",
+            "provider_not_initialized",
+        )
+    return (
+        "Provider no está listo",
+        "El gateway responde, pero todavía no puede atender solicitudes del modelo.",
+        "ghost stop && ghost start",
+        "gateway_healthy_not_ready",
+    )
+
+
 def check_provider_ready(base_url: Optional[str] = None) -> tuple[bool, str]:
     base = (base_url or _effective_gateway_url()).rstrip("/")
     try:
@@ -379,9 +438,17 @@ def require_provider_for_assistant(base_url: Optional[str] = None) -> None:
     ready, err = check_provider_ready(base_url)
     if ready:
         return
-    from rich.console import Console
-
-    Console(file=sys.stderr).print(f"[bold red]Provider not ready[/bold red]\n[dim]{err}[/dim]")
+    headline, reason, command, failure_class = _provider_ready_failure_contract(err)
+    _log_cli_preflight_event(
+        "provider_ready_failure",
+        {
+            "failure_class": failure_class,
+            "detail": str(err or "")[:400],
+            "remedy_command": command,
+            "base_url": (base_url or _effective_gateway_url()).rstrip("/"),
+        },
+    )
+    _print_cli_failure(headline, reason, command)
     raise SystemExit(1)
 
 
@@ -411,6 +478,93 @@ def _preflight_gateway_or_exit() -> GatewayPreflightResult:
     if not sync_ok:
         Console(file=sys.stderr).print(
             f"[bold red]Daemon model registry is stale[/bold red]\n[dim]{sync_detail}[/dim]"
+        )
+        raise typer.Exit(code=2)
+    return result
+
+
+def require_provider_for_assistant(base_url: Optional[str] = None) -> None:
+    ready, err = check_provider_ready(base_url)
+    if ready:
+        return
+    headline, reason, command, failure_class = _provider_ready_failure_contract(err)
+    _log_cli_preflight_event(
+        "provider_ready_failure",
+        {
+            "failure_class": failure_class,
+            "detail": str(err or "")[:400],
+            "remedy_command": command,
+            "base_url": (base_url or _effective_gateway_url()).rstrip("/"),
+        },
+    )
+    _print_cli_failure(headline, reason, command)
+    raise SystemExit(1)
+
+
+def _preflight_gateway_or_exit() -> GatewayPreflightResult:
+    """Antes del loop del asistente: endpoint vivo o salida limpia con remediación exacta."""
+    base = _effective_gateway_url()
+    result = _ensure_gateway_process()
+    if not result.ok:
+        if not _has_provider_credentials_configured():
+            _log_cli_preflight_event(
+                "gateway_preflight_failure",
+                {
+                    "failure_class": "auth_config_invalid",
+                    "detail": "provider credentials missing",
+                    "remedy_command": "ghost init",
+                    "base_url": base,
+                    "autostart_attempted": bool(getattr(result, "autostart_attempted", False)),
+                    "autostart_succeeded": bool(getattr(result, "autostart_succeeded", False)),
+                },
+            )
+            _print_cli_failure(
+                "Ghost no está inicializado",
+                "Falta configurar la API key del proveedor antes de usar comandos con modelo.",
+                "ghost init",
+            )
+        else:
+            _log_cli_preflight_event(
+                "gateway_preflight_failure",
+                {
+                    "failure_class": str(getattr(result, "failure_class", "") or "gateway_unreachable"),
+                    "detail": str(getattr(result, "error", "") or "")[:400],
+                    "remedy_command": str(getattr(result, "remedy_command", "") or "ghost start"),
+                    "base_url": base,
+                    "autostart_attempted": bool(getattr(result, "autostart_attempted", False)),
+                    "autostart_succeeded": bool(getattr(result, "autostart_succeeded", False)),
+                },
+            )
+            from rich.console import Console
+
+            Console(file=sys.stderr).print(format_preflight_failure_console(result))
+        raise typer.Exit(code=2)
+    _log_cli_preflight_event(
+        "gateway_preflight",
+        {
+            "ok": True,
+            "checked_url": str(getattr(result, "checked_url", "") or ""),
+            "base_url": base,
+            "autostart_attempted": bool(getattr(result, "autostart_attempted", False)),
+            "autostart_succeeded": bool(getattr(result, "autostart_succeeded", False)),
+        },
+    )
+    require_provider_for_assistant(base)
+    sync_ok, sync_detail = _refresh_daemon_registry_if_needed(base)
+    if not sync_ok:
+        _log_cli_preflight_event(
+            "gateway_registry_stale",
+            {
+                "failure_class": "registry_stale",
+                "detail": str(sync_detail or "")[:400],
+                "remedy_command": "ghost stop && ghost start",
+                "base_url": base,
+            },
+        )
+        _print_cli_failure(
+            "Daemon model registry is stale",
+            str(sync_detail or "El daemon no coincide con el registro local de modelos."),
+            "ghost stop && ghost start",
         )
         raise typer.Exit(code=2)
     return result

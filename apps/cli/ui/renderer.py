@@ -108,7 +108,7 @@ def _default_live_detail_line(state: str) -> str:
 _STATUS_HINT: Dict[str, str] = {
     "thinking": "El modelo sigue activo; prompts muy largos alargan este tramo.",
     "tool_exec": "read · patch · shell según política del gate",
-    "building": "Stream de tokens o bloque final",
+    "building": "Streaming progresivo de respuesta",
     "closing": "Síntesis sin nuevas herramientas",
 }
 
@@ -2470,6 +2470,7 @@ class GhostRenderer:
         llm_gateway_reachable: Optional[bool] = None,
         llm_gateway_checked: str = "",
         provider_backend_label: str = "",
+        response_mode_label: str = "streaming",
         auto_approve: bool = False,
         **kwargs: Any,
     ):
@@ -2491,6 +2492,7 @@ class GhostRenderer:
         runtime_bits: List[str] = [
             truncate_visible(model or "sin modelo", 24),
             truncate_visible(command_mode or "dev", 12),
+            truncate_visible(response_mode_label or "streaming", 26),
         ]
         if llm_gateway_reachable is True:
             runtime_bits.append("gateway ready")

@@ -236,6 +236,7 @@ class TestArtifactSummaryFindingsTier(unittest.TestCase):
                 llm_gateway_url="http://127.0.0.1:8000",
                 llm_gateway_reachable=True,
                 provider_backend_label="openai_compatible",
+                response_mode_label="streaming",
                 auto_approve=False,
             )
         out = self.output.getvalue()
@@ -248,6 +249,7 @@ class TestArtifactSummaryFindingsTier(unittest.TestCase):
         self.assertIn("workspace:", out.lower())
         self.assertIn("runtime:", out.lower())
         self.assertIn("permissions:", out.lower())
+        self.assertIn("streaming", out.lower())
         self.assertIn("branch main", out)
         self.assertIn("last", normalized)
         self.assertIn("session 2h ago", normalized)
