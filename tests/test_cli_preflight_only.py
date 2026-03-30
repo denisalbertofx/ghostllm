@@ -345,6 +345,28 @@ def test_recover_pending_filesystem_intent_can_revert(tmp_path, monkeypatch) -> 
     assert store.list_pending_filesystem_intents() == []
 
 
+def test_recover_pending_filesystem_intent_can_continue(tmp_path, monkeypatch) -> None:
+    from apps.cli import main as cli_main
+
+    target = tmp_path / "demo.txt"
+    target.write_text("new", encoding="utf-8")
+    store = cli_main._memory_store_for_cwd(str(tmp_path))
+    store.begin_filesystem_intent(
+        intent_id="intent_continue",
+        session_id="sess",
+        op_type="write_file",
+        relpath="demo.txt",
+        payload={"path": "demo.txt", "had_existing_file": False, "old_content": ""},
+        reversible=True,
+    )
+    monkeypatch.setenv("GHOST_PENDING_INTENT_DECISION", "continue")
+
+    cli_main._recover_pending_filesystem_intents(str(tmp_path))
+
+    assert target.exists()
+    assert store.list_pending_filesystem_intents() == []
+
+
 def test_preflight_attempts_autostart_when_gateway_is_down() -> None:
     from apps.cli.main import _ensure_gateway_process
 

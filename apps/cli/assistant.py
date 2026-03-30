@@ -460,6 +460,18 @@ def _should_start_greenfield_in_act(
     return False
 
 
+def _should_bypass_explore_for_greenfield_bootstrap(
+    cwd: str,
+    intent: Optional[Intent],
+    contract_spec: Optional[Dict[str, Any]] = None,
+    *,
+    has_diff: bool = False,
+) -> bool:
+    if has_diff:
+        return False
+    return _should_start_greenfield_in_act(cwd, intent, contract_spec)
+
+
 def _effective_tool_task_type(mode: str, intent_task_type: str, *, bootstrap_scaffold: bool = False) -> str:
     task_type = str(intent_task_type or "").strip().lower() or "ask"
     mode_name = str(mode or "").strip()
@@ -971,13 +983,50 @@ def _extract_shell_command_cwd(command: str) -> str:
     raw = str(command or "").strip()
     if not raw:
         return "."
-    m = re.search(r"(?:^|[;&])\s*cd\s+['\"]?([^'\";&]+)", raw, re.IGNORECASE)
+    m = re.search(r"(?:^|[;&])\s*cd(?:\s+/d)?\s+['\"]?([^'\";&]+)", raw, re.IGNORECASE)
     if m:
         return PathComposer.normalize_path_segments(m.group(1)) or "."
     m = re.search(r"(?:^|[;&])\s*set-location\s+['\"]?([^'\";]+)", raw, re.IGNORECASE)
     if m:
         return PathComposer.normalize_path_segments(m.group(1)) or "."
     return "."
+
+
+def _build_shell_subprocess_env(repo_root: str, command: str) -> Tuple[Dict[str, str], List[str]]:
+    env = os.environ.copy()
+    repo_abs = os.path.abspath(repo_root)
+    target_rel = _extract_shell_command_cwd(command)
+    target_abs = os.path.abspath(
+        PathComposer.compose(repo_abs, target_rel) if target_rel not in ("", ".") else repo_abs
+    )
+    repo_norm = repo_abs.replace("\\", "/").lower()
+    target_norm = target_abs.replace("\\", "/").lower()
+    stripped: List[str] = []
+
+    def _strip_env_key(key: str) -> None:
+        if key in env:
+            env.pop(key, None)
+            stripped.append(key)
+
+    for key in ("VIRTUAL_ENV", "UV_PROJECT_ENVIRONMENT", "__PYVENV_LAUNCHER__", "PYTHONHOME"):
+        raw = str(env.get(key) or "").strip()
+        if not raw:
+            continue
+        raw_norm = raw.replace("\\", "/").lower()
+        should_strip = False
+        if raw_norm.startswith("/mnt/") and not target_norm.startswith("/mnt/"):
+            should_strip = True
+        elif re.match(r"^[a-z]:[\\/]", raw, re.IGNORECASE) and target_norm.startswith("/"):
+            should_strip = True
+        elif os.path.isabs(raw):
+            value_abs = os.path.abspath(raw)
+            value_norm = value_abs.replace("\\", "/").lower()
+            if not (value_norm.startswith(target_norm) or value_norm.startswith(repo_norm)):
+                should_strip = True
+        if should_strip:
+            _strip_env_key(key)
+
+    return env, stripped
 
 
 def _build_failed_manual_verify_check(command: str, result: Dict[str, Any]) -> Optional[Dict[str, Any]]:
@@ -5733,6 +5782,31 @@ Discovery actions this session: {discovery_count}
 
     def _phase_explore(self, task_obj: Any, iterations: int) -> str:
         """EXPLORE: read-only tools; transition to ACT via explicit promotion rules."""
+        if _should_bypass_explore_for_greenfield_bootstrap(
+            self.cwd,
+            getattr(self, "current_intent", None),
+            self._session_contract_spec_dict(),
+            has_diff=self._session_has_diff(),
+        ):
+            context, _markers = WorkingDirectoryGuard.detect_context(self.cwd)
+            sess = self.artifact_manager.current_session
+            if sess and isinstance(getattr(sess, "events", None), list):
+                sess.events.append(
+                    {
+                        "event": "greenfield_bootstrap_explore_bypass",
+                        "context": context,
+                        "iteration": iterations,
+                    }
+                )
+            logger.info(
+                "phase transition: EXPLORE -> ACT (greenfield bootstrap bypass, context=%s)",
+                context,
+            )
+            self._promote_explore_to_act(
+                "greenfield_bootstrap_explore_bypass",
+                {"context": context, "iteration": iterations},
+            )
+            return "ok"
         self._maybe_inject_fast_path_nudge()
         if self._should_force_conclusion_after_discovery() and not self._conclusion_nudge_injected:
             self._conclusion_nudge_injected = True
@@ -8294,7 +8368,6 @@ Discovery actions this session: {discovery_count}
             if target_dir: os.makedirs(target_dir, exist_ok=True)
 
             with open(full_path, "w", encoding="utf-8") as f: f.write(content)
-            self.memory.update_filesystem_intent_status(intent_id, "completed")
             self.renderer.render_diff(path, "".join(difflib.unified_diff(old_content.splitlines(keepends=True), content.splitlines(keepends=True), fromfile=f"a/{path}", tofile=f"b/{path}")))
             self.artifact_manager.add_diff(
                 path, "Write File", content_sha256=_sha256_utf8(content)
@@ -8308,6 +8381,7 @@ Discovery actions this session: {discovery_count}
             self._pending_edit_recovery = None
             self.indexer.invalidate_project_tree_cache()
             self._bump_session_write_epoch()
+            self.memory.update_filesystem_intent_status(intent_id, "completed")
             return {"status": "success", "bytes": len(content)}
             
         elif name == "edit_file":
@@ -8387,7 +8461,6 @@ Discovery actions this session: {discovery_count}
                         }
                     return error
             with open(full_path, "w", encoding="utf-8", newline="") as f: f.write(new_content)
-            self.memory.update_filesystem_intent_status(intent_id, "completed")
             self.renderer.render_diff(path, "".join(difflib.unified_diff(content.splitlines(keepends=True), new_content.splitlines(keepends=True), fromfile=f"a/{path}", tofile=f"b/{path}")))
             self.artifact_manager.add_diff(
                 path, "Edit File", content_sha256=_sha256_utf8(new_content)
@@ -8401,6 +8474,7 @@ Discovery actions this session: {discovery_count}
             self._pending_edit_recovery = None
             self.indexer.invalidate_project_tree_cache()
             self._bump_session_write_epoch()
+            self.memory.update_filesystem_intent_status(intent_id, "completed")
             return {"status": "success", "file": path, "match_mode": match_mode}
             
         elif name == "run_shell":
@@ -8477,16 +8551,15 @@ Discovery actions this session: {discovery_count}
                     },
                     reversible=False,
                 )
+            shell_env, stripped_env_keys = _build_shell_subprocess_env(self.cwd, effective_cmd)
             res = subprocess.run(
                 effective_cmd,
                 shell=True,
                 capture_output=True,
                 text=False,
-                env=os.environ.copy(),
+                env=shell_env,
                 cwd=self.cwd,
             )
-            if shell_intent_id:
-                self.memory.update_filesystem_intent_status(shell_intent_id, "completed")
             stdout_text = _decode_subprocess_output(res.stdout)
             stderr_text = _decode_subprocess_output(res.stderr)
             changed_install_files: List[str] = []
@@ -8523,6 +8596,18 @@ Discovery actions this session: {discovery_count}
                             "changed_files": changed_install_files[:5],
                         }
                     )
+            if stripped_env_keys:
+                sess = self.artifact_manager.current_session
+                if sess and isinstance(getattr(sess, "events", None), list):
+                    sess.events.append(
+                        {
+                            "event": "shell_env_sanitized",
+                            "command": effective_cmd[:240],
+                            "keys": list(stripped_env_keys),
+                        }
+                    )
+            if shell_intent_id:
+                self.memory.update_filesystem_intent_status(shell_intent_id, "completed")
              
             # GEP-3.1: Terminal Failure for Exact Commands
             is_exact = getattr(self.current_intent, "is_exact_command", False)
@@ -8569,7 +8654,6 @@ Discovery actions this session: {discovery_count}
                     reversible=True,
                 )
                 os.remove(full_path)
-                self.memory.update_filesystem_intent_status(intent_id, "completed")
                 self.artifact_manager.add_diff(
                     path,
                     "Delete File",
@@ -8583,6 +8667,7 @@ Discovery actions this session: {discovery_count}
                         sess.fast_path_used = True
                 self._pending_edit_recovery = None
                 self.indexer.invalidate_project_tree_cache()
+                self.memory.update_filesystem_intent_status(intent_id, "completed")
                 return {"status": "success", "file": path}
             return {"status": "aborted"}
             

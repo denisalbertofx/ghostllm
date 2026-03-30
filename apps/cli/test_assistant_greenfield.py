@@ -3,12 +3,13 @@ import unittest
 from contextlib import nullcontext
 from tempfile import TemporaryDirectory
 from types import SimpleNamespace
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 from apps.cli.assistant import (
     CodexAssistant,
     _build_failed_manual_verify_check,
     _build_local_package_install_command,
+    _build_shell_subprocess_env,
     _collect_changed_local_package_install_files,
     _decode_subprocess_output,
     _edit_file_error_is_recoverable,
@@ -35,6 +36,7 @@ from apps.cli.assistant import (
     _should_allow_followup_repair_attempt,
     _should_grant_structured_repair_tailroom,
     _should_bridge_manual_verify_failure_to_repair,
+    _should_bypass_explore_for_greenfield_bootstrap,
     _should_retry_must_write_no_diff,
     _should_skip_manual_only_verify,
     _should_start_greenfield_in_act,
@@ -44,6 +46,7 @@ from apps.cli.assistant import (
     _verification_has_executed_checks,
 )
 from apps.cli.runtime.task_contract import route_intake_intent
+from ghostllm_core.memory import MemoryStore
 
 
 class TestAssistantGreenfieldHelpers(unittest.TestCase):
@@ -97,6 +100,27 @@ class TestAssistantGreenfieldHelpers(unittest.TestCase):
                 fh.write("print('hi')\n")
             intent = SimpleNamespace(task_type="scaffold", scaffold_type="extend", task="continua este proyecto")
             self.assertTrue(_should_start_greenfield_in_act(tmp, intent))
+
+    def test_should_bypass_explore_for_greenfield_repo_shell_without_diff(self) -> None:
+        with TemporaryDirectory() as tmp:
+            os.mkdir(os.path.join(tmp, ".git"))
+            intent = route_intake_intent("/do crea desde cero una CLI de tareas en Python con SQLite")
+            self.assertTrue(
+                _should_bypass_explore_for_greenfield_bootstrap(
+                    tmp,
+                    intent,
+                    {"change_expectation": "must_write"},
+                    has_diff=False,
+                )
+            )
+            self.assertFalse(
+                _should_bypass_explore_for_greenfield_bootstrap(
+                    tmp,
+                    intent,
+                    {"change_expectation": "must_write"},
+                    has_diff=True,
+                )
+            )
 
     def test_should_start_greenfield_in_act_for_seeded_backend_build(self) -> None:
         with TemporaryDirectory() as tmp:
@@ -591,8 +615,138 @@ class TestAssistantGreenfieldHelpers(unittest.TestCase):
 
     def test_extract_shell_command_cwd_supports_cd_and_set_location(self) -> None:
         self.assertEqual(_extract_shell_command_cwd('cd notes-app && npm run build'), "notes-app")
+        self.assertEqual(_extract_shell_command_cwd('cd /d "notes-app" && npm run build'), "notes-app")
         self.assertEqual(_extract_shell_command_cwd('Set-Location "notes-app"; npm run build'), "notes-app")
         self.assertEqual(_extract_shell_command_cwd("npm run build"), ".")
+
+    def test_build_shell_subprocess_env_strips_parent_virtualenv_for_scoped_project(self) -> None:
+        with TemporaryDirectory() as tmp:
+            os.makedirs(os.path.join(tmp, "notes-app"), exist_ok=True)
+            parent_env = os.path.join(tmp, "..", "GhostLLM-e2e", ".venv")
+            with patch.dict(
+                os.environ,
+                {
+                    "VIRTUAL_ENV": parent_env,
+                    "UV_PROJECT_ENVIRONMENT": parent_env,
+                    "__PYVENV_LAUNCHER__": parent_env,
+                },
+                clear=False,
+            ):
+                env, stripped = _build_shell_subprocess_env(tmp, 'cd /d "notes-app" && uv run pytest')
+            self.assertNotIn("VIRTUAL_ENV", env)
+            self.assertNotIn("UV_PROJECT_ENVIRONMENT", env)
+            self.assertNotIn("__PYVENV_LAUNCHER__", env)
+            self.assertIn("VIRTUAL_ENV", stripped)
+
+    def test_phase_explore_bypasses_churn_for_greenfield_repo_shell(self) -> None:
+        assistant = CodexAssistant.__new__(CodexAssistant)
+        with TemporaryDirectory() as tmp:
+            os.mkdir(os.path.join(tmp, ".git"))
+            assistant.cwd = tmp
+            assistant.current_intent = route_intake_intent(
+                "/do crea desde cero una CLI de tareas en Python con SQLite"
+            )
+            assistant.artifact_manager = SimpleNamespace(
+                current_session=SimpleNamespace(events=[])
+            )
+            assistant._session_contract_spec_dict = MagicMock(
+                return_value={"change_expectation": "must_write"}
+            )
+            assistant._session_has_diff = MagicMock(return_value=False)
+            assistant._promote_explore_to_act = MagicMock()
+
+            result = assistant._phase_explore(SimpleNamespace(), 1)
+
+            self.assertEqual(result, "ok")
+            assistant._promote_explore_to_act.assert_called_once()
+            self.assertEqual(
+                assistant._promote_explore_to_act.call_args.args[0],
+                "greenfield_bootstrap_explore_bypass",
+            )
+
+    def test_write_file_interrupt_leaves_pending_filesystem_intent(self) -> None:
+        assistant = CodexAssistant.__new__(CodexAssistant)
+        with TemporaryDirectory() as tmp:
+            assistant.cwd = tmp
+            assistant.session_id = "sess"
+            db_path = tmp + "-ghost_memory.db"
+            assistant.memory = MemoryStore(db_path)
+            assistant.policy_gate = SimpleNamespace(check_permission=MagicMock(return_value=True))
+            assistant._ensure_project_runtime_contract_for_mutation = MagicMock(return_value=None)
+            assistant.renderer = SimpleNamespace(render_diff=MagicMock())
+            assistant.artifact_manager = SimpleNamespace(
+                current_session=SimpleNamespace(first_edit_turn=0, fast_path_eligible=False),
+                add_diff=MagicMock(),
+            )
+            assistant.indexer = SimpleNamespace(invalidate_project_tree_cache=MagicMock())
+            assistant._bump_session_write_epoch = MagicMock()
+            assistant._pending_edit_recovery = None
+
+            real_open = open
+
+            def _interrupting_open(path: str, mode: str = "r", *args, **kwargs):
+                if str(path).endswith("demo.txt") and "w" in mode:
+                    raise KeyboardInterrupt()
+                return real_open(path, mode, *args, **kwargs)
+
+            with patch("builtins.open", side_effect=_interrupting_open):
+                with self.assertRaises(KeyboardInterrupt):
+                    assistant._inner_execute_tool(
+                        "write_file",
+                        {"path": "demo.txt", "content": "hello"},
+                        {},
+                        is_authorized=True,
+                    )
+
+            pending = assistant.memory.list_pending_filesystem_intents()
+            self.assertEqual(len(pending), 1)
+            self.assertEqual(pending[0]["op_type"], "write_file")
+            assistant.memory = None
+            try:
+                os.remove(db_path)
+            except OSError:
+                pass
+
+    def test_run_shell_interrupt_leaves_pending_mutation_intent(self) -> None:
+        assistant = CodexAssistant.__new__(CodexAssistant)
+        with TemporaryDirectory() as tmp:
+            assistant.cwd = tmp
+            assistant.session_id = "sess"
+            db_path = tmp + "-ghost_memory.db"
+            assistant.memory = MemoryStore(db_path)
+            assistant.console = SimpleNamespace(print=MagicMock())
+            assistant.exploration_memory = SimpleNamespace(
+                get_list_dir_path=MagicMock(return_value=None),
+                get_cached_ls=MagicMock(return_value=None),
+                add_ls=MagicMock(),
+            )
+            assistant.policy_gate = SimpleNamespace(check_permission=MagicMock(return_value=True))
+            assistant.current_intent = SimpleNamespace(is_exact_command=False)
+            assistant.artifact_manager = SimpleNamespace(
+                current_session=SimpleNamespace(active_workset={}, events=[]),
+                add_diff=MagicMock(),
+            )
+            assistant._bump_session_write_epoch = MagicMock()
+            assistant._dependency_install_completed = False
+            assistant._dependency_install_changed_files = []
+
+            with patch("apps.cli.assistant.subprocess.run", side_effect=KeyboardInterrupt()):
+                with self.assertRaises(KeyboardInterrupt):
+                    assistant._inner_execute_tool(
+                        "run_shell",
+                        {"command": "uv sync"},
+                        {},
+                        is_authorized=True,
+                    )
+
+            pending = assistant.memory.list_pending_filesystem_intents()
+            self.assertEqual(len(pending), 1)
+            self.assertEqual(pending[0]["op_type"], "run_shell")
+            assistant.memory = None
+            try:
+                os.remove(db_path)
+            except OSError:
+                pass
 
     def test_build_failed_manual_verify_check_keeps_cwd_and_failure(self) -> None:
         check = _build_failed_manual_verify_check(
