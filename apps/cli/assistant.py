@@ -355,7 +355,6 @@ _INTERNAL_WORKSPACE_METADATA_NAMES = frozenset(
 )
 
 _TOOL_CALL_CONTRACT_NATIVE = "native_function_calling"
-_TOOL_CALL_CONTRACT_LEGACY = "legacy_adapter"
 _LEGACY_TOOL_CALL_JSON_RE = re.compile(r'\{\s*"name"\s*:\s*"[^"]+"\s*,\s*"arguments"\s*:', re.DOTALL)
 
 
@@ -1440,7 +1439,7 @@ Your primary goal is to safely and efficiently maintain project integrity.
 
 # Tool Call Contract
 - Use native function calling only when tools are available.
-- Do NOT emit `<tool_call>` XML blocks or embedded JSON objects pretending to be tool calls unless the runtime explicitly enabled a legacy adapter.
+- Do NOT emit `<tool_call>` XML blocks or embedded JSON objects pretending to be tool calls.
 - If tools are unavailable, say so in plain text instead of inventing a tool-call format.
 
 # Automatic Integrity Check
@@ -1615,6 +1614,8 @@ Discovery actions this session: {discovery_count}
         self.memory = MemoryStore(os.path.join(self.cwd, "ghost_memory.db"))
         self._tool_call_contract_mode = _TOOL_CALL_CONTRACT_NATIVE
         self._active_request_model = self.model
+        self._active_request_native_tool_capable = True
+        self._tool_call_contract_received = ""
         self._refresh_request_model_contract(self.model)
 
         # UI & Runtime
@@ -1634,6 +1635,7 @@ Discovery actions this session: {discovery_count}
             provider_backend_label="openai_compatible",
             response_mode_label=self._startup_response_mode_label(),
             auto_approve=self.auto_approve,
+            approval_mode_label="auto-approve override" if self.auto_approve else "approval-first",
         )
         self.policy_gate = PolicyGate(self.console, self.auto_approve, cwd=self.cwd)
         self.verification_manager = VerificationManager(self.cwd)
@@ -1765,23 +1767,70 @@ Discovery actions this session: {discovery_count}
 
     def _refresh_request_model_contract(self, model_name: str) -> None:
         target_model = str(model_name or self.model).strip() or self.model
-        mode = (
-            _TOOL_CALL_CONTRACT_NATIVE
-            if _model_supports_native_tool_calling(target_model)
-            else _TOOL_CALL_CONTRACT_LEGACY
-        )
+        native_capable = _model_supports_native_tool_calling(target_model)
         if (
             target_model != getattr(self, "_active_request_model", "")
-            or mode != getattr(self, "_tool_call_contract_mode", _TOOL_CALL_CONTRACT_NATIVE)
-        ):
-            if mode != _TOOL_CALL_CONTRACT_NATIVE:
-                logger.warning(
-                    "tool_call_adapter_activated model=%s mode=%s",
-                    target_model,
-                    mode,
-                )
+            or native_capable != getattr(self, "_active_request_native_tool_capable", True)
+        ) and not native_capable:
+            logger.error(
+                "tool_call_contract_unavailable model=%s expected=%s",
+                target_model,
+                _TOOL_CALL_CONTRACT_NATIVE,
+            )
         self._active_request_model = target_model
-        self._tool_call_contract_mode = mode
+        self._active_request_native_tool_capable = native_capable
+        self._tool_call_contract_mode = _TOOL_CALL_CONTRACT_NATIVE
+
+    def _native_tool_contract_unavailable_message(self, model_name: str) -> str:
+        return (
+            "Native tool calling is required for this command, but the active model "
+            f"`{model_name}` is not marked as tool-capable. Expected "
+            "`assistant.tool_calls[*].function`. Fix: choose a native tool-capable model "
+            "in configs/models.yaml or project routing before retrying."
+        )
+
+    def _ensure_native_tool_calling_ready(self, model_name: str) -> bool:
+        if getattr(self, "_active_request_native_tool_capable", True):
+            return True
+        detail = self._native_tool_contract_unavailable_message(model_name)
+        self._tool_call_contract_received = "model_without_native_tool_calling"
+        sess_contract = self.artifact_manager.current_session
+        if sess_contract:
+            try:
+                append_compacted_session_event(
+                    sess_contract,
+                    {
+                        "event": "tool_call_contract_unavailable",
+                        "model": model_name,
+                        "expected": _TOOL_CALL_CONTRACT_NATIVE,
+                        "received": self._tool_call_contract_received,
+                        "detail": detail[:500],
+                    },
+                )
+                setattr(sess_contract, "expected_tool_call_contract", _TOOL_CALL_CONTRACT_NATIVE)
+                setattr(sess_contract, "received_tool_call_contract", self._tool_call_contract_received)
+                setattr(sess_contract, "tool_call_contract_mismatch", True)
+            except Exception:
+                pass
+        mgr = getattr(self, "_trace_mgr", None)
+        if mgr:
+            try:
+                mgr.record_runtime_event(
+                    "tool_call_contract_unavailable",
+                    {
+                        "model": model_name,
+                        "expected_tool_call_contract": _TOOL_CALL_CONTRACT_NATIVE,
+                        "received_tool_call_contract": self._tool_call_contract_received,
+                    },
+                )
+            except Exception:
+                pass
+        self.console.print(
+            "[bold red]Tool calling unavailable[/bold red]\n"
+            f"[dim]{detail}[/dim]"
+        )
+        self._loop_abort_reason = LOOP_ABORT_POLICY
+        return False
 
     @staticmethod
     def _api_failure_user_hint(status_code: int, err_msg: Any) -> str:
@@ -3154,6 +3203,10 @@ Discovery actions this session: {discovery_count}
             session.startup_warnings = list(rp0.startup_warnings)
             session.effective_repo_root = rp0.repo_root_effective
             session.cli_command_mode = self.command_mode
+        session.approval_mode = "auto-approve override" if self.auto_approve else "approval-first"
+        session.expected_tool_call_contract = _TOOL_CALL_CONTRACT_NATIVE
+        session.received_tool_call_contract = ""
+        session.tool_call_contract_mismatch = False
         self._trace_mgr = start_session_trace(session.session_id, self.cwd, self.command_mode)
         self._trace_ctx_token = attach_trace_manager(self._trace_mgr)
         gw_pf = getattr(self, "_gateway_preflight", None)
@@ -5449,8 +5502,9 @@ Discovery actions this session: {discovery_count}
                 self._loop_abort_reason = LOOP_ABORT_STAGNATION
                 return "stagnation", None
             return "tools", executed_names
-        if not self._legacy_tool_adapter_enabled() and self._content_looks_like_legacy_tool_call(content):
+        if self._content_looks_like_legacy_tool_call(content):
             detail = self._tool_call_contract_error_text(content)
+            self._tool_call_contract_received = "legacy_inline_markup"
             logger.error(
                 "tool_call_contract_mismatch model=%s detail=%s",
                 getattr(self, "_active_request_model", self.model),
@@ -5466,90 +5520,34 @@ Discovery actions this session: {discovery_count}
                             "model": self.model,
                             "detail": detail[:500],
                             "expected": _TOOL_CALL_CONTRACT_NATIVE,
-                            "received": "legacy_inline_markup",
+                            "received": self._tool_call_contract_received,
                         },
                     )
+                    setattr(sess_contract, "expected_tool_call_contract", _TOOL_CALL_CONTRACT_NATIVE)
+                    setattr(sess_contract, "received_tool_call_contract", self._tool_call_contract_received)
+                    setattr(sess_contract, "tool_call_contract_mismatch", True)
             except Exception:
                 pass
+            mgr = getattr(self, "_trace_mgr", None)
+            if mgr:
+                try:
+                    mgr.record_runtime_event(
+                        "tool_call_contract_mismatch",
+                        {
+                            "model": getattr(self, "_active_request_model", self.model),
+                            "expected_tool_call_contract": _TOOL_CALL_CONTRACT_NATIVE,
+                            "received_tool_call_contract": self._tool_call_contract_received,
+                            "detail": detail[:500],
+                        },
+                    )
+                except Exception:
+                    pass
             if status:
                 status.stop()
             self.console.print(f"[bold red]✘ Tool Contract Error:[/bold red] {detail}")
             self._loop_abort_reason = LOOP_ABORT_POLICY
             return "terminal", None
 
-        legacy_calls = self._extract_tool_calls(content) if self._legacy_tool_adapter_enabled() else []
-        if legacy_calls:
-            logger.warning(
-                "tool_call_legacy_adapter_used model=%s count=%s",
-                getattr(self, "_active_request_model", self.model),
-                len(legacy_calls),
-            )
-            if _tm_loop:
-                try:
-                    _tm_loop.record_tool_round()
-                except Exception:
-                    pass
-            if status:
-                status.stop()
-            if self.session_phase == SessionPhase.EXPLORE:
-                self._explore_ls_paths_this_dispatch = set()
-            bundled_actions = []
-            prepared_calls = []
-            for call in legacy_calls:
-                tc_name = call.get("name")
-                tc_args = call.get("arguments", {})
-                detail = tc_args.get("path") or tc_args.get("command") or ""
-                level = self.policy_gate.get_approval_level(tc_name, detail)
-                is_authorized = False
-                if level == ApprovalLevel.AUTO:
-                    is_authorized = True
-                elif level == ApprovalLevel.BUNDLE:
-                    bundled_actions.append({"name": tc_name, "detail": detail, "tc": call, "args": tc_args})
-                prepared_calls.append({
-                    "call": call,
-                    "name": tc_name,
-                    "args": tc_args,
-                    "level": level,
-                    "is_authorized": is_authorized,
-                })
-            if bundled_actions and not self.auto_approve:
-                if status:
-                    status.stop()
-                fp = self._bundled_actions_fingerprint(bundled_actions)
-                if fp and fp == self._bundle_approval_fp:
-                    authorized = bool(self._bundle_approval_ok)
-                    if not authorized:
-                        self.console.print(f"[dim]{MSG_APPROVAL_SAME_BUNDLE}[/dim]")
-                else:
-                    authorized = self.renderer.render_bundled_approval_request(bundled_actions)
-                    self._bundle_approval_fp = fp
-                    self._bundle_approval_ok = authorized
-                if authorized:
-                    for pc in prepared_calls:
-                        if pc["level"] == ApprovalLevel.BUNDLE:
-                            pc["is_authorized"] = True
-                if status:
-                    status.start()
-            if status:
-                status.stop()
-            _live_hint_l = format_tool_live_hint_from_prepared(prepared_calls)
-            self.renderer.update_status(
-                status,
-                "tool_exec",
-                phase=self.session_phase.value,
-                live_detail=_live_hint_l,
-                rail_profile=self._live_rail_profile(),
-            )
-            legacy_executed, exit_reason = self._run_segmented_prepared_calls(
-                prepared_calls, status, legacy=True
-            )
-            if exit_reason == "terminal":
-                self._abort_session_policy_block()
-                return "terminal", None
-            if exit_reason == "stagnation":
-                self._loop_abort_reason = LOOP_ABORT_STAGNATION
-                return "stagnation", None
-            return "tools", legacy_executed
         if status:
             status.stop()
         return "text_only", None
@@ -7021,9 +7019,6 @@ Discovery actions this session: {discovery_count}
 
     _TOOL_CALL_XML_RE = re.compile(r"<tool_call>.*?</tool_call>", re.DOTALL)
 
-    def _legacy_tool_adapter_enabled(self) -> bool:
-        return getattr(self, "_tool_call_contract_mode", _TOOL_CALL_CONTRACT_NATIVE) == _TOOL_CALL_CONTRACT_LEGACY
-
     def _content_looks_like_legacy_tool_call(self, text: str) -> bool:
         raw = str(text or "")
         return "<tool_call>" in raw or "</tool_call>" in raw or bool(_LEGACY_TOOL_CALL_JSON_RE.search(raw))
@@ -7215,58 +7210,6 @@ Discovery actions this session: {discovery_count}
         if parts:
             return "Evidence: " + ", ".join(parts) + ". No code changes needed."
         return None
-
-    def _extract_tool_calls_json(self, text: str) -> List[Dict[str, Any]]:
-        """Fallback: extract JSON tool-call objects without XML tags."""
-        calls = []
-        for m in re.finditer(r'\{\s*"name"\s*:\s*"([^"]+)"\s*,\s*"arguments"\s*:\s*', text):
-            start = m.start()
-            depth = 1
-            for i in range(m.end(), len(text)):
-                if text[i] == "{":
-                    depth += 1
-                elif text[i] == "}":
-                    depth -= 1
-                    if depth == 0:
-                        try:
-                            obj = json.loads(text[start:i + 1])
-                            if isinstance(obj, dict) and "name" in obj and "arguments" in obj:
-                                obj = dict(obj)
-                                obj["arguments"] = _sanitize_tool_arguments_payload(
-                                    obj.get("arguments", {})
-                                )
-                                calls.append(obj)
-                        except Exception:
-                            pass
-                        break
-        return calls
-
-    def _extract_tool_calls(self, text: str) -> List[Dict[str, Any]]:
-        calls = []
-        matches = re.findall(r"<tool_call>(.*?)</tool_call>", text, re.DOTALL)
-        for m in matches:
-            try:
-                obj = json.loads(m.strip())
-                if isinstance(obj, dict) and "name" in obj and "arguments" in obj:
-                    obj = dict(obj)
-                    obj["arguments"] = _sanitize_tool_arguments_payload(obj.get("arguments", {}))
-                    calls.append(obj)
-            except Exception:
-                try:
-                    inner_match = re.search(r"\{.*\}", m, re.DOTALL)
-                    if inner_match:
-                        obj = json.loads(inner_match.group(0))
-                        if isinstance(obj, dict) and "name" in obj and "arguments" in obj:
-                            obj = dict(obj)
-                            obj["arguments"] = _sanitize_tool_arguments_payload(
-                                obj.get("arguments", {})
-                            )
-                            calls.append(obj)
-                except Exception:
-                    pass
-        if not calls:
-            calls = self._extract_tool_calls_json(text)
-        return calls
 
     PROVIDER_NOT_INITIALIZED = "NVIDIA Provider not initialized"
 
@@ -7461,6 +7404,8 @@ Discovery actions this session: {discovery_count}
     ) -> Dict[str, Any]:
         active_model = self._effective_phase_model()
         self._refresh_request_model_contract(active_model)
+        if not self._ensure_native_tool_calling_ready(active_model):
+            return {}
         tree = self.indexer.get_project_tree(max_depth=1)
         git = self._get_git_info()
         branch_info = f"{git['branch']} ({git['dirty']})"
@@ -7552,14 +7497,6 @@ Discovery actions this session: {discovery_count}
             full_system = full_system + strategy_plan_system_prompt_section() + broad_plan_system_prompt_section()
         elif detect_broad_readonly_plan_request(self._primary_user_task_text()):
             full_system = full_system + broad_plan_system_prompt_section()
-        if self._legacy_tool_adapter_enabled():
-            full_system = full_system + (
-                "\n[Legacy tool adapter active]\n"
-                "- This model does not advertise native function calling in the registry.\n"
-                "- Emit legacy `<tool_call>{...}</tool_call>` JSON only because the runtime explicitly enabled this adapter.\n"
-                "- This path is transitional and logged.\n"
-            )
-
         if session and self._inject_readonly_truthfulness(session):
             full_system = full_system + readonly_analysis_truthfulness_prompt_section()
 

@@ -2472,6 +2472,7 @@ class GhostRenderer:
         provider_backend_label: str = "",
         response_mode_label: str = "streaming",
         auto_approve: bool = False,
+        approval_mode_label: str = "",
         **kwargs: Any,
     ):
         """Render startup banner showing active mode, model, gateway URL and feature flags."""
@@ -2494,6 +2495,10 @@ class GhostRenderer:
             truncate_visible(command_mode or "dev", 12),
             truncate_visible(response_mode_label or "streaming", 26),
         ]
+        approval_mode_display = truncate_visible(
+            approval_mode_label or ("auto-approve override" if auto_approve else "approval-first"),
+            28,
+        )
         if llm_gateway_reachable is True:
             runtime_bits.append("gateway ready")
         elif llm_gateway_reachable is False:
@@ -2535,6 +2540,9 @@ class GhostRenderer:
             )
             meta.add_row(
                 f"[dim]{escape(_ui_contract.STARTUP_LABEL_PERMISSIONS)}:[/dim] [white]{escape(permission_line)}[/white]"
+            )
+            meta.add_row(
+                f"[dim]approval mode:[/dim] [white]{escape(approval_mode_display)}[/white]"
             )
             if llm_gateway_url:
                 if llm_gateway_reachable is True:

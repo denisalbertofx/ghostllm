@@ -1139,6 +1139,7 @@ def doctor():
         else "[bold yellow]Not ready[/bold yellow] [dim]Foundations for programmable project routing/policy are incomplete[/dim]"
     )
     table.add_row("Programmable-ready", programmable_status)
+    table.add_row("Mutation approvals", "[bold green]Approval-first[/bold green] [dim]Use `-y` only as an explicit override[/dim]")
     table.add_row("CLI bootstrap", f"[dim]{_bootstrap_elapsed_ms()} ms[/dim]")
 
     # Environment
@@ -1260,7 +1261,7 @@ def plan(
 @app.command()
 def do(task: str = typer.Argument(...), 
        model: str = typer.Option("coder"), 
-       auto_approve: bool = typer.Option(True, "-y"),
+       auto_approve: bool = typer.Option(False, "-y"),
        profile: Profile = typer.Option(Profile.coder),
        role: str = typer.Option("main", help="The role for this session"),
        swarm_mode: bool = typer.Option(False, "--swarm-mode", help="Enable swarm worker mode"),
@@ -1322,7 +1323,7 @@ def edit(
 @app.command()
 def fix(
     task: str | None = typer.Argument(None, help="Specific issue to fix in plain language."),
-    auto_approve: bool = typer.Option(True, "-y"),
+    auto_approve: bool = typer.Option(False, "-y"),
     preflight_only: bool = typer.Option(
         False,
         "--preflight-only",

@@ -352,6 +352,7 @@ class ArtifactSession:
         self.batch_plans: List[Dict[str, Any]] = []
         self.batch_results: List[Dict[str, Any]] = []
         self.approval_compression_used: bool = False
+        self.approval_mode: str = ""
         self.compressed_approval_count: int = 0
         self.batched_read_count: int = 0
         self.batched_verification_count: int = 0
@@ -383,6 +384,9 @@ class ArtifactSession:
         self.artifact_output_format: str = ""
         self.artifact_requirements_met: bool = True
         self.artifact_requirements_missing: List[str] = []
+        self.expected_tool_call_contract: str = ""
+        self.received_tool_call_contract: str = ""
+        self.tool_call_contract_mismatch: bool = False
         self.delegation_envelope_path: str = ""
         self.role_author: str = "ghost_model"
         self.role_operator: str = "human_operator"
@@ -862,6 +866,7 @@ class ArtifactSession:
             "batch_plans": list(self.batch_plans),
             "batch_results": list(self.batch_results),
             "approval_compression_used": self.approval_compression_used,
+            "approval_mode": str(getattr(self, "approval_mode", "") or ""),
             "compressed_approval_count": self.compressed_approval_count,
             "batched_read_count": self.batched_read_count,
             "batched_verification_count": self.batched_verification_count,
@@ -889,6 +894,9 @@ class ArtifactSession:
             "artifact_output_format": str(getattr(self, "artifact_output_format", "") or ""),
             "artifact_requirements_met": bool(getattr(self, "artifact_requirements_met", True)),
             "artifact_requirements_missing": list(getattr(self, "artifact_requirements_missing", None) or []),
+            "expected_tool_call_contract": str(getattr(self, "expected_tool_call_contract", "") or ""),
+            "received_tool_call_contract": str(getattr(self, "received_tool_call_contract", "") or ""),
+            "tool_call_contract_mismatch": bool(getattr(self, "tool_call_contract_mismatch", False)),
             "review_packet_pr_body_preview": str(getattr(self, "review_packet_pr_body_preview", "") or ""),
             "review_ready_for_review": getattr(self, "review_ready_for_review", None),
             "review_readiness_code": str(getattr(self, "review_readiness_code", "") or ""),
@@ -1010,6 +1018,19 @@ class ArtifactSession:
         if self.approval_compression_used or self.compressed_approval_count:
             md += "## 🔐 APPROVAL COMPRESSION\n"
             md += f"**approval_compression_used:** {self.approval_compression_used} | **compressed_approval_count:** {self.compressed_approval_count}\n\n"
+        _approval_mode = str(getattr(self, "approval_mode", "") or "")
+        _expected_contract = str(getattr(self, "expected_tool_call_contract", "") or "")
+        _received_contract = str(getattr(self, "received_tool_call_contract", "") or "")
+        _contract_mismatch = bool(getattr(self, "tool_call_contract_mismatch", False))
+        if _approval_mode or _expected_contract or _received_contract or _contract_mismatch:
+            md += "## 🧭 EXECUTION CONTRACT\n"
+            if _approval_mode:
+                md += f"**Approval mode:** `{_approval_mode}`\n"
+            if _expected_contract:
+                md += f"**Expected tool contract:** `{_expected_contract}`\n"
+            if _received_contract:
+                md += f"**Received tool contract:** `{_received_contract}`\n"
+            md += f"**Tool contract mismatch:** `{_contract_mismatch}`\n\n"
         md += f"## 🎯 Task\n{self.task}\n\n"
         _clos_md = build_closure_operator_markdown_section(self)
         if _clos_md:

@@ -101,6 +101,26 @@ def test_do_runs_as_one_shot_command() -> None:
         )
 
 
+def test_mutating_commands_are_approval_first_by_default() -> None:
+    pf = SimpleNamespace(base_url="http://127.0.0.1:8000", ok=True)
+    runtime_prep = SimpleNamespace(active_feature_flags={}, operational_profile="dev")
+    with patch("apps.cli.main.is_running", return_value=True), patch(
+        "apps.cli.main._preflight_gateway_or_exit", return_value=pf
+    ), patch(
+        "apps.cli.main._prepare_runtime_for_assistant", return_value=runtime_prep
+    ), patch("apps.cli.main.get_api_key", return_value="test-key"), patch(
+        "apps.cli.assistant.CodexAssistant"
+    ) as assistant_cls:
+        result = runner.invoke(app, ["do", "crea algo"])
+        assert result.exit_code == 0, result.stdout
+        assert assistant_cls.call_args.kwargs["auto_approve"] is False
+
+        assistant_cls.reset_mock()
+        result = runner.invoke(app, ["fix", "corrige algo"])
+        assert result.exit_code == 0, result.stdout
+        assert assistant_cls.call_args.kwargs["auto_approve"] is False
+
+
 def test_preflight_gateway_refreshes_stale_registry() -> None:
     from apps.cli.main import _preflight_gateway_or_exit
 

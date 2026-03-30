@@ -238,6 +238,7 @@ class TestArtifactSummaryFindingsTier(unittest.TestCase):
                 provider_backend_label="openai_compatible",
                 response_mode_label="streaming",
                 auto_approve=False,
+                approval_mode_label="approval-first",
             )
         out = self.output.getvalue()
         normalized = out.replace("\n", " ")
@@ -249,6 +250,8 @@ class TestArtifactSummaryFindingsTier(unittest.TestCase):
         self.assertIn("workspace:", out.lower())
         self.assertIn("runtime:", out.lower())
         self.assertIn("permissions:", out.lower())
+        self.assertIn("approval mode:", out.lower())
+        self.assertIn("approval-first", out.lower())
         self.assertIn("streaming", out.lower())
         self.assertIn("branch main", out)
         self.assertIn("last", normalized)

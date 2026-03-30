@@ -52,7 +52,7 @@ class TestGhostProfile(unittest.TestCase):
         self.assertEqual(r.profile_id, "fast")
         self.assertEqual(r.session_model_alias, "fast")
         self.assertEqual(r.operational_mode, "auto")
-        self.assertTrue(r.auto_approve)
+        self.assertFalse(r.auto_approve)
         self.assertEqual(r.parallel_pipeline, "on")
 
     def test_safe_profile_uses_coder_for_strong_roles(self) -> None:

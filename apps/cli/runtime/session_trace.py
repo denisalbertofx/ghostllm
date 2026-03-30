@@ -214,6 +214,10 @@ class SessionTrace(BaseModel):
     cwd: str
     repo_root: str
     runtime_contract_source: str = ""
+    approval_mode: str = ""
+    expected_tool_call_contract: str = ""
+    received_tool_call_contract: str = ""
+    tool_call_contract_mismatch: bool = False
     planner_used: bool = False
     retrieval_used: bool = False
     execution_agent_used: bool = False
@@ -856,6 +860,10 @@ class SessionTraceManager:
         self.repairs: List[RepairTrace] = []
         self.trace_notes: List[str] = []
         self.runtime_contract_source = ""
+        self.approval_mode = ""
+        self.expected_tool_call_contract = ""
+        self.received_tool_call_contract = ""
+        self.tool_call_contract_mismatch = False
         self.planner_used = False
         self.retrieval_used = False
         self.execution_agent_used = False
@@ -932,6 +940,16 @@ class SessionTraceManager:
         try:
             self.runtime_contract_source = str(
                 getattr(session, "runtime_contract_source", "") or ""
+            )
+            self.approval_mode = str(getattr(session, "approval_mode", "") or "")
+            self.expected_tool_call_contract = str(
+                getattr(session, "expected_tool_call_contract", "") or ""
+            )
+            self.received_tool_call_contract = str(
+                getattr(session, "received_tool_call_contract", "") or ""
+            )
+            self.tool_call_contract_mismatch = bool(
+                getattr(session, "tool_call_contract_mismatch", False)
             )
             self.planner_used = bool(getattr(session, "planner_used", False))
             self.retrieval_used = bool(getattr(session, "retrieval_enabled", False))
@@ -1168,6 +1186,10 @@ class SessionTraceManager:
             cwd=self.cwd,
             repo_root=self.repo_root,
             runtime_contract_source=self.runtime_contract_source,
+            approval_mode=self.approval_mode,
+            expected_tool_call_contract=self.expected_tool_call_contract,
+            received_tool_call_contract=self.received_tool_call_contract,
+            tool_call_contract_mismatch=self.tool_call_contract_mismatch,
             planner_used=self.planner_used,
             retrieval_used=self.retrieval_used,
             execution_agent_used=self.execution_agent_used,

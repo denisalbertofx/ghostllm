@@ -197,6 +197,8 @@ class TestProviderInitialization(unittest.TestCase):
         self.assertIn("Artifact persistence", result.stdout)
         self.assertIn("Sandbox readiness", result.stdout)
         self.assertIn("Programmable-ready", result.stdout)
+        self.assertIn("Mutation approvals", result.stdout)
+        self.assertIn("Approval-first", result.stdout)
         self.assertIn("CLI bootstrap", result.stdout)
 
     def test_assistant_detects_provider_not_initialized_and_sets_fatal_flag(self):

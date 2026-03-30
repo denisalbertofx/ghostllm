@@ -464,6 +464,10 @@ class SessionTracePersistenceTests(unittest.TestCase):
             diff_summary=[{"file": "apps/cli/main.py", "status": "success"}],
             context_label="iter_1",
         )
+        session.approval_mode = "approval-first"
+        session.expected_tool_call_contract = "native_function_calling"
+        session.received_tool_call_contract = "legacy_inline_markup"
+        session.tool_call_contract_mismatch = True
 
         mgr.sync_from_artifact_session(session)
         trace = mgr.build_session_trace()
@@ -471,6 +475,10 @@ class SessionTracePersistenceTests(unittest.TestCase):
         self.assertEqual(trace.active_workset["candidate_files"], ["apps/cli/main.py"])
         self.assertEqual(trace.phase_checkpoints[-1]["phase"], "explore")
         self.assertEqual(trace.incremental_verify_state["batches_run"], 1)
+        self.assertEqual(trace.approval_mode, "approval-first")
+        self.assertEqual(trace.expected_tool_call_contract, "native_function_calling")
+        self.assertEqual(trace.received_tool_call_contract, "legacy_inline_markup")
+        self.assertTrue(trace.tool_call_contract_mismatch)
 
     def test_finish_session_trace_markdown_includes_long_run_context(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
