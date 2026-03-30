@@ -4,7 +4,7 @@
 # The gateway resolves alias → upstream_id using this file.
 #
 # Schema per entry:
-#   name:        Alias used by the CLI / ENV vars (e.g. planner, kimi, fast)
+#   name:        Alias used by the CLI / ENV vars (e.g. planner, coder, fast)
 #   upstream_id: Full NIM model ID sent to the NVIDIA provider
 #   enabled:     bool
 #   expensive:   bool
@@ -15,22 +15,22 @@ models:
   # ── Role Aliases ────────────────────────────────────────────────────────
 
   - name: "planner"
-    upstream_id: "moonshotai/kimi-k2.5"
-    description: "Kimi k2.5 Reasoning"
+    upstream_id: "qwen/qwen3-coder-480b-a35b-instruct"
+    description: "Qwen 3 Coder 480B A35B Planning"
     enabled: true
     expensive: true
     tool_calling: true
 
   - name: "execution"
-    upstream_id: "qwen/qwen2.5-coder-32b-instruct"
-    description: "Qwen 2.5 Coder 32B"
+    upstream_id: "qwen/qwen3-coder-480b-a35b-instruct"
+    description: "Qwen 3 Coder 480B A35B Execution"
     enabled: true
-    expensive: false
+    expensive: true
     tool_calling: true
 
   - name: "repair"
-    upstream_id: "moonshotai/kimi-k2.5"
-    description: "Repair/Debug reasoning"
+    upstream_id: "qwen/qwen3-coder-480b-a35b-instruct"
+    description: "Qwen 3 Coder 480B A35B Repair"
     enabled: true
     expensive: true
     tool_calling: true
@@ -56,15 +56,10 @@ models:
     enabled: true
 
   - name: "coder"
-    upstream_id: "qwen/qwen2.5-coder-32b-instruct"
+    upstream_id: "qwen/qwen3-coder-480b-a35b-instruct"
     enabled: true
 
   - name: "smart"
     upstream_id: "openai/gpt-oss-120b"
-    enabled: true
-    expensive: true
-
-  - name: "kimi"
-    upstream_id: "moonshotai/kimi-k2.5"
     enabled: true
     expensive: true

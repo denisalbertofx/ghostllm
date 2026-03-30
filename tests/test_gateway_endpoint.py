@@ -4,9 +4,12 @@ from __future__ import annotations
 import os
 from unittest import mock
 
+import httpx
+
 from apps.cli.runtime.gateway_endpoint import (
     DEFAULT_GHOST_GATEWAY_URL,
     _strip_openai_v1_suffix,
+    format_preflight_failure_console,
     probe_gateway,
     resolve_cli_gateway_url,
 )
@@ -46,19 +49,31 @@ def test_strip_openai_v1_suffix_helper() -> None:
 
 
 def test_probe_gateway_connection_error() -> None:
-    with mock.patch("apps.cli.runtime.gateway_endpoint.requests.get") as g:
-        g.side_effect = ConnectionError("refused")
+    with mock.patch("apps.cli.runtime.gateway_endpoint.http_get") as g:
+        g.side_effect = httpx.ConnectError("refused")
         r = probe_gateway("http://127.0.0.1:8000", timeout_sec=0.1)
         assert r.ok is False
         assert r.base_url == "http://127.0.0.1:8000"
         assert "refused" in (r.error or "").lower() or r.error
+        assert r.failure_class in {"gateway_not_running", "gateway_unreachable"}
+        assert r.remedy_command == "ghost start"
+
+
+def test_format_preflight_failure_console_surfaces_next_command() -> None:
+    with mock.patch("apps.cli.runtime.gateway_endpoint.http_get") as g:
+        g.side_effect = httpx.ConnectError("refused")
+        result = probe_gateway("http://127.0.0.1:8000", timeout_sec=0.1)
+    rendered = format_preflight_failure_console(result)
+    assert "Gateway local no disponible" in rendered
+    assert "Next:" in rendered
+    assert "ghost start" in rendered
 
 
 def test_probe_gateway_first_health_ok() -> None:
     class Resp:
         status_code = 200
 
-    with mock.patch("apps.cli.runtime.gateway_endpoint.requests.get") as g:
+    with mock.patch("apps.cli.runtime.gateway_endpoint.http_get") as g:
         g.return_value = Resp()
         r = probe_gateway("http://h:1", timeout_sec=0.2)
         assert r.ok is True

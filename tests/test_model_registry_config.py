@@ -19,11 +19,12 @@ class TestModelRegistryConfig(unittest.TestCase):
         self.assertTrue(path.is_file(), f"missing {path}")
         reg = load_registry(str(path))
         names = {m.name for m in reg.models}
-        self.assertIn("kimi", names)
+        self.assertIn("planner", names)
+        self.assertIn("coder", names)
         self.assertIn("smart", names)
-        kimi = next(m for m in reg.models if m.name == "kimi")
-        self.assertTrue(kimi.tool_calling)
-        self.assertTrue(kimi.expensive)
+        planner = next(m for m in reg.models if m.name == "planner")
+        self.assertTrue(planner.tool_calling)
+        self.assertTrue(planner.expensive)
         fast = next(m for m in reg.models if m.name == "fast")
         self.assertTrue(fast.tool_calling)
         self.assertFalse(fast.expensive)
@@ -43,8 +44,8 @@ class TestModelRegistryConfig(unittest.TestCase):
         path = str(root / "configs" / "models.yaml")
         enabled, mapping, err = bootstrap_enabled_models(path)
         self.assertIsNone(err, err)
-        self.assertIn("kimi", enabled)
-        self.assertEqual(mapping.get("kimi"), "moonshotai/kimi-k2.5")
+        self.assertIn("coder", enabled)
+        self.assertEqual(mapping.get("coder"), "qwen/qwen3-coder-480b-a35b-instruct")
         self.assertIn("openai/gpt-oss-120b", mapping.values())
 
     def test_bootstrap_never_raises_on_bad_yaml(self) -> None:
@@ -93,12 +94,19 @@ class TestModelRegistryConfig(unittest.TestCase):
     def test_resolve_upstream_model_id_key_full_and_basename(self) -> None:
         from ghostllm_core.config import resolve_upstream_model_id
 
-        m = {"kimi": "moonshotai/kimi-k2.5", "smart": "openai/gpt-oss-120b"}
-        self.assertEqual(resolve_upstream_model_id("kimi", m), "moonshotai/kimi-k2.5")
+        m = {"coder": "qwen/qwen3-coder-480b-a35b-instruct", "smart": "openai/gpt-oss-120b"}
         self.assertEqual(
-            resolve_upstream_model_id("moonshotai/kimi-k2.5", m), "moonshotai/kimi-k2.5"
+            resolve_upstream_model_id("coder", m),
+            "qwen/qwen3-coder-480b-a35b-instruct",
         )
-        self.assertEqual(resolve_upstream_model_id("kimi-k2.5", m), "moonshotai/kimi-k2.5")
+        self.assertEqual(
+            resolve_upstream_model_id("qwen/qwen3-coder-480b-a35b-instruct", m),
+            "qwen/qwen3-coder-480b-a35b-instruct",
+        )
+        self.assertEqual(
+            resolve_upstream_model_id("qwen3-coder-480b-a35b-instruct", m),
+            "qwen/qwen3-coder-480b-a35b-instruct",
+        )
 
     def test_resolve_upstream_model_id_ambiguous_basename_unchanged(self) -> None:
         from ghostllm_core.config import resolve_upstream_model_id
@@ -111,8 +119,46 @@ class TestModelRegistryConfig(unittest.TestCase):
 
         path = str(root / "configs" / "models.yaml")
         self.assertEqual(
-            resolve_gateway_model_id("kimi-k2.5", path), "moonshotai/kimi-k2.5"
+            resolve_gateway_model_id("qwen3-coder-480b-a35b-instruct", path),
+            "qwen/qwen3-coder-480b-a35b-instruct",
         )
+
+    def test_load_config_reports_line_for_schema_validation_error(self) -> None:
+        from ghostllm_core.config import ConfigValidationError, load_config
+
+        bad = """server:\n  hots: 127.0.0.1\n  port: 8000\nupstream:\n  base_url: https://integrate.api.nvidia.com/v1\n  nvidia_api_key: key\nmodels:\n  allowlist: []\nmonitoring:\n  log_format: json\n  log_level: INFO\n  prometheus_port: 9090\n"""
+        with tempfile.NamedTemporaryFile(
+            mode="w", suffix=".yaml", delete=False, encoding="utf-8"
+        ) as f:
+            f.write(bad)
+            path = f.name
+        try:
+            with self.assertRaises(ConfigValidationError) as ctx:
+                load_config(path)
+            msg = str(ctx.exception)
+            self.assertIn(path, msg)
+            self.assertIn(":2", msg)
+            self.assertIn("Did you mean 'host'", msg)
+        finally:
+            os.unlink(path)
+
+    def test_load_registry_reports_line_for_schema_validation_error(self) -> None:
+        from ghostllm_core.config import ConfigValidationError, load_registry
+
+        bad = """models:\n  - nmae: planner\n    upstream_id: vendor/model\n"""
+        with tempfile.NamedTemporaryFile(
+            mode="w", suffix=".yaml", delete=False, encoding="utf-8"
+        ) as f:
+            f.write(bad)
+            path = f.name
+        try:
+            with self.assertRaises(ConfigValidationError) as ctx:
+                load_registry(path)
+            msg = str(ctx.exception)
+            self.assertIn(":2", msg)
+            self.assertIn("Did you mean 'name'", msg)
+        finally:
+            os.unlink(path)
 
 
 if __name__ == "__main__":

@@ -1,7 +1,9 @@
 """Tests for outcome_engine verification truthfulness and tool normalization."""
 import unittest
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Dict, Optional
+
+import json
 
 from apps.cli.runtime.outcome_engine import (
     determine_task_outcome,
@@ -15,6 +17,7 @@ from apps.cli.runtime.outcome_engine import (
     OUTCOME_ALREADY_IMPLEMENTED,
     OUTCOME_NO_OP,
     OUTCOME_PARTIALLY_IMPLEMENTED,
+    OUTCOME_READ_ONLY,
     OUTCOME_VERIFICATION_FAILED,
 )
 
@@ -29,6 +32,9 @@ class MockSession:
     repair_summary: str = ""
     task_contract: Optional[Dict[str, Any]] = None
     runtime_contract_source: str = ""
+    write_epoch: int = 0
+    last_integrity_ok_write_epoch: int = -1
+    events: list = field(default_factory=list)
 
     def __post_init__(self) -> None:
         if self.task_contract is None:
@@ -68,6 +74,21 @@ class TestEditMismatchNotMissingFiles(unittest.TestCase):
         self.assertEqual(result.outcome, OUTCOME_BLOCKED)
         self.assertIn("missing_files", result.summary)
 
+    def test_greenfield_scaffold_missing_paths_gets_specific_summary(self):
+        session = MockSession(
+            diff_summary=[],
+            task_type="scaffold",
+            task_contract={"intent": {"task_type": "scaffold", "scaffold_type": "bootstrap"}, "spec": {"intent": "implementation"}},
+            runtime_contract_source="taskspec",
+        )
+        messages = [
+            {"role": "tool", "name": "read_file", "content": '{"error": "Path not found: src/main.py"}'},
+        ]
+        result = determine_task_outcome(session, messages, {})
+        self.assertEqual(result.outcome, OUTCOME_BLOCKED)
+        self.assertIn("Greenfield scaffold blocked early", result.summary)
+        self.assertIn("create the first files/directories directly", result.recommended_next_action)
+
 
 class TestRecoveredToolFailure(unittest.TestCase):
     """Edit failed + write succeeded must not surface as unresolved error."""
@@ -90,6 +111,19 @@ class TestRecoveredToolFailure(unittest.TestCase):
         errors, penalty = _get_normalized_tool_errors(tool_history, diff_summary)
         self.assertGreater(len(errors), 0)
         self.assertGreater(penalty, 0)
+
+    def test_already_implemented_fast_path_shell_block_not_surfaced(self):
+        diff_summary = []
+        tool_history = [
+            {
+                "role": "tool",
+                "name": "run_shell",
+                "content": '{"error": "Already implemented fast-path: nearby tests already cover this; answer without manual run_shell verification."}',
+            },
+        ]
+        errors, penalty = _get_normalized_tool_errors(tool_history, diff_summary)
+        self.assertEqual(errors, [])
+        self.assertEqual(penalty, 0)
 
     def test_is_recovered_pattern(self):
         self.assertTrue(_is_recovered_tool_failure("Target string (old_str) not found.", [{}]))
@@ -283,6 +317,32 @@ class TestVerificationTruthfulness(unittest.TestCase):
         self.assertEqual(result.outcome, OUTCOME_IMPLEMENTED)
         self.assertIn("Verification: passed", result.evidence_lines)
 
+    def test_success_verification_stale_after_subsequent_writes_not_implemented(self):
+        """Edits after last integrity checkpoint: do not close as implemented on old pytest snapshot."""
+        session = MockSession(
+            diff_summary=[{"file": "x.py", "type": "Edit File"}],
+            task_type="direct_edit",
+            write_epoch=3,
+            last_integrity_ok_write_epoch=1,
+        )
+        messages = [{"role": "tool", "name": "write_file", "content": '{"status": "success"}'}]
+        verification = {
+            "status": "success",
+            "steps_executed_count": 1,
+            "checks": [
+                {
+                    "name": "Python Tests (explicit, targeted)",
+                    "status": "passed",
+                    "provenance": "executed",
+                    "exit_code": 0,
+                },
+            ],
+        }
+        result = determine_task_outcome(session, messages, verification)
+        self.assertEqual(result.outcome, OUTCOME_VERIFICATION_FAILED)
+        self.assertNotIn("Verification: passed", result.evidence_lines)
+        self.assertTrue(any("stale" in (line or "").lower() for line in result.evidence_lines))
+
     def test_already_implemented_manual_only_diagnostic(self):
         """already_implemented + steps_executed=0 => diagnostic mentions manual inspection"""
         session = MockSession(
@@ -398,6 +458,7 @@ class TestVerificationTruthfulness(unittest.TestCase):
         self.assertIn("Structured verification passed", result.summary)
         self.assertIn("TypeCheck", result.summary)
         self.assertNotIn("Manual inspection only", result.summary)
+        self.assertIn("No changes needed", result.recommended_next_action)
 
     def test_next_action_includes_failed_check_and_repair_context(self):
         """Next action for verification_failed includes specific check, cause, and repair context."""
@@ -422,6 +483,95 @@ class TestVerificationTruthfulness(unittest.TestCase):
         self.assertIn("Re-run", rec)
         self.assertIn("error TS2322", rec)
         self.assertNotIn("Drizzle", rec)
+
+
+class TestAnalysisReadOnlyOutcome(unittest.TestCase):
+    def test_analysis_outcome_summary_is_findings_first_not_no_changes(self):
+        session = MockSession(
+            diff_summary=[],
+            task_contract={"spec": {"intent": "analysis"}},
+            runtime_contract_source="taskspec",
+        )
+        messages = [{"role": "tool", "name": "read_file", "content": json.dumps({"content": "x" * 20})}]
+        result = determine_task_outcome(session, messages, {"status": "skipped", "checks": []})
+        self.assertEqual(result.outcome, OUTCOME_READ_ONLY)
+        self.assertIn("Inspección", result.summary)
+        self.assertNotIn("no changes needed", result.summary.lower())
+        self.assertEqual(result.findings_evidence_tier, "unverified")
+        self.assertLess(result.confidence, 0.55)
+        self.assertTrue(any("unverified" in (e or "").lower() for e in (result.evidence_lines or [])))
+
+    def test_analysis_tier_confirmed_when_verify_executed(self):
+        session = MockSession(
+            diff_summary=[],
+            task_contract={"spec": {"intent": "analysis"}},
+            runtime_contract_source="taskspec",
+        )
+        messages = [{"role": "tool", "name": "read_file", "content": json.dumps({"content": "a"})}]
+        verif = {
+            "status": "success",
+            "steps_executed_count": 1,
+            "checks": [{"name": "Lint", "provenance": "executed", "status": "passed", "exit_code": 0}],
+        }
+        result = determine_task_outcome(session, messages, verif)
+        self.assertEqual(result.findings_evidence_tier, "confirmed")
+        self.assertGreaterEqual(result.confidence, 0.7)
+
+    def test_modification_should_not_write_gets_findings_tier_not_already_implemented(self):
+        """Read-only contract must not collapse to already_implemented after exploration."""
+        session = MockSession(
+            diff_summary=[],
+            task_contract={
+                "spec": {
+                    "intent": "modification",
+                    "change_expectation": "should_not_write",
+                }
+            },
+            task_intent="modification",
+            runtime_contract_source="taskspec",
+        )
+        messages = [{"role": "tool", "name": "read_file", "content": json.dumps({"content": "x" * 20})}]
+        result = determine_task_outcome(session, messages, {"status": "skipped", "checks": []})
+        self.assertEqual(result.outcome, OUTCOME_READ_ONLY)
+        self.assertEqual(result.findings_evidence_tier, "unverified")
+
+    def test_broad_plan_final_response_beats_generic_churn_summary(self):
+        session = MockSession(
+            diff_summary=[],
+            task_contract={
+                "intent": {"is_slash_command": True, "mode": "plan"},
+                "spec": {"intent": "analysis", "change_expectation": "should_not_write"},
+            },
+            task_intent="analysis",
+            runtime_contract_source="taskspec",
+            events=[{"event": "explore_v2_churn_abort", "reason": "No new read_file hit in last 5 explore steps"}],
+        )
+        messages = [
+            {"role": "tool", "name": "read_file", "content": json.dumps({"content": "critical bare except here"})},
+            {"role": "assistant", "content": "Conclusion: risk found\nFindings:\n1. bare except\nSteps:\n1. verify"},
+        ]
+        result = determine_task_outcome(session, messages, {"status": "skipped", "checks": []})
+        self.assertEqual(result.outcome, OUTCOME_READ_ONLY)
+        self.assertNotIn("Exploration stopped early due to low-value repetition", result.summary)
+        self.assertEqual(result.findings_evidence_tier, "unverified")
+
+    def test_broad_plan_final_response_beats_partial_on_tool_arg_error(self):
+        session = MockSession(
+            diff_summary=[],
+            task_contract={
+                "intent": {"is_slash_command": True, "mode": "plan"},
+                "spec": {"intent": "analysis", "change_expectation": "should_not_write"},
+            },
+            task_intent="analysis",
+            runtime_contract_source="taskspec",
+        )
+        messages = [
+            {"role": "tool", "name": "read_file", "content": "{\"error\": \"Missing 'path' argument.\"}"},
+            {"role": "assistant", "content": "Conclusion: continue\nFindings:\n1. incomplete evidence\nSteps:\n1. inspect concrete file"},
+        ]
+        result = determine_task_outcome(session, messages, {"status": "skipped", "checks": []})
+        self.assertEqual(result.outcome, OUTCOME_READ_ONLY)
+        self.assertNotEqual(result.outcome, OUTCOME_PARTIALLY_IMPLEMENTED)
 
 
 if __name__ == "__main__":

@@ -20,7 +20,7 @@ PROFILE_IDS = frozenset({"simple", "dev", "fast", "turbo", "safe"})
 _DEFAULT_TIERS: Dict[str, str] = {
     "medium": "coder",
     "fast": "fast",
-    "strong": "smart",
+    "strong": "coder",
 }
 
 _DEFAULT_PROFILES: Dict[str, Dict[str, Any]] = {
@@ -68,7 +68,7 @@ _DEFAULT_PROFILES: Dict[str, Dict[str, Any]] = {
         "planner": "fast",
         "execution": "fast",
         "repair": "medium",
-        "auto_approve": True,
+        "auto_approve": False,
         "batch_executor": True,
         "approval_compression": True,
         "use_taskspec": True,
@@ -87,7 +87,7 @@ _DEFAULT_PROFILES: Dict[str, Dict[str, Any]] = {
         "planner": "fast",
         "execution": "fast",
         "repair": "strong",
-        "auto_approve": True,
+        "auto_approve": False,
         "batch_executor": True,
         "approval_compression": True,
         "use_taskspec": True,

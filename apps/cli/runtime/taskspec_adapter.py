@@ -8,6 +8,7 @@ Legacy text-only fill lives in ``apps.cli.runtime.adapters.legacy_intake``.
 """
 from __future__ import annotations
 
+import os
 import time
 from collections.abc import Mapping
 from typing import Any, Dict, List, Optional, Tuple
@@ -302,6 +303,47 @@ def max_repair_attempts(contract_spec: Optional[Dict[str, Any]], default: int = 
         return max(0, int(rp.get("max_attempts", default)))
     except (TypeError, ValueError):
         return default
+
+
+def effective_max_repair_attempts(
+    contract_spec: Optional[Dict[str, Any]],
+    *,
+    failed_checks_blob: str = "",
+    extra_causal_attempt: bool = False,
+    default: int = 1,
+) -> int:
+    """
+    When contract allows only one repair but failure is structural (parse/import/indent),
+    allow one extra causal attempt so a bad first patch can be corrected without widening scope.
+
+    When ``extra_causal_attempt`` (e.g. repair applied edits and causal digest shifted but verify
+    still failing), allow one more controlled attempt without opening scope.
+    """
+    base = max_repair_attempts(contract_spec, default=default)
+    if base < 1:
+        return base
+    try:
+        cap = int(os.environ.get("GHOST_REPAIR_ATTEMPT_CAP", "4"))
+    except (TypeError, ValueError):
+        cap = 4
+    cap = max(2, min(8, cap))
+    effective = base
+    if base < 2:
+        blob = (failed_checks_blob or "").lower()
+        markers = (
+            "indentationerror",
+            "syntaxerror",
+            "importerror",
+            "modulenotfounderror",
+            "attributeerror",
+            "unexpected indent",
+        )
+        if any(m in blob for m in markers):
+            effective = 2
+    if extra_causal_attempt:
+        effective += 1
+    # Never below contract base; cap adaptive bumps without undercutting explicit max_attempts
+    return max(base, min(effective, max(cap, base)))
 
 
 # --- Deprecated public aliases (same behavior; prefer contract_spec names). ---

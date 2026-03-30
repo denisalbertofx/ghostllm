@@ -13,6 +13,7 @@ import logging
 import os
 import re
 from collections.abc import Mapping
+from datetime import datetime
 from dataclasses import asdict, dataclass, field
 from types import MappingProxyType
 from typing import Any, Dict, List, Optional
@@ -40,6 +41,15 @@ SLASH_MODES: Dict[str, str] = {
     "/help": "Help",
 }
 
+BARE_COMMAND_ALIASES: Dict[str, str] = {
+    "plan": "/plan",
+    "do": "/do",
+    "edit": "/edit",
+    "fix": "/fix",
+    "review": "/review",
+    "chat": "/chat",
+}
+
 
 @dataclass
 class Intent:
@@ -59,11 +69,62 @@ class Intent:
     metadata: Dict[str, Any] = field(default_factory=dict)
 
 
+def _has_bootstrap_scaffold_keywords(text: str) -> bool:
+    t = (text or "").strip().lower()
+    if not t:
+        return False
+    bootstrap_keywords = (
+        "desde cero",
+        "from scratch",
+        "nuevo proyecto",
+        "proyecto nuevo",
+        "crea un proyecto",
+        "create a project",
+        "bootstrap",
+        "clean start",
+        "scaffold",
+    )
+    return any(k in t for k in bootstrap_keywords)
+
+
+def _looks_like_scaffold_continuation(text: str) -> bool:
+    t = (text or "").strip().lower()
+    if not t:
+        return False
+    continuation_markers = (
+        "continua este proyecto",
+        "continúa este proyecto",
+        "continua el proyecto",
+        "continúa el proyecto",
+        "continue this project",
+        "finish this project",
+        "terminalo",
+        "termínalo",
+    )
+    scaffold_markers = (
+        "cli",
+        "aplicacion",
+        "aplicación",
+        "app",
+        "proyecto",
+        "python",
+        "sqlite",
+        "pytest",
+        "readme",
+    )
+    return any(marker in t for marker in continuation_markers) and any(
+        marker in t for marker in scaffold_markers
+    )
+
+
 def _enrich_intent(intent: Intent) -> None:
     task_lower = intent.task.lower()
     bootstrap_keywords = ["desde cero", "nuevo", "inicializa", "re-inicializa", "bootstrap", "clean start"]
     if any(k in intent.task.lower() for k in bootstrap_keywords):
         intent.scaffold_type = "bootstrap"
+        intent.task_type = "scaffold"
+    elif _looks_like_scaffold_continuation(intent.task):
+        intent.scaffold_type = "extend"
         intent.task_type = "scaffold"
     elif intent.task_type == "scaffold":
         intent.scaffold_type = "extend"
@@ -86,9 +147,21 @@ def _enrich_intent(intent: Intent) -> None:
         intent.requires_tools = True
 
 
+def normalize_cli_entry_text(text: str) -> str:
+    raw = str(text or "")
+    stripped = raw.strip()
+    if not stripped or stripped.startswith("/"):
+        return stripped
+    first, sep, rest = stripped.partition(" ")
+    alias = BARE_COMMAND_ALIASES.get(first.lower())
+    if not alias:
+        return stripped
+    return alias if not sep else f"{alias} {rest.lstrip()}"
+
+
 def route_intake_intent(text: str) -> Intent:
     """Single entry for user → Intent at INTAKE (replaces ad-hoc IntentRouter.route)."""
-    text = text.strip()
+    text = normalize_cli_entry_text(text)
     if not text:
         return Intent(mode="Chat", task="", original_text=text)
     if text.startswith("/"):
@@ -149,7 +222,14 @@ def route_intake_intent(text: str) -> Intent:
 
 def infer_work_task_type(text: str) -> str:
     """TaskManager taxonomy from natural language (unchanged heuristics)."""
-    t = text.lower()
+    normalized = normalize_cli_entry_text(text)
+    t = normalized.lower()
+    if t.startswith("/plan"):
+        return "plan"
+    if _has_bootstrap_scaffold_keywords(t):
+        return "scaffold"
+    if _looks_like_scaffold_continuation(t):
+        return "scaffold"
     if any(w in t for w in ["dependencia", "dependency", "package", "install", "npm", "pip", "uv", "requirements.txt"]):
         return "dependency_change"
     if any(w in t for w in ["config", "entorno", "setup", ".env", "toml", "yaml", "yml", "json"]):
@@ -370,6 +450,31 @@ def task_contract_to_jsonable(obj: Any) -> Any:
     if isinstance(obj, list):
         return [task_contract_to_jsonable(x) for x in obj]
     return obj
+
+
+def append_budget_extension_record(session: Any, record: Dict[str, Any]) -> None:
+    """Append compact budget extension audit (operational grants, not verify-only)."""
+    row = dict(record)
+    row.setdefault("ts", datetime.now().isoformat())
+    ev = getattr(session, "budget_extension_events", None)
+    if not isinstance(ev, list):
+        ev = []
+        session.budget_extension_events = ev
+    ev.append(row)
+    if len(ev) > 32:
+        del ev[:-32]
+    events = getattr(session, "events", None)
+    if isinstance(events, list):
+        bev: Dict[str, Any] = {
+            "event": "budget_extension",
+            "points": row.get("points", 0),
+            "reason": row.get("reason", ""),
+            "detail": (row.get("detail") or "")[:240],
+            "skipped": row.get("skipped") or "",
+        }
+        if row.get("confidence"):
+            bev["confidence"] = str(row.get("confidence"))[:32]
+        events.append(bev)
 
 
 def append_repair_run_record(session: Any, record: Dict[str, Any]) -> None:

@@ -33,6 +33,7 @@ from apps.cli.runtime.repo_overview_task import (
     detect_repo_overview_question,
     evidence_sufficient_for_repo_overview,
 )
+from apps.cli.runtime.intent_classifier import detect_code_inspection_readonly_prompt
 
 # Kept local to avoid import cycles with answer_now_policy (which imports this module).
 _HIGH_AMBIGUITY = re.compile(
@@ -73,9 +74,16 @@ def should_run_immediate_synthesis_after_sufficiency(session: Any) -> bool:
     ``GHOST_MICRO_TASK_IMMEDIATE_SYNTHESIS=0`` disables the fast path **only** for sessions
     flagged as micro-task; other bounded tasks (e.g. RO-2 in chat) still follow
     ``GHOST_EVIDENCE_SUFFICIENT_IMMEDIATE_SYNTHESIS``.
+
+    Inspección read-only (p. ej. «bug más grande», code review): nunca síntesis inmediata
+    forzada — evita alucinar bugs con poca lectura real.
     """
     if not evidence_sufficient_immediate_synthesis_enabled():
         return False
+    if session is not None:
+        task_blob = str(getattr(session, "task", "") or getattr(session, "plan", "") or "")
+        if detect_code_inspection_readonly_prompt(task_blob):
+            return False
     mtk = getattr(session, "micro_task_kind", None) if session is not None else None
     if mtk:
         v = os.getenv("GHOST_MICRO_TASK_IMMEDIATE_SYNTHESIS", "1").strip().lower()
@@ -270,6 +278,11 @@ def evaluate_evidence_sufficiency_for_task(
                 details=dict(base_details),
             )
         return _insufficient(why)
+
+    if detect_code_inspection_readonly_prompt(task_text):
+        # Nunca marcar «evidencia suficiente» para disparar síntesis inmediata: preguntas de bug/review
+        # requieren lecturas literales profundas o checks; 320 chars/1 read bastan para alucinar.
+        return _insufficient("code_inspection_no_immediate_synthesis")
 
     return _insufficient("not_bounded_readonly_family")
 

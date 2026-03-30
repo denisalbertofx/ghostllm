@@ -263,6 +263,26 @@ export const issueSchema = z.object({ status: z.enum(["open", "closed"]) });
         self.assertTrue(q.layer_boost_api)
         self.assertTrue(q.layer_boost_data)
 
+    def test_build_query_forbids_nested_standalone_projects_for_simple_root_repo(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "pyproject.toml").write_text("[project]\nname='demo'\n", encoding="utf-8")
+            (root / "tests").mkdir()
+            nested = root / "ghost-bench-fullstack"
+            nested.mkdir()
+            (nested / "pyproject.toml").write_text("[project]\nname='nested'\n", encoding="utf-8")
+            rp = {
+                "root": str(root),
+                "important_folders": ["tests", "pyproject.toml"],
+                "layers_detected": ["api", "tests"],
+            }
+            q = build_retrieval_query_from_contract_spec(
+                {"intent": "analysis", "scope": ["api"], "target_files": []},
+                rp,
+                user_text="audita este backend",
+            )
+            self.assertIn("ghost-bench-fullstack", q.forbidden_roots)
+
     def test_clear_retrieval_fields(self):
         s = ArtifactSession("s", "t")
         s.retrieval_enabled = True

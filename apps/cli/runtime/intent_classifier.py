@@ -119,11 +119,12 @@ _SCOPE_EXCLUSIONS = [
 ]
 
 
-def _get_start_tokens(text: str, n: int = 25) -> str:
-    """First n words of the prompt (lowercase) for strong-verb matching."""
+def _get_start_tokens(text: str, n: int = 12) -> str:
+    """Leading clause words for strong-verb matching (avoid later 'add test' clauses)."""
     t = (text or "").strip().lower()
     t = re.sub(r"^/[a-z0-9_-]+\b\s*", "", t, count=1)
-    words = re.split(r"\s+", t, maxsplit=n)[:n]
+    clause = re.split(r"[.!?;\n]", t, maxsplit=1)[0]
+    words = re.split(r"\s+", clause, maxsplit=n)[:n]
     return " " + " ".join(words) + " "
 
 
@@ -135,6 +136,151 @@ def _check_scope_exclusions(text: str) -> bool:
             if phrase in t:
                 return True
     return False
+
+
+def normalize_prompt_for_intent(user_prompt: str) -> str:
+    """Lowercase body with leading slash-commands stripped once (align with classify_task_intent)."""
+    t = (user_prompt or "").strip().lower()
+    return re.sub(r"^/[a-z0-9_-]+\b\s*", "", t, count=1)
+
+
+def explicit_implementation_or_fix_request(user_prompt: str) -> bool:
+    """
+    True when the user is asking to change code / fix, not only to describe or review issues.
+    Used to avoid misclassifying “find the biggest bug” style prompts as bugfix.
+    """
+    t = normalize_prompt_for_intent(user_prompt)
+    if not t:
+        return False
+    wrapped = f" {t} "
+    markers = (
+        " arregla ",
+        " arreglar",
+        " arreglalo",
+        " corrige ",
+        " corregir",
+        " soluciona ",
+        " implementa ",
+        " implementar",
+        " patch ",
+        " y arregla",
+        " y corrige",
+        " and fix",
+        " then fix",
+        " fix it",
+        " haz que funcione",
+        " make it work",
+        " crea un fix",
+        " write a fix",
+    )
+    if any(m in wrapped for m in markers):
+        return True
+    if re.search(r"\b(fix|fixes|fixed|fixing|patching|patches)\b", t):
+        if "bug" in t or "fallo" in t or "error" in t:
+            # "fix the bug" is a fix request, not inspection-only
+            return True
+    if re.search(r"\b(arregla|arreglar|arreglarlo|arreglalo|corrige|corregir|corregirlo|soluciona|solucionar)\b", t):
+        return True
+    return False
+
+
+def user_explicitly_requests_verify_shell(user_prompt: str) -> bool:
+    """User asked to run lint/typecheck/build/tests explicitly (allows run_shell in read-only sessions)."""
+    t = normalize_prompt_for_intent(user_prompt)
+    if not t:
+        return False
+    needles = (
+        "npm run lint",
+        "npm run build",
+        "npm test",
+        "npx tsc",
+        "yarn lint",
+        "yarn build",
+        "pnpm lint",
+        "pytest",
+        "jest",
+        "run lint",
+        "run tests",
+        "run test",
+        "run build",
+        "run typecheck",
+        "typecheck",
+        "ejecuta lint",
+        "ejecuta pytest",
+        "ejecuta los tests",
+        "corre pytest",
+        "corre los tests",
+        "mypy",
+        "ruff ",
+    )
+    return any(n in t for n in needles)
+
+
+def detect_code_inspection_readonly_prompt(user_prompt: str) -> bool:
+    """
+    Read-only code inspection: biggest-bug questions, review/analyze-without-fix phrasing.
+
+    These must not be classified as bugfix/must_write just because the word "bug" appears.
+    """
+    t = normalize_prompt_for_intent(user_prompt)
+    if not t:
+        return False
+    phrases = (
+        "bug más grande",
+        "bug mas grande",
+        "mayor bug",
+        "peor bug",
+        "biggest bug",
+        "largest bug",
+        "worst bug",
+        "dime el bug",
+        "dime cual es el bug",
+        "dime cuál es el bug",
+        "cuál es el bug",
+        "cual es el bug",
+        "qué bug",
+        "que bug",
+        "what bug",
+        "which bug",
+        "encuentra el bug",
+        "encuentra el mayor",
+        "find the bug",
+        "find the biggest",
+        "find the worst",
+        "qué problema ves",
+        "que problema ves",
+        "qué problema hay",
+        "que problema hay",
+        "what problem do you see",
+        "what issue do you see",
+        "haz review",
+        "haz una review",
+        "haz un code review",
+        "code review",
+        "revisión de código",
+        "revision de codigo",
+        "revisa el código",
+        "revisa el codigo",
+        "review the code",
+        "security review",
+        "revisión de seguridad",
+    )
+    if any(p in t for p in phrases):
+        return True
+    if ("dime" in t or "cuéntame" in t or "cuentame" in t) and "bug" in t:
+        return True
+    if ("cuál" in t or "cual" in t or "qué" in t or "what" in t) and (
+        "bug" in t or "problema" in t or "issue" in t
+    ):
+        return True
+    return False
+
+
+def prompt_locks_taskspec_as_inspection_readonly(user_prompt: str) -> bool:
+    """Post-merge guard: keep TaskSpec in read-only inspection when the prompt demands it."""
+    return detect_code_inspection_readonly_prompt(user_prompt) and not explicit_implementation_or_fix_request(
+        user_prompt
+    )
 
 
 def _keyword_present(text: str, keyword: str) -> bool:
@@ -190,6 +336,20 @@ def classify_task_intent(user_prompt: str) -> TaskIntentResult:
         if start_matched:
             break
 
+    # 1b. Inspection / biggest-bug / review-without-fix before keyword fallback (avoids bare "bug" -> bugfix)
+    if not start_matched and detect_code_inspection_readonly_prompt(
+        user_prompt
+    ) and not explicit_implementation_or_fix_request(user_prompt):
+        return TaskIntentResult(
+            intent=INTENT_ANALYSIS,
+            scope=SCOPE_UNKNOWN,
+            change_expectation=EXPECT_SHOULD_NOT_WRITE,
+            confidence=0.9,
+            reasoning_lines=[
+                "Intent 'analysis': code inspection / biggest-bug or review-style question (read-only)",
+            ],
+        )
+
     # 2. Fallback: keywords anywhere (only if no start match)
     if not start_matched:
         for keywords, candidate_intent, candidate_exp in _INTENT_FALLBACK:
@@ -201,6 +361,16 @@ def classify_task_intent(user_prompt: str) -> TaskIntentResult:
                     break
             if reasoning and "Intent '" in reasoning[-1]:
                 break
+
+    if not start_matched and intent == INTENT_BUGFIX:
+        if detect_code_inspection_readonly_prompt(user_prompt) and not explicit_implementation_or_fix_request(
+            user_prompt
+        ):
+            intent = INTENT_ANALYSIS
+            change_expectation = EXPECT_SHOULD_NOT_WRITE
+            reasoning.append(
+                "Intent 'analysis': inspection phrasing overrides keyword 'bug' (bugfix fallback)"
+            )
 
     # Rule: if implementation verbs present and "error"/"invalid" only in constraints (400, invalid value),
     # keep implementation. "responde 400 con error" = constraint, not bugfix.

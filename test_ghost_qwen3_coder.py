@@ -2,14 +2,14 @@ import asyncio
 import httpx
 import json
 
-async def test_kimi():
+async def test_qwen3_coder():
     url = "https://integrate.api.nvidia.com/v1/chat/completions"
     headers = {
         "Authorization": "Bearer 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",
         "Accept": "text/event-stream"
     }
     payload = {
-        "model": "moonshotai/kimi-k2.5",
+        "model": "qwen/qwen3-coder-480b-a35b-instruct",
         "messages": [{"role": "user", "content": "What is the weather in San Francisco? You MUST use the get_weather tool to answer this."}],
         "max_tokens": 1000,
         "stream": True,
@@ -39,4 +39,4 @@ async def test_kimi():
             print(f"Total chunks: {chunks_received}")
 
 if __name__ == "__main__":
-    asyncio.run(test_kimi())
+    asyncio.run(test_qwen3_coder())

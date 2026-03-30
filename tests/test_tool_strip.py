@@ -7,7 +7,7 @@ from apps.cli.assistant import CodexAssistant
 
 
 def test_strip_tool_calls():
-    a = CodexAssistant("http://localhost:11434", "k", "kimi")
+    a = CodexAssistant("http://localhost:11434", "k", "coder")
     text = 'Hello <tool_call>{"name": "read_file", "arguments": {"path": "x"}}</tool_call> world'
     cleaned = a._strip_tool_calls_for_display(text)
     assert "<tool_call>" not in cleaned
@@ -16,14 +16,14 @@ def test_strip_tool_calls():
 
 
 def test_is_tool_call_chunk():
-    a = CodexAssistant("http://localhost:11434", "k", "kimi")
+    a = CodexAssistant("http://localhost:11434", "k", "coder")
     assert a._is_tool_call_chunk('{"name": "read_file"', False) is True
     assert a._is_tool_call_chunk("I'll check the file", False) is False
 
 
 def test_extract_tool_calls_json_fallback():
     """JSON tool calls without XML tags should be extracted."""
-    a = CodexAssistant("http://localhost:11434", "k", "kimi")
+    a = CodexAssistant("http://localhost:11434", "k", "coder")
     text = '{"name": "read_file", "arguments": {"path": "db/schema.ts"}}'
     calls = a._extract_tool_calls_json(text)
     assert len(calls) == 1
@@ -33,7 +33,7 @@ def test_extract_tool_calls_json_fallback():
 
 def test_extract_tool_calls_uses_json_fallback():
     """_extract_tool_calls should use JSON fallback when no XML."""
-    a = CodexAssistant("http://localhost:11434", "k", "kimi")
+    a = CodexAssistant("http://localhost:11434", "k", "coder")
     text = '{"name": "read_file", "arguments": {"path": "x"}}'
     calls = a._extract_tool_calls(text)
     assert len(calls) == 1

@@ -7,6 +7,7 @@ from apps.cli.runtime.explore_promotion import (
     REASON_EXPLORATION_BUDGET_EXHAUSTED,
     REASON_EXPLORE_TEXT_ONLY_STREAK,
     REASON_FOCUSED_WRITE_CONTEXT_READY,
+    REASON_REPEATED_TARGET_READ,
     REASON_READ_ONLY_STAGNATION_THRESHOLD,
     REASON_REJECTED_WRITE_ATTEMPT,
     REASON_REPO_CONTEXT_SUFFICIENT,
@@ -35,6 +36,7 @@ class TestExplorePromotion(unittest.TestCase):
         unique_reads=0,
         target_file_count=0,
         relevant_read_hits=0,
+        max_target_reads=0,
         focused_write=False,
         simple_write=False,
         policy=True,
@@ -48,6 +50,7 @@ class TestExplorePromotion(unittest.TestCase):
             unique_read_paths=unique_reads,
             target_file_count=target_file_count,
             relevant_read_hits=relevant_read_hits,
+            max_target_read_count=max_target_reads,
             focused_write_task=focused_write,
             simple_write_task=simple_write,
             policy_allows_act=policy,
@@ -114,6 +117,18 @@ class TestExplorePromotion(unittest.TestCase):
         tr = ExploreTurnResult(kind="tools", executed_tool_names=("ls", "read_file"))
         self.assertTrue(should_promote_explore_to_act(_Sess(), tr, m))
         self.assertEqual(m.last_promotion_reason, REASON_SIMPLE_WRITE_MIN_CONTEXT)
+
+    def test_repeated_target_read_promotes(self):
+        m = self._m(
+            discovery=1,
+            unique_reads=1,
+            target_file_count=1,
+            max_target_reads=2,
+            focused_write=True,
+        )
+        tr = ExploreTurnResult(kind="tools", executed_tool_names=("read_file",))
+        self.assertTrue(should_promote_explore_to_act(_Sess(), tr, m))
+        self.assertEqual(m.last_promotion_reason, REASON_REPEATED_TARGET_READ)
 
     def test_modify_intent_in_text(self):
         m = self._m()

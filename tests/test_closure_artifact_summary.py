@@ -4,6 +4,7 @@ from __future__ import annotations
 import unittest
 
 from apps.cli.runtime.closure_artifact_summary import (
+    apply_tier_language_guard_es,
     build_closure_operator_view,
     closure_reason_operator_alias_en,
     derive_completion_style,
@@ -24,6 +25,28 @@ class _Sess:
         self.outcome_confidence = 0.75
         self.terminal_resolution_record: dict = {}
         self.task_confidence_signals: dict = {}
+
+
+class TestTierLanguageGuard(unittest.TestCase):
+    def test_suspected_tier_blocks_confirmed_bug_wording(self) -> None:
+        raw = "Bug confirmado en apps/server/main.py: fallará en producción."
+        out = apply_tier_language_guard_es(raw, "suspected")
+        self.assertIn("hipótesis", out.lower())
+        self.assertNotIn("main.py", out)
+
+    def test_suspected_tier_blocks_bloquea_servicio(self) -> None:
+        raw = "Esto bloquea todo el servicio en producción."
+        out = apply_tier_language_guard_es(raw, "unverified")
+        self.assertIn("hipótesis", out.lower())
+
+    def test_confirmed_tier_passes_through(self) -> None:
+        raw = "Bug confirmado tras tests ejecutados."
+        self.assertEqual(apply_tier_language_guard_es(raw, "confirmed"), raw)
+
+    def test_unknown_tier_is_treated_as_non_confirmed(self) -> None:
+        raw = "Impacto crítico: bloqueará todo el servicio."
+        out = apply_tier_language_guard_es(raw, "future_new_tier")
+        self.assertIn("hip", out.lower())
 
 
 class TestClosureArtifactSummary(unittest.TestCase):

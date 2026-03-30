@@ -52,8 +52,16 @@ class TestGhostProfile(unittest.TestCase):
         self.assertEqual(r.profile_id, "fast")
         self.assertEqual(r.session_model_alias, "fast")
         self.assertEqual(r.operational_mode, "auto")
-        self.assertTrue(r.auto_approve)
+        self.assertFalse(r.auto_approve)
         self.assertEqual(r.parallel_pipeline, "on")
+
+    def test_safe_profile_uses_coder_for_strong_roles(self) -> None:
+        root = Path(__file__).resolve().parents[3]
+        r = resolve_operational_profile("safe", str(root), root)
+        self.assertEqual(r.session_model_alias, "coder")
+        self.assertEqual(r.planner_upstream_id, "qwen/qwen3-coder-480b-a35b-instruct")
+        self.assertEqual(r.execution_upstream_id, "qwen/qwen3-coder-480b-a35b-instruct")
+        self.assertEqual(r.repair_upstream_id, "qwen/qwen3-coder-480b-a35b-instruct")
 
     def test_apply_sets_active_profile(self) -> None:
         root = Path(__file__).resolve().parents[3]

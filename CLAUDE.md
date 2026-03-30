@@ -69,7 +69,7 @@ python apps/cli/main.py status
 
 # Launch Claude Code via GhostLLM bridge
 python apps/cli/main.py claude
-python apps/cli/main.py claude --model kimi
+python apps/cli/main.py claude --model coder
 
 # Run health checks
 python apps/cli/main.py doctor
@@ -106,10 +106,10 @@ npm run lint
 The server acts as a bridge between client APIs (OpenAI/Anthropic) and NVIDIA NIM:
 
 - **Anthropic → OpenAI**: `apps/server/api/translation.py:translate_anthropic_to_openai()`
-  - Maps model aliases (sonnet → kimi)
+  - Maps model aliases (sonnet → coder)
   - Strips XML tool instructions for non-Claude models
   - Applies fine-grained max_tokens policy (4096/8192 based on context)
-  - Kimi-specific tweaks (temperature, thinking mode)
+  - Coder-model routing tweaks (temperature, thinking mode)
 
 - **OpenAI → Anthropic**: `translate_openai_to_anthropic()` / `stream_openai_to_anthropic()`
   - Converts OpenAI responses to Anthropic message format
@@ -127,7 +127,7 @@ models:
     expensive: false       # Admin-only if true
 ```
 
-Supported aliases: `sonnet`, `claude-3-5-sonnet`, `claude-sonnet-4-6` → maps to `kimi`
+Supported aliases: `sonnet`, `claude-3-5-sonnet`, `claude-sonnet-4-6` → maps to `coder`
 
 ### Authentication
 
@@ -183,4 +183,4 @@ monitoring:
 Test scripts in repo root:
 - `test_claude.py` - Tests Anthropic API compatibility
 - `test_codex.py` - Tests OpenAI API compatibility
-- `test_kimi.py` - Tests Kimi-specific features
+- `test_ghost_qwen3_coder.py` - Tests Qwen3 Coder-specific features

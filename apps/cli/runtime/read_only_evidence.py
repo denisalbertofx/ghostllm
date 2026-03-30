@@ -129,6 +129,8 @@ def paths_align_for_listing(user_norm: str, ls_path: str) -> bool:
     ls_n = _normalize_path_hint(ls_path or ".")
     if not user_norm:
         return False
+    if not ls_n:
+        return user_norm in ("", ".")
     if user_norm == ls_n:
         return True
     if ls_n.endswith(user_norm) or user_norm.endswith(ls_n):

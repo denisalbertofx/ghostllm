@@ -9,7 +9,7 @@ if str(root_dir / "packages" / "py-core") not in sys.path:
     sys.path.insert(0, str(root_dir / "packages" / "py-core"))
 
 from fastapi import FastAPI, HTTPException, Request, Response, Depends
-from fastapi.responses import StreamingResponse, JSONResponse
+from fastapi.responses import StreamingResponse, JSONResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from typing import Dict, Any, List, Optional
@@ -17,12 +17,14 @@ import json
 import os
 import asyncio
 import logging
+import time
 
 # Core & Providers & Auth
 from ghostllm_core.config import (
     load_config,
     bootstrap_enabled_models,
     resolve_upstream_model_id,
+    resolve_config_path,
 )
 from apps.server.providers.nvidia import NvidiaProvider, NVIDIAError
 from apps.server.database import (
@@ -90,7 +92,7 @@ def on_startup():
     logger.info("GhostLLM Server initialized.")
 
 # Load configuration
-CONFIG_PATH = "configs/default.yaml"
+CONFIG_PATH = resolve_config_path("configs/default.yaml")
 REGISTRY_PATH = "configs/models.yaml"
 cfg = None
 
@@ -116,10 +118,43 @@ def _model_registry_payload() -> Dict[str, Any]:
     }
 
 
-def _provider_ready_payload() -> Dict[str, Any]:
-    ready = nvidia_provider is not None
-    detail = "" if ready else "NVIDIA Provider not initialized"
-    return {"ready": ready, "detail": detail}
+_PROVIDER_READY_CACHE: Dict[str, Any] = {
+    "checked_at": 0.0,
+    "payload": {"ready": False, "detail": "NVIDIA Provider not initialized", "auth_checked": False},
+}
+_PROVIDER_READY_TTL_SECONDS = float(os.getenv("GHOST_PROVIDER_READY_TTL_SECONDS", "15"))
+
+
+def _provider_probe_model() -> str:
+    for alias in ("fast", "chat", "coder", "planner"):
+        model = ENABLED_MODELS.get(alias)
+        if model and getattr(model, "upstream_id", ""):
+            return str(model.upstream_id)
+    values = list(MODEL_MAPPING.values())
+    return str(values[0]) if values else ""
+
+
+async def _provider_ready_payload(force: bool = False) -> Dict[str, Any]:
+    if not nvidia_provider:
+        return {"ready": False, "detail": "NVIDIA Provider not initialized", "auth_checked": False}
+
+    now = time.time()
+    cached = _PROVIDER_READY_CACHE.get("payload") or {}
+    checked_at = float(_PROVIDER_READY_CACHE.get("checked_at") or 0.0)
+    if not force and cached and (now - checked_at) < _PROVIDER_READY_TTL_SECONDS:
+        return dict(cached)
+
+    probe_model = _provider_probe_model()
+    ready, detail = await nvidia_provider.probe_auth(probe_model or None)
+    payload = {
+        "ready": ready,
+        "detail": detail,
+        "auth_checked": True,
+        "probe_model": probe_model,
+    }
+    _PROVIDER_READY_CACHE["checked_at"] = now
+    _PROVIDER_READY_CACHE["payload"] = dict(payload)
+    return payload
 
 # Import translation logic
 from apps.server.api.translation import (
@@ -137,7 +172,7 @@ def is_model_allowed(model_name: str) -> bool:
     """Return True if model_name is a known alias, upstream_id, or Anthropic alias."""
     resolved = resolve_upstream_model_id(model_name, MODEL_MAPPING)
     return (
-        model_name in MODEL_MAPPING           # registry name alias (kimi, planner, etc.)
+        model_name in MODEL_MAPPING           # registry name alias (coder, planner, etc.)
         or model_name in MODEL_MAPPING.values()  # direct upstream_id
         or resolved in MODEL_MAPPING.values()    # unique basename -> upstream_id
         or model_name in _CLAUDE_ALIASES       # anthropic bridge
@@ -373,7 +408,7 @@ async def anthropic_messages(request: Request, forced_model: Optional[str] = Non
 @app.get("/healthz")
 @app.get("/health")
 async def health():
-    provider = _provider_ready_payload()
+    provider = await _provider_ready_payload()
     registry = _model_registry_payload()
     status = "healthy" if provider["ready"] and registry["healthy"] else "degraded"
     return {
@@ -386,7 +421,7 @@ async def health():
 
 @app.get("/ready")
 async def ready():
-    provider = _provider_ready_payload()
+    provider = await _provider_ready_payload(force=True)
     if provider["ready"]:
         return provider
     return JSONResponse(content=provider, status_code=503)
@@ -397,9 +432,22 @@ async def ui_root():
     return Response(status_code=307, headers={"Location": "/ui/index.html"})
 
 # Mount the build output
-ui_dir = "apps/web/out"
-if os.path.exists(ui_dir):
-    app.mount("/ui", StaticFiles(directory=ui_dir, html=True), name="ui")
+project_root = Path(__file__).resolve().parents[2]
+ui_dir = project_root / "apps" / "web" / "out"
+next_static_dir = ui_dir / "_next"
+favicon_path = ui_dir / "favicon.ico"
+
+if next_static_dir.exists():
+    app.mount("/_next", StaticFiles(directory=str(next_static_dir)), name="next-static")
+
+@app.get("/favicon.ico")
+async def favicon():
+    if favicon_path.exists():
+        return FileResponse(str(favicon_path))
+    raise HTTPException(status_code=404, detail="favicon not found")
+
+if ui_dir.exists():
+    app.mount("/ui", StaticFiles(directory=str(ui_dir), html=True), name="ui")
 
 if __name__ == "__main__":
     import uvicorn

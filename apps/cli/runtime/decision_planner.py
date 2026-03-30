@@ -13,6 +13,7 @@ from typing import Any, Dict, List, Literal, Optional, Set, Tuple
 from pydantic import BaseModel, ConfigDict, Field
 
 from apps.cli.runtime.exploration_planner import path_under_ui_roots
+from apps.cli.runtime.repo_profile_v2 import verification_command_command, verification_command_cwd
 from apps.cli.runtime.task_contract import (
     contract_has_operational_spec,
     get_task_contract_decision_plan,
@@ -107,6 +108,7 @@ class VerificationStep(BaseModel):
 
     check: CheckName
     command: str
+    cwd: str = "."
     source: CmdSource
     cost: CostTier
     gate: bool
@@ -255,12 +257,16 @@ def _vcmds(repo: Dict[str, Any]) -> Dict[str, Any]:
 
 def _infer_cmd_source(vc: Dict[str, Any]) -> CmdSource:
     src = vc.get("source")
+    if isinstance(src, str):
+        src = [src]
     if isinstance(src, list):
         joined = " ".join(str(x).lower() for x in src)
         if "agents" in joined:
             return "agents_md"
         if "package" in joined:
             return "package_json"
+        if "default" in joined:
+            return "defaults"
     return "repo_profile"
 
 
@@ -268,6 +274,53 @@ def _coerce_cmd_source(x: Any, default: CmdSource) -> CmdSource:
     if x in ("agents_md", "package_json", "defaults", "repo_profile"):
         return x  # type: ignore[return-value]
     return default
+
+
+def _looks_python_target(path: str) -> bool:
+    norm = _norm_path(path).lower()
+    return bool(
+        norm.endswith(".py")
+        or norm.startswith("apps/cli/")
+        or norm.startswith("apps/server/")
+        or norm.startswith("packages/py-core/")
+        or norm in ("pyproject.toml", "uv.lock")
+    )
+
+
+def _looks_node_target(path: str) -> bool:
+    norm = _norm_path(path).lower()
+    return bool(
+        norm.endswith((".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"))
+        or norm.startswith("apps/web/")
+        or norm.endswith("package.json")
+        or "next.config" in norm
+    )
+
+
+def _focused_target_files(taskspec: Dict[str, Any]) -> List[str]:
+    ce = str(taskspec.get("change_expectation") or "").strip().lower()
+    if ce not in ("must_write", "may_write"):
+        return []
+    files = _dedupe_norm_paths(
+        [str(x) for x in (taskspec.get("target_files") or []) if isinstance(x, str) and x.strip()],
+        limit=3,
+    )
+    return files if 1 <= len(files) <= 2 else []
+
+
+def _cmd_entry(
+    vc: Dict[str, Any],
+    key: CheckName,
+    *,
+    default_source: Optional[CmdSource] = None,
+) -> Tuple[str, str, CmdSource]:
+    raw = vc.get(key)
+    command = verification_command_command(raw) or ""
+    cwd = verification_command_cwd(raw, default=".")
+    src = default_source or _infer_cmd_source(vc)
+    if isinstance(raw, dict):
+        src = _infer_cmd_source(raw)
+    return command.strip(), cwd, src
 
 
 def normalize_verification_steps(
@@ -292,6 +345,7 @@ def normalize_verification_steps(
             VerificationStep(
                 check=chk,
                 command=cmd,
+                cwd=str(s.get("cwd") or ".").replace("\\", "/") or ".",
                 source=_coerce_cmd_source(s.get("source"), default_source),
                 cost=cost,  # type: ignore[arg-type]
                 gate=bool(s.get("gate", False)),
@@ -583,10 +637,14 @@ def build_execution_plan(
     if not touch_only and scope_list:
         touch_only = scope_list[:]
 
-    all_files = [c.path for c in exploration_plan.ranked_candidates if c.kind == "file"]
-    if intent in ("implementation", "modification", "bugfix", "refactor"):
-        all_files = [f for f in all_files if not _is_doc_file(_norm_path(f) or f)]
-    files = _dedupe_norm_paths(all_files, limit=6)
+    focused_files = _focused_target_files(ts)
+    if focused_files:
+        files = focused_files
+    else:
+        all_files = [c.path for c in exploration_plan.ranked_candidates if c.kind == "file"]
+        if intent in ("implementation", "modification", "bugfix", "refactor"):
+            all_files = [f for f in all_files if not _is_doc_file(_norm_path(f) or f)]
+        files = _dedupe_norm_paths(all_files, limit=6)
     draft = ExecutionPlan(
         execution_strategy="direct_edit",
         expected_files_changed=files,
@@ -687,25 +745,31 @@ def build_verification_plan(
     stack = repo.get("stack") or {}
     langs = stack.get("language") if isinstance(stack, dict) else []
     lang_list = [str(x).lower() for x in (langs or [])] if isinstance(langs, list) else []
-    touches_ts = any("typescript" in x or "ts" == x for x in lang_list)
-    want_ts_first = bool(scope & {"api", "data"}) or touches_ts
 
     exp_files = execution_plan.expected_files_changed
+    touches_ts = any("typescript" in x or "ts" == x for x in lang_list)
+    touches_node_targets = any(_looks_node_target(f) for f in exp_files)
+    touches_python_targets = any(_looks_python_target(f) for f in exp_files)
+    if exp_files:
+        want_ts_first = touches_node_targets and not touches_python_targets
+    else:
+        want_ts_first = bool(scope & {"api", "data"}) or touches_ts
     touches_pkg = any("package.json" in f.replace("\\", "/").lower() for f in exp_files)
     touches_next = any("next.config" in f.lower() for f in exp_files)
     blast = execution_plan.blast_radius
     risk_lvl = execution_plan.risk.level
 
-    typecheck_cmd = (vc.get("typecheck") or "").strip()
-    build_cmd = (vc.get("build") or "").strip()
-    lint_cmd = (vc.get("lint") or "").strip()
-    tests_cmd = (vc.get("tests") or "").strip()
+    typecheck_cmd, typecheck_cwd, typecheck_src = _cmd_entry(vc, "typecheck", default_source=src)
+    build_cmd, build_cwd, build_src = _cmd_entry(vc, "build", default_source=src)
+    lint_cmd, lint_cwd, lint_src = _cmd_entry(vc, "lint", default_source=src)
+    tests_cmd, tests_cwd, tests_src = _cmd_entry(vc, "tests", default_source=src)
 
     if not typecheck_cmd and want_ts_first:
         typecheck_cmd = "npx tsc --noEmit"
+        typecheck_cwd = "."
         src_tc: CmdSource = "defaults"
     else:
-        src_tc = src if typecheck_cmd else "defaults"
+        src_tc = typecheck_src if typecheck_cmd else "defaults"
 
     steps_raw: List[Dict[str, Any]] = []
 
@@ -713,6 +777,7 @@ def build_verification_plan(
         check: CheckName,
         cmd: str,
         *,
+        cwd: str,
         cost: CostTier,
         gate: bool,
         reason: str,
@@ -724,6 +789,7 @@ def build_verification_plan(
             {
                 "check": check,
                 "command": cmd,
+                "cwd": cwd,
                 "source": cmd_source,
                 "cost": cost,
                 "gate": gate,
@@ -735,6 +801,7 @@ def build_verification_plan(
         add_step(
             "typecheck",
             typecheck_cmd,
+            cwd=typecheck_cwd,
             cost="standard",
             gate=True,
             reason="TS/API/data scope: typecheck first (cheap-first)",
@@ -746,10 +813,11 @@ def build_verification_plan(
         add_step(
             "lint",
             lint_cmd,
+            cwd=lint_cwd,
             cost="cheap",
             gate=False,
             reason="Lint: policy or scope",
-            cmd_source=src,
+            cmd_source=lint_src,
         )
 
     want_tests = bool(vp.get("tests"))
@@ -757,10 +825,11 @@ def build_verification_plan(
         add_step(
             "tests",
             tests_cmd,
+            cwd=tests_cwd,
             cost="expensive",
             gate=True,
             reason="TaskSpec verification_policy.tests",
-            cmd_source=src,
+            cmd_source=tests_src,
         )
 
     want_build = bool(vp.get("build"))
@@ -770,15 +839,17 @@ def build_verification_plan(
         add_step(
             "build",
             build_cmd,
+            cwd=build_cwd,
             cost="expensive",
             gate=True,
             reason="Build: package/config affected, blast_radius/system, or policy/risk",
-            cmd_source=src if vc.get("build") else "defaults",
+            cmd_source=build_src if build_cmd else "defaults",
         )
     elif want_build and not build_cmd:
         add_step(
             "build",
             "npm run build",
+            cwd=".",
             cost="expensive",
             gate=True,
             reason="Build required by policy/risk; default command",
@@ -787,9 +858,25 @@ def build_verification_plan(
 
     if not want_ts_first and not steps_raw:
         if build_cmd:
-            add_step("build", build_cmd, cost="expensive", gate=True, reason="Primary check", cmd_source=src)
+            add_step(
+                "build",
+                build_cmd,
+                cwd=build_cwd,
+                cost="expensive",
+                gate=True,
+                reason="Primary check",
+                cmd_source=build_src,
+            )
         elif lint_cmd:
-            add_step("lint", lint_cmd, cost="cheap", gate=False, reason="Primary check", cmd_source=src)
+            add_step(
+                "lint",
+                lint_cmd,
+                cwd=lint_cwd,
+                cost="cheap",
+                gate=False,
+                reason="Primary check",
+                cmd_source=lint_src,
+            )
 
     steps = normalize_verification_steps(steps_raw, default_source=src)
 
@@ -939,8 +1026,9 @@ def planner_output_to_prompt_block(output: PlannerOutput) -> str:
     if not vp.steps:
         lines.append("(no steps — verification not required or no commands)")
     for s in vp.steps:
+        cmd_label = s.command if s.cwd in ("", ".") else f"{s.command} @ {s.cwd}"
         lines.append(
-            f"- {s.check} :: {s.command} :: gate={s.gate} :: cost={s.cost} :: source={s.source} :: {s.reason}"
+            f"- {s.check} :: {cmd_label} :: gate={s.gate} :: cost={s.cost} :: source={s.source} :: {s.reason}"
         )
     lines.append("")
 

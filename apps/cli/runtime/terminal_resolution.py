@@ -123,6 +123,7 @@ class TerminalResolution:
     closure_reason_summary_es: str = ""
     closure_posture_es: str = ""
     task_confidence_signals: Dict[str, Any] = field(default_factory=dict)
+    findings_evidence_tier: Optional[str] = None
 
 
 def terminal_phase_from_signals(
@@ -154,11 +155,15 @@ def terminal_phase_from_signals(
                 return SessionPhase.ABORTED
         else:
             return SessionPhase.ABORTED
-    if loop_abort_reason in (
-        LOOP_ABORT_STAGNATION,
-        LOOP_ABORT_POLICY,
-        LOOP_ABORT_PROVIDER,
-    ):
+    if loop_abort_reason == LOOP_ABORT_STAGNATION:
+        if outcome in (OUTCOME_READ_ONLY, OUTCOME_ALREADY_IMPLEMENTED):
+            if has_final_nl_response or evidence_score >= iteration_limit_soft_done_min_evidence():
+                pass  # allow read-only/already-implemented sessions to soft-close
+            else:
+                return SessionPhase.ABORTED
+        else:
+            return SessionPhase.ABORTED
+    if loop_abort_reason in (LOOP_ABORT_POLICY, LOOP_ABORT_PROVIDER):
         return SessionPhase.ABORTED
     if budget_exhausted:
         return SessionPhase.ABORTED
@@ -258,4 +263,5 @@ def resolve_terminal_result(
         closure_reason_summary_es=tc_snap.closure_reason_summary_es,
         closure_posture_es=tc_snap.recommended_runtime_posture_es,
         task_confidence_signals=dict(tc_snap.signals),
+        findings_evidence_tier=getattr(outcome_result, "findings_evidence_tier", None),
     )

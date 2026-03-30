@@ -1,6 +1,6 @@
 """
 Execution Agent v1 — model-router-ready, NVIDIA NIM-oriented, advisory-first.
-Produces context bundles, model selection (default Devstral), and structured edit proposals.
+Produces context bundles, model selection (default Qwen 3 Coder 480B A35B), and structured edit proposals.
 Does not replace the existing write path; GHOST_EXECUTION_AGENT_WRITES gates future automation.
 """
 from __future__ import annotations
@@ -15,6 +15,10 @@ from typing import Any, Dict, List, Literal, Optional, Set, Tuple
 from pydantic import BaseModel, ConfigDict, Field
 
 from apps.cli.runtime.exploration_planner import path_under_ui_roots
+from apps.cli.runtime.project_runtime_config import (
+    apply_project_routing_to_role_map,
+    load_and_validate_project_runtime_config,
+)
 from apps.cli.runtime.task_contract import (
     contract_has_operational_spec,
     get_task_contract_decision_plan,
@@ -40,11 +44,11 @@ ENV_NIM_BASE_URL = "GHOST_NIM_BASE_URL"
 ENV_NIM_API_KEY = "GHOST_NIM_API_KEY"
 ENV_EXECUTION_AGENT_LIVE = "GHOST_EXECUTION_AGENT_LIVE"
 
-# Apuesta inicial NIM (router-ready; overrides vía GHOST_*_MODEL)
-DEFAULT_CODE_WRITER_MODEL = "devstral-2-123b-instruct-2512"
-DEFAULT_REPAIR_MODEL = "glm-5"
-DEFAULT_PLANNER_MODEL = "kimi-k2.5"
-DEFAULT_GENERAL_FALLBACK_MODEL = "deepseek-v3.2"
+# Stack canónico de coding sobre NIM (router-ready; overrides vía GHOST_*_MODEL)
+DEFAULT_CODE_WRITER_MODEL = "qwen/qwen3-coder-480b-a35b-instruct"
+DEFAULT_REPAIR_MODEL = "qwen/qwen3-coder-480b-a35b-instruct"
+DEFAULT_PLANNER_MODEL = "qwen/qwen3-coder-480b-a35b-instruct"
+DEFAULT_GENERAL_FALLBACK_MODEL = "qwen/qwen3-coder-480b-a35b-instruct"
 MAX_CONTEXT_CHARS_DEFAULT = 12_000
 MAX_CONTEXT_FILES = 14
 
@@ -74,7 +78,7 @@ def execution_agent_live_enabled() -> bool:
 
 
 def general_fallback_model_id() -> str:
-    """Fallback general (p. ej. multi-file barato / razonamiento); por defecto deepseek-v3.2."""
+    """Fallback general del runtime; por defecto usa el mismo Qwen 3 Coder del stack canónico."""
     v = os.environ.get(ENV_GENERAL_FALLBACK_MODEL, "").strip()
     return v or DEFAULT_GENERAL_FALLBACK_MODEL
 
@@ -85,9 +89,9 @@ def execution_fallback_model_id() -> str:
     return v or general_fallback_model_id()
 
 
-def resolve_model_role_map() -> Dict[str, str]:
-    """Deterministic env-based model IDs per role (router-ready)."""
-    return {
+def resolve_model_role_map(cwd: Optional[str] = None) -> Dict[str, str]:
+    """Deterministic model IDs per role, optionally overlaid by project ghost.yaml."""
+    role_map = {
         "execution": os.environ.get(ENV_EXECUTION_MODEL, DEFAULT_CODE_WRITER_MODEL).strip()
         or DEFAULT_CODE_WRITER_MODEL,
         "general_fallback": general_fallback_model_id(),
@@ -97,6 +101,18 @@ def resolve_model_role_map() -> Dict[str, str]:
         # Transporte del CLI siempre OpenAI-compatible; NIM es ruta opcional del agente de ejecución.
         "provider_backend": "nvidia_nim" if nim_configured() else "openai_compatible",
     }
+    if cwd:
+        cfg = load_and_validate_project_runtime_config(cwd)
+        role_map = apply_project_routing_to_role_map(role_map, cfg)
+    else:
+        role_map = {
+            **role_map,
+            "explore": role_map.get("planner", ""),
+            "act": role_map.get("execution", ""),
+            "verify": role_map.get("repair", ""),
+            "fallback": role_map.get("general_fallback", ""),
+        }
+    return role_map
 
 
 # --- Pydantic models ---------------------------------------------------------
@@ -273,6 +289,30 @@ def _path_allowed(
     return True
 
 
+def _focused_target_lock_paths(taskspec: Dict[str, Any]) -> List[str]:
+    """
+    For narrow write tasks with explicit target_files, keep execution context tightly
+    locked to those files instead of widening with planner/retrieval candidates.
+    """
+    ce = str(taskspec.get("change_expectation") or "").strip().lower()
+    if ce not in ("must_write", "may_write"):
+        return []
+    out: List[str] = []
+    seen: Set[str] = set()
+    for raw in taskspec.get("target_files") or []:
+        if not isinstance(raw, str) or not raw.strip():
+            continue
+        norm = _norm_path(raw)
+        key = norm.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(norm)
+        if len(out) >= 3:
+            break
+    return out if 1 <= len(out) <= 2 else []
+
+
 def infer_file_role(path: str, repo_v2: Dict[str, Any]) -> str:
     p = path.replace("\\", "/").lower()
     if "route" in p or "/api/" in p or p.startswith("app/api"):
@@ -346,7 +386,7 @@ def select_execution_model(
     target_file_count: int = 1,
 ) -> ModelSelection:
     """
-    Deterministic model pick; router-ready. Defaults to Devstral for code writing.
+    Deterministic model pick; router-ready. Defaults to Qwen 3 Coder for code writing.
     """
     repair_n = int(session_state.get("repair_attempt_count") or 0)
     nim = nim_configured()
@@ -380,7 +420,7 @@ def select_execution_model(
         model_id=exec_model,
         role="execution",
         provider=provider,
-        reason="default_code_writer_devstral_or_GHOST_EXECUTION_MODEL",
+        reason="default_code_writer_qwen3_or_GHOST_EXECUTION_MODEL",
     )
 
 
@@ -439,6 +479,8 @@ def build_execution_context_bundle(
     dp = inp.decision_plan
     targets: List[CandidateEditTarget] = []
     seen: Set[str] = set()
+    focused_lock_paths = _focused_target_lock_paths(ts)
+    focused_lock_set = {p.lower() for p in focused_lock_paths}
 
     def add_target(
         path: str,
@@ -448,6 +490,8 @@ def build_execution_context_bundle(
     ) -> None:
         p = _norm_path(path)
         if not p or not _path_allowed(p, ts, repo_v2):
+            return
+        if focused_lock_set and p.lower() not in focused_lock_set:
             return
         k = p.lower()
         if k in seen:
@@ -461,13 +505,14 @@ def build_execution_context_bundle(
         if isinstance(tf, str) and tf.strip():
             add_target(tf, "taskspec", 1.0, "taskspec_target_files")
 
-    for i, lt in enumerate(inp.likely_edit_targets or []):
-        if isinstance(lt, str) and lt.strip():
-            rs = ""
-            lr = inp.likely_edit_reasons or []
-            if i < len(lr):
-                rs = str(lr[i])
-            add_target(lt, "retrieval", 0.85, rs or "likely_edit_target")
+    if not focused_lock_paths:
+        for i, lt in enumerate(inp.likely_edit_targets or []):
+            if isinstance(lt, str) and lt.strip():
+                rs = ""
+                lr = inp.likely_edit_reasons or []
+                if i < len(lr):
+                    rs = str(lr[i])
+                add_target(lt, "retrieval", 0.85, rs or "likely_edit_target")
 
     rr = inp.retrieval_result or {}
     top_files = rr.get("top_files") or []
@@ -478,16 +523,17 @@ def build_execution_context_bundle(
             if isinstance(p, str) and p.strip():
                 add_target(p, "retrieval", min(1.0, 0.3 + sc / 150.0), "retrieval_top_file")
 
-    for p in _planner_file_paths(dp):
-        add_target(p, "planner", 0.6, "planner_candidate")
+    if not focused_lock_paths:
+        for p in _planner_file_paths(dp):
+            add_target(p, "planner", 0.6, "planner_candidate")
 
-    for row in inp.merged_candidate_order or []:
-        if isinstance(row, dict):
-            p = row.get("path")
-            if isinstance(p, str) and p.strip():
-                add_target(p, "merged", 0.55, str(row.get("source") or "merged"))
+        for row in inp.merged_candidate_order or []:
+            if isinstance(row, dict):
+                p = row.get("path")
+                if isinstance(p, str) and p.strip():
+                    add_target(p, "merged", 0.55, str(row.get("source") or "merged"))
 
-    key_needed = len(targets) < 3
+    key_needed = not focused_lock_paths and len(targets) < 3
     if key_needed:
         for kf in repo_v2.get("key_files") or []:
             if isinstance(kf, str) and kf.strip():
@@ -521,6 +567,8 @@ def build_execution_context_bundle(
         fp = str(h.get("file_path") or "")
         if not fp or not _path_allowed(fp, ts, repo_v2):
             continue
+        if focused_lock_set and _norm_path(fp).lower() not in focused_lock_set:
+            continue
         sl = int(h.get("start_line") or 0)
         el = int(h.get("end_line") or 0)
         prev = str(h.get("preview") or "")[:1200]
@@ -532,6 +580,8 @@ def build_execution_context_bundle(
             continue
         fp = str(ch.get("file_path") or "")
         if not fp or not _path_allowed(fp, ts, repo_v2):
+            continue
+        if focused_lock_set and _norm_path(fp).lower() not in focused_lock_set:
             continue
         append_excerpt(
             fp,
@@ -822,6 +872,10 @@ def run_execution_agent(inp: ExecutionAgentInput) -> ExecutionAgentOutput:
     mode, selected = resolve_execution_mode(inp.taskspec, inp.decision_plan, paths, inp.repo_profile_v2)
     if mode == "no_op":
         selected = []
+    focused_lock_paths = _focused_target_lock_paths(inp.taskspec)
+    if focused_lock_paths and mode != "no_op":
+        focused_lock_set = set(focused_lock_paths)
+        selected = [p for p in paths if p in focused_lock_set]
 
     model_sel = select_execution_model(
         inp.taskspec,
@@ -836,6 +890,8 @@ def run_execution_agent(inp: ExecutionAgentInput) -> ExecutionAgentOutput:
         f"targets_considered={len(paths)}",
         f"model={model_sel.model_id}",
     ]
+    if focused_lock_paths:
+        reasoning.append("focused_target_lock=" + ",".join(focused_lock_paths[:2]))
 
     conf = 0.55
     if mode == "no_op":
@@ -943,7 +999,7 @@ def execution_input_from_session(session: Any) -> Optional[ExecutionAgentInput]:
 
 
 def apply_execution_agent_to_session(session: Any, out: ExecutionAgentOutput) -> None:
-    role_map = resolve_model_role_map()
+    role_map = resolve_model_role_map(getattr(session, "effective_repo_root", "") or os.getcwd())
     session.execution_agent_used = True
     session.execution_mode = out.execution_mode
     session.selected_execution_model = out.selected_model.model_id

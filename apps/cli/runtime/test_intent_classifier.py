@@ -70,6 +70,24 @@ class TestIntentClassifier(unittest.TestCase):
         self.assertEqual(r.scope, SCOPE_UNKNOWN)
         self.assertEqual(r.change_expectation, EXPECT_SHOULD_NOT_WRITE)
 
+    def test_bugfix_prompt_not_overridden_by_add_test_clause(self):
+        r = classify_task_intent(
+            "/do corrige el comando doctor para que reporte claramente cuando el gateway responde /health pero no /ready. "
+            "Mantén el cambio mínimo, añade test si existe cobertura cercana, y verifica al final."
+        )
+        self.assertEqual(r.intent, INTENT_BUGFIX)
+        self.assertEqual(r.change_expectation, EXPECT_MUST_WRITE)
+
+    def test_plan_biggest_bug_question_is_analysis_not_bugfix(self):
+        r = classify_task_intent("/plan dime el bug más grande que encuentres")
+        self.assertEqual(r.intent, INTENT_ANALYSIS)
+        self.assertEqual(r.change_expectation, EXPECT_SHOULD_NOT_WRITE)
+
+    def test_inspection_plus_how_to_fix_stays_bugfix_path(self):
+        r = classify_task_intent("dime el bug más grande y cómo arreglarlo")
+        self.assertEqual(r.intent, INTENT_BUGFIX)
+        self.assertEqual(r.change_expectation, EXPECT_MUST_WRITE)
+
 
 if __name__ == "__main__":
     unittest.main()

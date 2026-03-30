@@ -160,17 +160,81 @@ class TestExecutionAgent(unittest.TestCase):
         bundle = build_execution_context_bundle(inp)
         self.assertTrue(any(c.file_path.endswith("route.ts") for c in bundle.chunks))
 
-    def test_model_default_devstral(self) -> None:
+    def test_focused_target_lock_ignores_planner_and_retrieval_noise(self) -> None:
+        inp = ExecutionAgentInput(
+            taskspec={
+                "change_expectation": "must_write",
+                "intent": "bugfix",
+                "scope": [],
+                "target_files": ["apps/cli/main.py"],
+            },
+            repo_profile_v2={
+                "key_files": ["AGENTS.md", "apps/server/main.py"],
+            },
+            decision_plan={
+                "execution_plan": {
+                    "risk": {"level": "medium"},
+                    "estimated_complexity": "medium",
+                    "expected_files_changed": ["apps/server/main.py", "pyproject.toml"],
+                }
+            },
+            retrieval_result={
+                "top_files": [
+                    {"path": "apps/cli/main.py", "score": 200},
+                    {"path": "apps/server/main.py", "score": 150},
+                ],
+                "hits": [
+                    {
+                        "file_path": "apps/cli/main.py",
+                        "start_line": 1,
+                        "end_line": 5,
+                        "preview": "def doctor(): pass",
+                    },
+                    {
+                        "file_path": "apps/server/main.py",
+                        "start_line": 1,
+                        "end_line": 5,
+                        "preview": "app = FastAPI()",
+                    },
+                ],
+            },
+            likely_edit_targets=["apps/server/main.py"],
+            likely_edit_reasons=["retrieval noise"],
+            merged_candidate_order=[{"path": "pyproject.toml", "source": "planner"}],
+        )
+        bundle = build_execution_context_bundle(inp)
+        self.assertEqual([t.path for t in bundle.targets], ["apps/cli/main.py"])
+        self.assertEqual([c.file_path for c in bundle.chunks], ["apps/cli/main.py"])
+        out = run_execution_agent(inp)
+        self.assertEqual(out.selected_targets, ["apps/cli/main.py"])
+        self.assertTrue(any("focused_target_lock=apps/cli/main.py" in x for x in out.reasoning_lines))
+
+    def test_focused_target_lock_does_not_reintroduce_filtered_targets(self) -> None:
+        inp = ExecutionAgentInput(
+            taskspec={
+                "change_expectation": "must_write",
+                "intent": "implementation",
+                "scope": ["ui"],
+                "forbidden_layers": ["ui"],
+                "target_files": ["src/app/page.tsx"],
+            },
+            repo_profile_v2={"entrypoints": {"ui_roots": ["src/app"]}},
+            decision_plan={"execution_plan": {"risk": {"level": "low"}}},
+        )
+        out = run_execution_agent(inp)
+        self.assertEqual(out.selected_targets, [])
+
+    def test_model_default_primary_coder(self) -> None:
         with mock.patch.dict(os.environ, {ENV_EXECUTION_MODEL: ""}):
             sel = select_execution_model({}, {}, {}, target_file_count=1)
         self.assertEqual(sel.model_id, DEFAULT_CODE_WRITER_MODEL)
 
-    def test_fallback_qwen_multi_file_low_risk(self) -> None:
+    def test_fallback_primary_coder_multi_file_low_risk(self) -> None:
         with mock.patch.dict(
             os.environ,
             {
-                ENV_EXECUTION_FALLBACK_MODEL: "qwen2.5-coder-32b-instruct",
-                ENV_EXECUTION_MODEL: "devstral-2-123b-instruct-2512",
+                ENV_EXECUTION_FALLBACK_MODEL: "qwen/qwen3-coder-480b-a35b-instruct",
+                ENV_EXECUTION_MODEL: "vendor/alternate-coder",
             },
         ):
             sel = select_execution_model(
@@ -179,15 +243,15 @@ class TestExecutionAgent(unittest.TestCase):
                 {},
                 target_file_count=4,
             )
-        self.assertEqual(sel.model_id, "qwen2.5-coder-32b-instruct")
+        self.assertEqual(sel.model_id, "qwen/qwen3-coder-480b-a35b-instruct")
 
-    def test_multi_file_default_fallback_is_deepseek(self) -> None:
+    def test_multi_file_default_fallback_matches_primary_coder(self) -> None:
         with mock.patch.dict(
             os.environ,
             {
                 ENV_EXECUTION_FALLBACK_MODEL: "",
                 ENV_GENERAL_FALLBACK_MODEL: "",
-                ENV_EXECUTION_MODEL: "devstral-2-123b-instruct-2512",
+                ENV_EXECUTION_MODEL: "vendor/alternate-coder",
             },
             clear=False,
         ):
@@ -199,15 +263,15 @@ class TestExecutionAgent(unittest.TestCase):
             )
         self.assertEqual(sel.model_id, DEFAULT_GENERAL_FALLBACK_MODEL)
 
-    def test_repair_prefers_glm_when_configured(self) -> None:
-        with mock.patch.dict(os.environ, {ENV_REPAIR_MODEL: "glm-5"}):
+    def test_repair_prefers_configured_override(self) -> None:
+        with mock.patch.dict(os.environ, {ENV_REPAIR_MODEL: "vendor/repair-override"}):
             sel = select_execution_model(
                 {"intent": "bugfix"},
                 {},
                 {"repair_attempt_count": 2},
                 target_file_count=1,
             )
-        self.assertEqual(sel.model_id, "glm-5")
+        self.assertEqual(sel.model_id, "vendor/repair-override")
 
     def test_advisory_proposals_no_writes_path(self) -> None:
         with mock.patch.dict(os.environ, {"GHOST_EXECUTION_AGENT_WRITES": "0"}):

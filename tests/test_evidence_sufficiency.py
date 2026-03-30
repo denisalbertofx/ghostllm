@@ -148,6 +148,32 @@ class TestEvidenceSufficiency(unittest.TestCase):
         self.assertEqual(r.task_family, "repo_overview")
         self.assertEqual(r.synthesis_context, "readonly")
 
+    def test_code_inspection_never_fast_path_even_after_meaningful_read(self) -> None:
+        task = "/plan dime el bug más grande que encuentres en este proyecto"
+        body = "def foo():\n    pass\n" + ("# x\n" * 80)
+        hist = [
+            {"role": "user", "content": task},
+            {"role": "tool", "name": "read_file", "content": json.dumps({"content": body})},
+        ]
+        r = evaluate_evidence_sufficiency_for_task(
+            task_text=task,
+            history=hist,
+            contract_spec=None,
+            discovery_action_count=1,
+            explore_act_blocked=True,
+        )
+        self.assertFalse(r.sufficient)
+        self.assertEqual(r.reason, "code_inspection_no_immediate_synthesis")
+
+    def test_immediate_synthesis_disabled_for_bug_inspection_task_text(self) -> None:
+        class _Sess:
+            micro_task_kind = None
+            task = "dime el bug más grande en este repo"
+            plan = ""
+
+        with patch.dict(os.environ, {"GHOST_EVIDENCE_SUFFICIENT_IMMEDIATE_SYNTHESIS": "1"}):
+            self.assertFalse(should_run_immediate_synthesis_after_sufficiency(_Sess()))
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

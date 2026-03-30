@@ -1,5 +1,5 @@
-import requests
 import json
+import httpx
 
 base_url = "http://127.0.0.1:11434/v1"
 api_key = "ghost-dev-2026" # Default Admin API Key
@@ -17,7 +17,7 @@ def test_ghost_api():
         "messages": [{"role": "user", "content": "Write a 1-line python hello world."}],
         "max_tokens": 50
     }
-    resp = requests.post(f"{base_url}/chat/completions", headers=headers, json=payload)
+    resp = httpx.post(f"{base_url}/chat/completions", headers=headers, json=payload, timeout=30.0)
     print(f"Status: {resp.status_code}")
     try:
         print(f"Response: {resp.json()}\n")

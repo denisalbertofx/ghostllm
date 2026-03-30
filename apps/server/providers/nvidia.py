@@ -16,7 +16,7 @@ class NvidiaProvider:
     def __init__(self, api_key: str, base_url: str):
         self.api_key = api_key
         self.base_url = base_url.rstrip("/")
-        # Increase timeout to 120s to handle Kimi's extreme latency (40s-60s per chunk)
+        # Keep a generous timeout for large reasoning/coding models and slower first-token latency.
         self.client = httpx.AsyncClient(timeout=httpx.Timeout(120.0, connect=30.0))
 
     def _get_headers(self, stream: bool = False) -> Dict[str, str]:
@@ -33,12 +33,37 @@ class NvidiaProvider:
     def _prepare_payload(self, payload: Dict[str, Any]) -> Dict[str, Any]:
         """Injects model-specific parameters like 'thinking' if not already set."""
         model = payload.get("model", "")
-        if "kimi" in model.lower():
-            # Kimi k2.5 supports high max_tokens, but large limits 
-            # can cause scheduling delays on NVIDIA NIM.
+        if "qwen3-coder-480b-a35b-instruct" in model.lower():
+            # Keep a sane default token budget for the primary coder model when callers omit one.
             if "max_tokens" not in payload:
-                payload["max_tokens"] = 4096
+                payload["max_tokens"] = 8192
         return payload
+
+    async def probe_auth(self, probe_model: Optional[str] = None) -> tuple[bool, str]:
+        """Real upstream readiness/auth probe used by /ready and doctor."""
+        if not probe_model:
+            return False, "No probe model configured"
+        payload = {
+            "model": probe_model,
+            "messages": [{"role": "user", "content": "ping"}],
+            "max_tokens": 1,
+            "stream": False,
+            "temperature": 0,
+        }
+        try:
+            chat_resp = await self.client.post(
+                f"{self.base_url}/chat/completions",
+                json=payload,
+                headers=self._get_headers(stream=False),
+            )
+        except httpx.RequestError as e:
+            return False, f"Upstream connectivity failed: {e}"
+
+        if chat_resp.status_code == 200:
+            return True, ""
+        if chat_resp.status_code in (401, 403):
+            return False, f"Upstream authentication failed ({chat_resp.status_code})"
+        return False, f"Upstream readiness probe failed (HTTP {chat_resp.status_code})"
 
     def _map_error(self, status_code: int, error_text: str) -> NVIDIAError:
         try:

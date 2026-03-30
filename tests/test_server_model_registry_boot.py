@@ -5,7 +5,7 @@ import importlib
 import os
 import sys
 import unittest
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 if root not in sys.path:
@@ -39,7 +39,7 @@ class TestServerModelRegistryBoot(unittest.TestCase):
         self.assertEqual(body.get("object"), "list")
         ids = {row.get("id") for row in body.get("data", [])}
         if server_main.MODEL_REGISTRY_ERROR is None:
-            self.assertIn("kimi", ids)
+            self.assertIn("coder", ids)
             self.assertFalse("ghost_diagnostics" in body)
         else:
             self.assertIn("ghost_diagnostics", body)
@@ -60,12 +60,59 @@ class TestServerModelRegistryBoot(unittest.TestCase):
         self.assertIn("error", mr)
         self.assertIn("registry_path", mr)
 
+    def test_ready_reports_upstream_auth_failure(self) -> None:
+        from fastapi.testclient import TestClient
+
+        import apps.server.main as server_main
+
+        with patch.object(
+            server_main,
+            "_provider_ready_payload",
+            AsyncMock(return_value={
+                "ready": False,
+                "detail": "Upstream authentication failed (401)",
+                "auth_checked": True,
+                "probe_model": "qwen/qwen3-coder-480b-a35b-instruct",
+            }),
+        ):
+            client = TestClient(server_main.app)
+            r = client.get("/ready")
+
+        self.assertEqual(r.status_code, 503, r.text)
+        body = r.json()
+        self.assertFalse(body.get("ready"))
+        self.assertIn("authentication failed", body.get("detail", "").lower())
+
+    def test_health_includes_provider_auth_detail(self) -> None:
+        from fastapi.testclient import TestClient
+
+        import apps.server.main as server_main
+
+        with patch.object(
+            server_main,
+            "_provider_ready_payload",
+            AsyncMock(return_value={
+                "ready": False,
+                "detail": "Upstream authentication failed (401)",
+                "auth_checked": True,
+                "probe_model": "qwen/qwen3-coder-480b-a35b-instruct",
+            }),
+        ):
+            client = TestClient(server_main.app)
+            r = client.get("/health")
+
+        self.assertEqual(r.status_code, 200, r.text)
+        body = r.json()
+        self.assertEqual(body.get("status"), "degraded")
+        self.assertIn("provider", body)
+        self.assertIn("authentication failed", body["provider"].get("detail", "").lower())
+
     def test_is_model_allowed_accepts_unique_short_upstream_basename(self) -> None:
         import apps.server.main as server_main
 
         if server_main.MODEL_REGISTRY_ERROR:
             self.skipTest("registry not loaded in this environment")
-        self.assertTrue(server_main.is_model_allowed("kimi-k2.5"))
+        self.assertTrue(server_main.is_model_allowed("qwen3-coder-480b-a35b-instruct"))
 
     def test_list_models_when_bootstrap_fails_no_crash(self) -> None:
         """Import server with failed bootstrap — must not raise NameError on /v1/models."""

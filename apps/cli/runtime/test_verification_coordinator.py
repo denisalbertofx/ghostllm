@@ -1,12 +1,16 @@
 """Tests for VerificationCoordinator (single entry wrapping VerificationManager)."""
 from __future__ import annotations
 
+from unittest import mock
+
 import pytest
 
+from apps.cli.runtime.artifacts import ArtifactSession
 from apps.cli.runtime.verification import VerificationManager
 from apps.cli.runtime.verification_coordinator import (
     VerificationCoordinator,
     attach_coordinator_view,
+    format_integrity_verify_preamble,
     verification_diff_fingerprint,
     verification_fingerprint_eligible_for_reuse,
 )
@@ -71,13 +75,55 @@ def test_attach_coordinator_view_success():
     assert out["verification_source"] == "VerificationCoordinator"
 
 
+def test_format_integrity_verify_preamble_no_placeholder():
+    s = format_integrity_verify_preamble(
+        ["Python Tests (explicit, targeted) @ .: uv run pytest x.py -q"],
+        pytest_focus_n=2,
+    )
+    assert "explicit, targeted" in s
+    assert "pytest focus: 2 path(s)" in s
+    assert "Build/TypeCheck/Lint" not in s
+
+
+def test_format_integrity_verify_preamble_empty_plan():
+    s = format_integrity_verify_preamble([], pytest_focus_n=0)
+    assert "No checks resolved" in s
+
+
+def test_planned_check_labels_match_resolve_ordered_checks_explicit_targeted():
+    mgr = mock.MagicMock(spec=VerificationManager)
+    mgr.resolve_ordered_checks.return_value = (
+        [
+            {
+                "name": "Python Tests (explicit, targeted)",
+                "cwd": ".",
+                "command": "uv run pytest apps/cli/runtime/test_x.py -q",
+            }
+        ],
+        "python_targeted",
+    )
+    coord = VerificationCoordinator(mgr)
+    labels = coord.planned_check_labels(
+        task_type="fix",
+        scope="api",
+        files_changed=[{"file": "apps/cli/runtime/x.py"}],
+        budget_remaining=100,
+    )
+    assert len(labels) == 1
+    assert "explicit, targeted" in labels[0]
+    assert "uv run pytest" in labels[0]
+    mgr.resolve_ordered_checks.assert_called_once()
+
+
 def test_attach_coordinator_view_failed_reparable():
     raw = {
         "status": "failed",
         "checks": [
-            {"name": "Build", "status": "failed", "stderr": "err"},
+            {"name": "Build", "status": "failed", "stderr": "err", "cwd": "apps/web"},
         ],
         "steps_executed_count": 1,
+        "verification_scope": "node",
+        "planned_check_cwds": {"Build": "apps/web"},
     }
     out = attach_coordinator_view(raw)
     c = out["coordinator"]
@@ -85,6 +131,8 @@ def test_attach_coordinator_view_failed_reparable():
     assert len(c["failed_checks"]) == 1
     assert c["reparable"] is True
     assert c["stderr"]
+    assert out["verification_scope"] == "node"
+    assert out["planned_check_cwds"] == {"Build": "apps/web"}
 
 
 def test_try_reuse_same_paths_same_content_reuses():
@@ -184,3 +232,34 @@ def test_skip_verify_on_contract(tmp_path):
     assert res.get("steps_executed_count") == 0
     c = res.get("coordinator")
     assert isinstance(c, dict)
+
+
+def test_artifact_session_records_incremental_verification_batches():
+    sess = ArtifactSession("s1", "task")
+
+    sess.record_incremental_verification(
+        {
+            "status": "failed",
+            "verification_scope": "python_targeted",
+            "checks": [{"name": "Tests", "status": "failed"}],
+            "steps_executed_count": 1,
+        },
+        diff_summary=[{"file": "apps/cli/main.py", "status": "success"}],
+        context_label="iter_1",
+    )
+    sess.record_incremental_verification(
+        {
+            "status": "success",
+            "verification_scope": "python_targeted",
+            "checks": [{"name": "Tests", "status": "passed"}],
+            "steps_executed_count": 1,
+        },
+        diff_summary=[{"file": "apps/cli/main.py", "status": "success"}],
+        context_label="iter_2",
+    )
+
+    state = sess.incremental_verify_state
+    assert state["batches_run"] == 2
+    assert state["last_status"] == "success"
+    assert state["last_context_label"] == "iter_2"
+    assert state["files_covered"] == ["apps/cli/main.py"]

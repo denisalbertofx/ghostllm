@@ -96,6 +96,60 @@ class SwarmManager:
     def list_workers(self) -> List[SwarmWorker]:
         return self.workers
 
+    def _pid_is_running(self, pid: Optional[int]) -> bool:
+        if not pid or int(pid) <= 0:
+            return False
+        # v0 workers use a placeholder PID until real detached workers land.
+        if int(pid) == 9999:
+            return True
+        try:
+            if os.name == "nt":
+                result = subprocess.run(
+                    ["tasklist", "/FI", f"PID eq {int(pid)}"],
+                    check=False,
+                    capture_output=True,
+                    text=True,
+                )
+                return str(int(pid)) in (result.stdout or "")
+            os.kill(int(pid), 0)
+            return True
+        except Exception:
+            return False
+
+    def refresh_worker_statuses(self) -> List[SwarmWorker]:
+        changed = False
+        for worker in self.workers:
+            if worker.status == "terminated":
+                continue
+            if worker.worktree_path and not os.path.exists(worker.worktree_path):
+                worker.status = "terminated"
+                changed = True
+                continue
+            if worker.pid and not self._pid_is_running(worker.pid):
+                worker.status = "terminated"
+                changed = True
+        if changed:
+            self.save_state()
+        return self.workers
+
+    def cleanup_workers(self) -> int:
+        pruned = 0
+        kept: List[SwarmWorker] = []
+        for worker in self.workers:
+            if worker.status != "terminated":
+                kept.append(worker)
+                continue
+            pruned += 1
+            if worker.worktree_path and os.path.exists(worker.worktree_path):
+                try:
+                    self.worktree_manager.remove_worktree(worker.worktree_path)
+                except Exception:
+                    pass
+        if pruned:
+            self.workers = kept
+            self.save_state()
+        return pruned
+
     def terminate_worker(self, worker_id: str):
         worker = next((w for w in self.workers if w.worker_id == worker_id), None)
         if worker:

@@ -60,6 +60,9 @@ IGNORED_DIR_NAMES = frozenset(
 )
 
 INDEX_EXTENSIONS = frozenset({".ts", ".tsx", ".js", ".jsx", ".py", ".json", ".md", ".sql"})
+_PROJECT_MANIFESTS = ("package.json", "pyproject.toml", "requirements.txt")
+_MONOREPO_CONTAINER_DIRS = frozenset({"apps", "packages", "services", "libs", "modules", "crates"})
+_COMMON_ROOT_DIRS = frozenset({"src", "tests", "test", "docs", "frontend", "backend", "web", "ui"})
 
 
 # --- Pydantic models ---
@@ -225,25 +228,21 @@ class NvidiaNimEmbeddingProvider:
     def embed(self, texts: Sequence[str]) -> List[List[float]]:
         if not texts:
             return []
-        try:
-            import httpx
-        except ImportError:
-            logger.warning("httpx not available; embeddings skipped")
-            return [[] for _ in texts]
         url = f"{self._base}/v1/embeddings"
         headers = {"Authorization": f"Bearer {self._api_key}", "Content-Type": "application/json"}
         out: List[List[float]] = []
         for t in texts:
             payload = {"model": self._model, "input": t[:8000]}
             try:
-                with httpx.Client(timeout=self._timeout) as client:
-                    r = client.post(url, headers=headers, json=payload)
-                    r.raise_for_status()
-                    data = r.json()
-                    vec = data["data"][0]["embedding"]
-                    if not self._dim:
-                        self._dim = len(vec)
-                    out.append([float(x) for x in vec])
+                from apps.cli.runtime.http_client import post as http_post
+
+                r = http_post(url, headers=headers, json_payload=payload, timeout=self._timeout)
+                r.raise_for_status()
+                data = r.json()
+                vec = data["data"][0]["embedding"]
+                if not self._dim:
+                    self._dim = len(vec)
+                out.append([float(x) for x in vec])
             except Exception as e:
                 logger.warning("NIM embedding failed: %s", e)
                 out.append([])
@@ -575,6 +574,45 @@ def _is_ghost_cache_dir(path: Path) -> bool:
         if parts[i] == ".ghost" and parts[i + 1] == "cache":
             return True
     return False
+
+
+def _dir_has_project_manifest(path: Path) -> bool:
+    return any((path / name).is_file() for name in _PROJECT_MANIFESTS)
+
+
+def _derive_nested_project_forbidden_roots(repo_profile_v2: Dict[str, Any]) -> List[str]:
+    root_raw = str((repo_profile_v2 or {}).get("root") or "").strip()
+    if not root_raw:
+        return []
+    root = Path(root_raw)
+    if not root.is_dir() or not _dir_has_project_manifest(root):
+        return []
+    folders = {
+        str(x).strip().lower()
+        for x in ((repo_profile_v2 or {}).get("important_folders") or [])
+        if str(x).strip()
+    }
+    if folders & _MONOREPO_CONTAINER_DIRS:
+        return []
+    out: List[str] = []
+    try:
+        children = sorted(root.iterdir(), key=lambda p: p.name.lower())
+    except OSError:
+        return []
+    for child in children:
+        if not child.is_dir():
+            continue
+        name = child.name.lower()
+        if (
+            name.startswith(".")
+            or name in IGNORED_DIR_NAMES
+            or name in _MONOREPO_CONTAINER_DIRS
+            or name in _COMMON_ROOT_DIRS
+        ):
+            continue
+        if (child / ".git").is_dir() or _dir_has_project_manifest(child):
+            out.append(_norm_rel(str(child.relative_to(root)).replace("\\", "/")))
+    return out
 
 
 def discover_indexable_files(
@@ -1249,6 +1287,9 @@ def build_retrieval_query_from_contract_spec(
         ep = repo.get("entrypoints") or {}
         if isinstance(ep, dict):
             forbidden.extend(str(x) for x in (ep.get("ui_roots") or []) if x)
+    for nested_root in _derive_nested_project_forbidden_roots(repo):
+        if nested_root not in forbidden:
+            forbidden.append(nested_root)
 
     scope = set(contract_spec.get("scope") or [])
     boost_api = bool(scope & {"api", "fullstack"}) or "api" in (repo.get("layers_detected") or [])
@@ -1477,21 +1518,28 @@ def run_retrieval_for_session(
 def build_retrieval_prompt_block(session: Any) -> str:
     if getattr(session, "micro_task_kind", None):
         return ""
+    agents_hint = ""
+    ap = str(getattr(session, "agents_md_path", "") or "").strip()
+    if ap:
+        agents_hint = (
+            f"[Retrieval context: project rules are loaded from `{ap}` in the system prompt — "
+            f"prioritize paths and conventions described there when ranking files.]\n\n"
+        )
     if not getattr(session, "retrieval_enabled", False):
-        return ""
+        return agents_hint
     raw = getattr(session, "retrieval_result", None) or {}
     if not raw:
-        return ""
+        return agents_hint
     try:
         rr = RetrievalResult.model_validate(raw)
     except Exception:
-        return ""
+        return agents_hint
     q = getattr(session, "retrieval_query", None) or {}
     qt = ""
     if isinstance(q, dict):
         qt = str(q.get("text") or "")
     mode = str(getattr(session, "retrieval_mode", "advisory") or "advisory")
-    return retrieval_result_to_prompt_block(
+    return agents_hint + retrieval_result_to_prompt_block(
         rr,
         qt,
         mode=mode,

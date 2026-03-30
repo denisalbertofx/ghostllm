@@ -8,8 +8,9 @@ import tempfile
 import time
 import unittest
 from pathlib import Path
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
+from apps.cli.runtime.artifacts import ArtifactSession
 from apps.cli.runtime.session_trace import (
     ApprovalTrace,
     ModelCallTrace,
@@ -74,6 +75,48 @@ class SessionTracePersistenceTests(unittest.TestCase):
             self.assertEqual(data["session_id"], "task_test123")
             self.assertIn("summary", data)
             self.assertIn("phase_coverage", data)
+
+    def test_session_trace_writes_ndjson_events(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            fake_log_root = Path(tmp) / ".ghost" / "logs"
+            with patch("apps.cli.runtime.session_trace._session_log_root", return_value=fake_log_root):
+                mgr = SessionTraceManager("task_log123", str(tmp), command_mode="dev")
+                mgr.start_phase("alpha")
+                mgr.end_phase("alpha")
+                mgr.record_tool_call(
+                    ToolCallTrace(
+                        tool_name="read_file",
+                        target="demo.py",
+                        started_at=trace_timestamp_iso(),
+                        ended_at=trace_timestamp_iso(),
+                        duration_ms=12.0,
+                        ok=True,
+                    )
+                )
+                mgr.finish_and_persist(str(tmp))
+            lines = fake_log_root.joinpath(next(iter(os.listdir(fake_log_root)))).read_text(encoding="utf-8").splitlines()
+            self.assertGreaterEqual(len(lines), 4)
+            payloads = [json.loads(line) for line in lines]
+            self.assertEqual(payloads[0]["event_type"], "session_start")
+            tool_events = [row for row in payloads if row["event_type"] == "tool_call"]
+            self.assertTrue(tool_events)
+            self.assertTrue(tool_events[0]["payload"]["correlation_id"].endswith(":tool:1"))
+
+    def test_session_trace_records_runtime_event(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            fake_log_root = Path(tmp) / ".ghost" / "logs"
+            with patch("apps.cli.runtime.session_trace._session_log_root", return_value=fake_log_root):
+                mgr = SessionTraceManager("task_runtime123", str(tmp), command_mode="plan")
+                mgr.record_runtime_event(
+                    "gateway_preflight",
+                    {"ok": True, "actual_response_mode": "streaming"},
+                )
+                mgr.finish_and_persist(str(tmp))
+            lines = fake_log_root.joinpath(next(iter(os.listdir(fake_log_root)))).read_text(encoding="utf-8").splitlines()
+            payloads = [json.loads(line) for line in lines]
+            runtime_events = [row for row in payloads if row["event_type"] == "gateway_preflight"]
+            self.assertTrue(runtime_events)
+            self.assertEqual(runtime_events[0]["payload"]["actual_response_mode"], "streaming")
 
     def test_phase_timing_recorded_success(self) -> None:
         mgr = SessionTraceManager("s1", os.getcwd(), "dev")
@@ -313,7 +356,7 @@ class SessionTracePersistenceTests(unittest.TestCase):
     def test_missing_ttft_stays_null_non_stream_model(self) -> None:
         m = ModelCallTrace(
             role="general",
-            model="kimi",
+            model="coder",
             started_at="2026-01-01T00:00:00+00:00",
             first_token_at=None,
             ended_at="2026-01-01T00:00:01+00:00",
@@ -342,9 +385,10 @@ class SessionTracePersistenceTests(unittest.TestCase):
             "outcome_confidence": 0.5,
             "evidence_score": 0,
         }
-        r.render_artifact_summary(artifact)
+        with patch.dict(os.environ, {"GHOST_UI_VERBOSE": "1"}, clear=False):
+            r.render_artifact_summary(artifact)
         out = buf.getvalue()
-        self.assertIn("SESSION TRACE", out)
+        self.assertIn("Trace", out)
         self.assertIn("Total (wall)", out)
 
     def test_verification_trace_from_result_counts(self) -> None:
@@ -398,6 +442,72 @@ class SessionTracePersistenceTests(unittest.TestCase):
         self.assertEqual(summarize_model_time(m), 10.0)
         self.assertEqual(summarize_tool_time(t), 5.0)
         self.assertEqual(summarize_approval_wait(a), 7.0)
+
+    def test_sync_from_artifact_session_carries_long_run_context(self) -> None:
+        mgr = SessionTraceManager("s4", os.getcwd(), "dev")
+        session = ArtifactSession("s4", "task")
+        session.active_workset["candidate_files"] = ["apps/cli/main.py"]
+        session.active_workset["related_tests"] = ["tests/test_provider_initialization.py"]
+        session.append_phase_checkpoint(
+            phase="explore",
+            reason="focused exploration",
+            focus_files=["apps/cli/main.py"],
+            planned_next_step="edit target file",
+        )
+        session.record_incremental_verification(
+            {
+                "status": "success",
+                "verification_scope": "python_targeted",
+                "checks": [{"name": "Tests", "status": "passed"}],
+                "steps_executed_count": 1,
+            },
+            diff_summary=[{"file": "apps/cli/main.py", "status": "success"}],
+            context_label="iter_1",
+        )
+        session.approval_mode = "approval-first"
+        session.expected_tool_call_contract = "native_function_calling"
+        session.received_tool_call_contract = "legacy_inline_markup"
+        session.tool_call_contract_mismatch = True
+
+        mgr.sync_from_artifact_session(session)
+        trace = mgr.build_session_trace()
+
+        self.assertEqual(trace.active_workset["candidate_files"], ["apps/cli/main.py"])
+        self.assertEqual(trace.phase_checkpoints[-1]["phase"], "explore")
+        self.assertEqual(trace.incremental_verify_state["batches_run"], 1)
+        self.assertEqual(trace.approval_mode, "approval-first")
+        self.assertEqual(trace.expected_tool_call_contract, "native_function_calling")
+        self.assertEqual(trace.received_tool_call_contract, "legacy_inline_markup")
+        self.assertTrue(trace.tool_call_contract_mismatch)
+
+    def test_finish_session_trace_markdown_includes_long_run_context(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            mgr = SessionTraceManager("s5", tmp, "dev")
+            session = ArtifactSession("s5", "task")
+            session.active_workset["candidate_files"] = ["apps/cli/main.py"]
+            session.append_phase_checkpoint(
+                phase="act",
+                reason="batch 1",
+                focus_files=["apps/cli/main.py"],
+                planned_next_step="verify batch 1",
+            )
+            session.record_incremental_verification(
+                {
+                    "status": "success",
+                    "verification_scope": "python_targeted",
+                    "checks": [{"name": "Tests", "status": "passed"}],
+                    "steps_executed_count": 1,
+                },
+                diff_summary=[{"file": "apps/cli/main.py", "status": "success"}],
+                context_label="iter_2",
+            )
+
+            path, short, detail = finish_session_trace(mgr, tmp, session)
+
+            self.assertTrue(path)
+            self.assertIsInstance(short, str)
+            self.assertIn("LONG-RUN CONTEXT", detail)
+            self.assertIn("INCREMENTAL VERIFY", detail)
 
 
 class PhaseCoverageParallelTests(unittest.TestCase):

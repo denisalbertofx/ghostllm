@@ -5,11 +5,17 @@ Verifies: preflight check, recovery message, no partial task/artifact on provide
 import sys
 import os
 import unittest
-from unittest.mock import MagicMock, patch
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, MagicMock, patch
+
+from typer.testing import CliRunner
 
 root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 sys.path.insert(0, root)
 sys.path.insert(0, os.path.join(root, "packages", "py-core"))
+
+
+runner = CliRunner()
 
 
 class TestProviderInitialization(unittest.TestCase):
@@ -19,7 +25,7 @@ class TestProviderInitialization(unittest.TestCase):
         """Preflight: check_provider_ready returns (False, detail) when /ready returns 503."""
         from apps.cli.main import check_provider_ready
 
-        with patch("apps.cli.main.requests.get") as mock_get:
+        with patch("apps.cli.main.http_get") as mock_get:
             mock_get.return_value.status_code = 503
             mock_get.return_value.text = ""
             mock_get.return_value.json.return_value = {
@@ -36,7 +42,7 @@ class TestProviderInitialization(unittest.TestCase):
         """Preflight: check_provider_ready returns (True, '') when /ready returns 200 and ready: true."""
         from apps.cli.main import check_provider_ready
 
-        with patch("apps.cli.main.requests.get") as mock_get:
+        with patch("apps.cli.main.http_get") as mock_get:
             mock_get.return_value.status_code = 200
             mock_get.return_value.json.return_value = {"ready": True}
 
@@ -49,7 +55,7 @@ class TestProviderInitialization(unittest.TestCase):
         """When response lacks 'ready' or ready is not True, must never return ready (fixes doctor/dev mismatch)."""
         from apps.cli.main import check_provider_ready
 
-        with patch("apps.cli.main.requests.get") as mock_get:
+        with patch("apps.cli.main.http_get") as mock_get:
             mock_get.return_value.status_code = 200
             mock_get.return_value.json.return_value = {}  # No 'ready' key - old server
 
@@ -61,7 +67,7 @@ class TestProviderInitialization(unittest.TestCase):
         """Regression: doctor says Ready => first request must not fail with provider not initialized."""
         from apps.cli.main import check_provider_ready
 
-        with patch("apps.cli.main.requests.get") as mock_get:
+        with patch("apps.cli.main.http_get") as mock_get:
             mock_get.return_value.status_code = 503
             mock_get.return_value.text = ""
             mock_get.return_value.json.return_value = {
@@ -84,24 +90,130 @@ class TestProviderInitialization(unittest.TestCase):
                 with self.assertRaises(SystemExit) as ctx:
                     require_provider_for_assistant()
                 self.assertEqual(ctx.exception.code, 1)
+                rendered = "\n".join(str(call.args[0]) for call in mock_console_cls.return_value.print.call_args_list if call.args)
+                self.assertIn("ghost stop && ghost start", rendered)
+
+    def test_doctor_reports_gateway_healthy_but_not_ready(self):
+        """Doctor must distinguish /health OK from /ready not ready in the rendered status."""
+        from apps.cli.main import app
+
+        preflight = SimpleNamespace(ok=True, checked_url="http://127.0.0.1:8000/health", status_code=200)
+        with patch("apps.cli.main.is_running", return_value=True), patch(
+            "apps.cli.main._effective_gateway_url", return_value="http://127.0.0.1:8000"
+        ), patch("apps.cli.main.probe_gateway", return_value=preflight), patch(
+            "apps.cli.main.check_provider_ready",
+            return_value=(False, "NVIDIA Provider not initialized"),
+        ):
+            result = runner.invoke(app, ["doctor"])
+
+        self.assertEqual(result.exit_code, 0, result.stdout)
+        self.assertIn("Gateway healthy but not ready", result.stdout)
+        self.assertIn("/health OK", result.stdout)
+        self.assertIn("/ready returned", result.stdout)
+
+    def test_doctor_marks_daemon_running_when_gateway_reachable(self):
+        from apps.cli.main import app
+
+        preflight = SimpleNamespace(ok=True, checked_url="http://127.0.0.1:8000/health", status_code=200)
+        with patch("apps.cli.main.is_running", return_value=False), patch(
+            "apps.cli.main._effective_gateway_url", return_value="http://127.0.0.1:8000"
+        ), patch("apps.cli.main.probe_gateway", return_value=preflight), patch(
+            "apps.cli.main.check_provider_ready", return_value=(True, "")
+        ), patch("apps.cli.main._registry_sync_status", return_value=(True, "In sync")):
+            result = runner.invoke(app, ["doctor"])
+
+        self.assertEqual(result.exit_code, 0, result.stdout)
+        self.assertIn("Running", result.stdout)
+
+    def test_doctor_reports_stale_model_registry(self):
+        """Doctor should surface when the running daemon registry differs from local configs/models.yaml."""
+        from apps.cli.main import app
+
+        preflight = SimpleNamespace(ok=True, checked_url="http://127.0.0.1:8000/health", status_code=200)
+        with patch("apps.cli.main.is_running", return_value=True), patch(
+            "apps.cli.main._effective_gateway_url", return_value="http://127.0.0.1:8000"
+        ), patch("apps.cli.main.probe_gateway", return_value=preflight), patch(
+            "apps.cli.main.check_provider_ready",
+            return_value=(True, ""),
+        ), patch(
+            "apps.cli.main._registry_sync_status",
+            return_value=(False, "planner=qwen/qwen2.5-coder-32b-instruct"),
+        ):
+            result = runner.invoke(app, ["doctor"])
+
+        self.assertEqual(result.exit_code, 0, result.stdout)
+        self.assertIn("Model registry sync", result.stdout)
+        self.assertIn("Stale", result.stdout)
+
+    def test_doctor_runs_extended_end_to_end_checks(self):
+        from apps.cli.main import app
+
+        preflight = SimpleNamespace(ok=True, checked_url="http://127.0.0.1:8000/health", status_code=200)
+        policy = SimpleNamespace(exists=True, valid=True, path=".ghost/policy.yaml", errors=[])
+        runtime_config = SimpleNamespace(
+            exists=True,
+            valid=True,
+            path="ghost.yaml",
+            routing={
+                "explore": "qwen-explore",
+                "act": "qwen-act",
+                "verify": "llama-verify",
+                "fallback": "llama-fallback",
+            },
+            errors=[],
+        )
+        with patch("apps.cli.main.is_running", return_value=True), patch(
+            "apps.cli.main._effective_gateway_url", return_value="http://127.0.0.1:8000"
+        ), patch("apps.cli.main.probe_gateway", return_value=preflight), patch(
+            "apps.cli.main.check_provider_ready", return_value=(True, "")
+        ), patch(
+            "apps.cli.main._registry_sync_status", return_value=(True, "")
+        ), patch(
+            "apps.cli.main._doctor_tool_calling_probe", return_value=(True, "")
+        ), patch(
+            "apps.cli.main._doctor_filesystem_access", return_value=(True, "")
+        ), patch(
+            "apps.cli.main._doctor_transactional_intents", return_value=(True, "")
+        ), patch(
+            "apps.cli.main._doctor_artifact_persistence", return_value=(True, "")
+        ), patch(
+            "apps.cli.main._doctor_sqlite_state", return_value=(True, "schema=3")
+        ), patch(
+            "apps.cli.main.load_and_validate_project_runtime_config", return_value=runtime_config
+        ), patch(
+            "apps.cli.main.load_and_validate_project_policy", return_value=policy
+        ), patch(
+            "apps.cli.main.sandbox_conflicts_for_repo", return_value=[]
+        ):
+            result = runner.invoke(app, ["doctor"])
+
+        self.assertEqual(result.exit_code, 0, result.stdout)
+        self.assertIn("Tool calling", result.stdout)
+        self.assertIn("Project filesystem", result.stdout)
+        self.assertIn("SQLite state", result.stdout)
+        self.assertIn("Project routing", result.stdout)
+        self.assertIn("Project policy", result.stdout)
+        self.assertIn("Transactional intents", result.stdout)
+        self.assertIn("Artifact persistence", result.stdout)
+        self.assertIn("Sandbox readiness", result.stdout)
+        self.assertIn("Programmable-ready", result.stdout)
+        self.assertIn("Mutation approvals", result.stdout)
+        self.assertIn("Approval-first", result.stdout)
+        self.assertIn("CLI bootstrap", result.stdout)
 
     def test_assistant_detects_provider_not_initialized_and_sets_fatal_flag(self):
         """Assistant detects 500 with 'NVIDIA Provider not initialized' and sets _fatal_provider_error."""
         from apps.cli.assistant import CodexAssistant
 
-        assistant = CodexAssistant("http://localhost:11434", "key", "kimi")
+        assistant = CodexAssistant("http://localhost:11434", "key", "coder")
         assistant.history = [{"role": "user", "content": "hello"}]
+        assistant._streaming_response_supported = MagicMock(return_value=False)
+        mock_resp = MagicMock()
+        mock_resp.status_code = 500
+        mock_resp.text = '{"detail":"NVIDIA Provider not initialized"}'
+        mock_resp.json.return_value = {"detail": "NVIDIA Provider not initialized"}
         with patch.object(assistant.console, "print"):  # Avoid Windows encoding issues with Unicode chars
-            with patch("apps.cli.assistant.requests.post") as mock_post:
-                mock_resp = MagicMock()
-                mock_resp.status_code = 500
-                mock_resp.text = '{"detail":"NVIDIA Provider not initialized"}'
-                mock_resp.json.return_value = {"detail": "NVIDIA Provider not initialized"}
-                mock_resp.__enter__ = MagicMock(return_value=mock_resp)
-                mock_resp.__exit__ = MagicMock(return_value=None)
-                mock_resp.iter_lines.return_value = []
-                mock_post.return_value = mock_resp
-
+            with patch.object(assistant, "_post_chat_completions_async", AsyncMock(return_value=mock_resp)):
                 result = assistant._execute_stream_request(parent_status=None)
 
                 self.assertTrue(getattr(assistant, "_fatal_provider_error", False))
@@ -111,25 +223,23 @@ class TestProviderInitialization(unittest.TestCase):
         """Provider-not-initialized is not retryable; _stream_completion returns immediately."""
         from apps.cli.assistant import CodexAssistant
 
-        assistant = CodexAssistant("http://localhost:11434", "key", "kimi")
+        assistant = CodexAssistant("http://localhost:11434", "key", "coder")
         assistant.history = [{"role": "user", "content": "hello"}]
+        assistant._streaming_response_supported = MagicMock(return_value=False)
 
         call_count = 0
 
-        def mock_post(*args, **kwargs):
+        async def mock_post(*args, **kwargs):
             nonlocal call_count
             call_count += 1
             r = MagicMock()
             r.status_code = 500
             r.text = '{"detail":"NVIDIA Provider not initialized"}'
             r.json.return_value = {"detail": "NVIDIA Provider not initialized"}
-            r.__enter__ = MagicMock(return_value=r)
-            r.__exit__ = MagicMock(return_value=None)
-            r.iter_lines.return_value = []
             return r
 
         with patch.object(assistant.console, "print"):
-            with patch("apps.cli.assistant.requests.post", side_effect=mock_post):
+            with patch.object(assistant, "_post_chat_completions_async", side_effect=mock_post):
                 result = assistant._stream_completion(parent_status=None)
 
         self.assertEqual(result, {})

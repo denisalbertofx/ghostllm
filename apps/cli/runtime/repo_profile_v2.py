@@ -85,11 +85,17 @@ class ApiRouteEntry(BaseModel):
     kind: str
 
 
+class VerificationCommandSpec(BaseModel):
+    command: str
+    cwd: str = "."
+    source: List[str] = Field(default_factory=list)
+
+
 class VerificationCommandsBlock(BaseModel):
-    typecheck: Optional[str] = None
-    build: Optional[str] = None
-    lint: Optional[str] = None
-    tests: Optional[str] = None
+    typecheck: Optional[VerificationCommandSpec | str] = None
+    build: Optional[VerificationCommandSpec | str] = None
+    lint: Optional[VerificationCommandSpec | str] = None
+    tests: Optional[VerificationCommandSpec | str] = None
     source: List[str] = Field(default_factory=list)
 
 
@@ -242,6 +248,50 @@ def _pm_run(pm: str, script: str) -> str:
     return f"npm run {script}"
 
 
+def verification_command_to_dict(value: Any) -> Optional[Dict[str, Any]]:
+    if isinstance(value, VerificationCommandSpec):
+        return value.model_dump(mode="json")
+    if isinstance(value, str) and value.strip():
+        return {"command": value.strip(), "cwd": ".", "source": ["legacy_string"]}
+    if isinstance(value, dict):
+        cmd = value.get("command")
+        if not isinstance(cmd, str) or not cmd.strip():
+            return None
+        cwd = str(value.get("cwd") or ".").replace("\\", "/") or "."
+        src = value.get("source")
+        if isinstance(src, str):
+            src = [src]
+        elif not isinstance(src, list):
+            src = []
+        return {
+            "command": cmd.strip(),
+            "cwd": cwd,
+            "source": [str(x) for x in src if str(x).strip()],
+        }
+    return None
+
+
+def verification_command_command(value: Any) -> Optional[str]:
+    data = verification_command_to_dict(value)
+    if not data:
+        return None
+    return str(data.get("command") or "").strip() or None
+
+
+def verification_command_cwd(value: Any, default: str = ".") -> str:
+    data = verification_command_to_dict(value)
+    if not data:
+        return default
+    return str(data.get("cwd") or default).replace("\\", "/") or default
+
+
+def verification_command_repr(value: Any) -> str:
+    data = verification_command_to_dict(value)
+    if not data:
+        return "None"
+    return f"{data['command']} @ {data['cwd']}"
+
+
 def _parse_agents_md_commands(text: str) -> Dict[str, str]:
     """Extract typecheck/build/lint/test commands from AGENTS.md (backticks + labeled lines)."""
     out: Dict[str, str] = {}
@@ -273,7 +323,8 @@ def _deps_list(pkg: Dict[str, Any]) -> List[str]:
 
 
 def _build_verification_commands(
-    root: Path,
+    repo_root: Path,
+    workspace_root: Path,
     pkg: Optional[Dict[str, Any]],
     pm: str,
     has_typescript: bool,
@@ -290,10 +341,20 @@ def _build_verification_commands(
         scripts = pkg.get("scripts") or {}
         if not isinstance(scripts, dict):
             scripts = {}
+    workspace_cwd = _rel_posix(repo_root, workspace_root)
 
     def add_source(s: str) -> None:
         if s not in sources:
             sources.append(s)
+
+    def make_spec(command: Optional[str]) -> Optional[VerificationCommandSpec]:
+        if not command:
+            return None
+        return VerificationCommandSpec(
+            command=command,
+            cwd=workspace_cwd,
+            source=list(sources),
+        )
 
     if agents_cmds:
         add_source("agents_md")
@@ -334,10 +395,10 @@ def _build_verification_commands(
         add_source("unknown")
 
     return VerificationCommandsBlock(
-        typecheck=typecheck,
-        build=build,
-        lint=lint,
-        tests=tests,
+        typecheck=make_spec(typecheck),
+        build=make_spec(build),
+        lint=make_spec(lint),
+        tests=make_spec(tests),
         source=sources,
     )
 
@@ -783,7 +844,7 @@ def _build_profile_fresh(root: Path, max_files: int, max_bytes: int) -> RepoProf
             break
 
     agents_cmds = _parse_agents_md_commands(agents_text)
-    vc = _build_verification_commands(pkg_root, pkg, pm, has_typescript, agents_cmds, evidence)
+    vc = _build_verification_commands(root, pkg_root, pkg, pm, has_typescript, agents_cmds, evidence)
 
     # Route discovery (Next.js)
     for base in route_patterns_base:
@@ -909,6 +970,7 @@ def build_repo_profile(
 
 
 def repo_profile_to_summary_text(profile: RepoProfileV2) -> str:
+    vc = profile.verification_commands
     lines = [
         f"RepoProfile v{profile.version} (confidence {profile.confidence:.0%})",
         f"Runtime: {profile.stack.runtime} | Languages: {', '.join(profile.stack.language) or '—'}",
@@ -917,7 +979,13 @@ def repo_profile_to_summary_text(profile: RepoProfileV2) -> str:
         f"Layers: {', '.join(profile.layers_detected) or '—'}",
         f"API roots: {', '.join(profile.entrypoints.api_roots) or '—'}",
         f"Key files (sample): {', '.join((profile.key_files or [])[:8])}",
-        f"Verification: typecheck={profile.verification_commands.typecheck!r} build={profile.verification_commands.build!r} lint={profile.verification_commands.lint!r}",
+        (
+            "Verification: "
+            f"typecheck={verification_command_repr(vc.typecheck)} "
+            f"build={verification_command_repr(vc.build)} "
+            f"lint={verification_command_repr(vc.lint)} "
+            f"tests={verification_command_repr(vc.tests)}"
+        ),
     ]
     if profile.api_routes:
         sample = profile.api_routes[:5]
@@ -935,7 +1003,9 @@ def repo_profile_to_prompt_block(profile: RepoProfileV2) -> str:
         f"framework={profile.stack.framework} orm={profile.stack.orm} db={profile.stack.database}\n"
         f"layers: {profile.layers_detected}\n"
         f"entrypoints api={profile.entrypoints.api_roots} ui={profile.entrypoints.ui_roots} db={profile.entrypoints.db_schema_roots}\n"
-        f"verification_commands: typecheck={vc.typecheck} build={vc.build} lint={vc.lint} tests={vc.tests} "
+        f"verification_commands: typecheck={verification_command_repr(vc.typecheck)} "
+        f"build={verification_command_repr(vc.build)} lint={verification_command_repr(vc.lint)} "
+        f"tests={verification_command_repr(vc.tests)} "
         f"source={vc.source}\n"
         f"confidence: {profile.confidence:.2f}\n"
         f"evidence (deterministic):\n"
